@@ -1,0 +1,558 @@
+% ==============================================================================
+% CH11_QUANTIZATION_LORA.TEX — CHƯƠNG 11: LƯỢNG TỬ HÓA & TINH CHỈNH LORA CHUYÊN SÂU
+% ==============================================================================
+% Định dạng: Sách chuyên khảo kinh điển (Classic Engineering Monograph)
+% Chuẩn mực: Không dùng hộp đóng khung 4 phía, toán học 5 bước, bài tập đa tầng
+% ==============================================================================
+
+\chapter{Lượng Tử Hóa (Quantization) \& Tinh Chỉnh LoRA Chuyên Sâu}
+\label{ch:quantization-lora}
+
+Một mô hình nền tảng như Llama-3-70B sở hữu năng lực trí tuệ phi thường, nhưng mức tiêu thụ tài nguyên phần cứng của nó là rào cản tài chính đối với hầu hết các doanh nghiệp. Lưu trữ 70 tỷ trọng số ở định dạng chuẩn nửa độ chính xác (FP16/BF16) đòi hỏi ít nhất $140\text{ GB}$ VRAM chỉ riêng cho mô hình tĩnh, buộc các công ty phải chi trả hàng chục nghìn USD mỗi tháng để thuê các cụm máy chủ trang bị 8 GPU A100 hoặc H100.
+
+Để phá vỡ bức tường chi phí này, Kỹ sư AI bắt buộc phải làm chủ hai kỹ thuật nén và thích ứng mô hình tối thượng của ngành học sâu hiện đại:
+\begin{enumerate}
+  \item \textbf{Lượng tử hóa (Quantization)}: Kỹ thuật nén biểu diễn số học từ số thực dấu phẩy động 16-bit xuống số nguyên 8-bit, 4-bit (INT8, INT4, NF4, GGUF), giúp giảm $50\% - 75\%$ dung lượng VRAM và tăng tốc độ suy luận mà hầu như không làm suy giảm năng lực tư duy của mô hình.
+  \item \textbf{Tinh chỉnh Thích ứng Hạng Thấp (LoRA / QLoRA)}: Kỹ thuật đóng băng toàn bộ trọng số gốc và chỉ cập nhật một cặp ma trận bổ trợ có số chiều nội tại siêu nhỏ (Low Intrinsic Dimension), cho phép tinh chỉnh một mô hình khổng lồ trên đúng một chiếc GPU tiêu dùng duy nhất!
+\end{enumerate}
+
+---
+
+\section{Bản Chất Toán Học Của Lượng Tử Hóa Tuyến Tính}
+\label{sec:quantization-fundamentals}
+
+\subsection{Từ Số Thực Dấu Phẩy Động Đến Số Nguyên Rời Rạc}
+Trong máy tính số, định dạng chuẩn IEEE 754 số thực 32-bit (FP32) sử dụng:
+\begin{itemize}
+  \item 1 bit dấu ($s$).
+  \item 8 bit số mũ ($e$).
+  \item 23 bit phần định trị / phân số ($m$).
+\end{itemize}
+Định dạng FP16 giảm xuống còn 5 bit số mũ và 10 bit định trị. Tuy nhiên, mỗi trọng số vẫn chiếm 2 bytes (16 bits) bộ nhớ.
+
+Mục tiêu của lượng tử hóa đồng nhất (Uniform Affine Quantization) là thiết lập một hàm ánh xạ tuyến tính từ miền giá trị liên tục của số thực $x \in [\alpha, \beta] \subset \mathbb{R}$ sang tập các giá trị số nguyên rời rạc $q \in [q_{\min}, q_{\max}] \subset \mathbb{Z}$ (ví dụ: với INT8 thì $q \in [-128, 127]$ hoặc $[0, 255]$).
+
+\begin{definition}[Công Thức Lượng Tử Hóa Tuyến Tính Bất Đối Xứng]
+Cho một tensor số thực $\mathbf{x}$. Hai tham số lượng tử hóa được xác định:
+\begin{itemize}
+  \item \textbf{Hệ số co giãn (Scale factor $S$)}:
+  \begin{equation}
+  S = \frac{\beta - \alpha}{q_{\max} - q_{\min}} = \frac{\max(\mathbf{x}) - \min(\mathbf{x})}{q_{\max} - q_{\min}}
+  \end{equation}
+  \item \textbf{Điểm không (Zero-point $Z$)}: Giá trị số nguyên tương ứng chính xác với giá trị số thực $0.0$:
+  \begin{equation}
+  Z = \text{round}\left( -\frac{\alpha}{S} \right) + q_{\min} = \text{round}\left( -\frac{\min(\mathbf{x})}{S} \right) + q_{\min}
+  \end{equation}
+\end{itemize}
+Hàm lượng tử hóa từ số thực $x$ sang số nguyên $q$:
+\begin{equation}
+q = \text{clip}\left( \left\lfloor \frac{x}{S} \right\rceil + Z, q_{\min}, q_{\max} \right)
+\end{equation}
+Trong đó $\lfloor \cdot \rceil$ là phép làm tròn đến số nguyên gần nhất, và $\text{clip}(v, a, b) = \max(a, \min(v, b))$.
+\end{definition}
+
+Khi cần thực hiện phép tính hoặc giải lượng tử hóa (Dequantization) để khôi phục xấp xỉ số thực $\hat{x}$:
+\begin{equation}
+\hat{x} = S \cdot (q - Z)
+\end{equation}
+
+\subsection{Lượng Tử Hóa Đối Xứng (Symmetric Quantization)}
+Khi miền giá trị đối xứng qua gốc tọa độ ($\alpha = -\beta = -\max(|\mathbf{x}|)$), điểm không $Z$ triệt tiêu hoàn toàn về $0$:
+\begin{equation}
+S = \frac{\max(|\mathbf{x}|)}{q_{\max}}, \qquad Z = 0
+\end{equation}
+Công thức thu gọn cực kỳ đẹp đẽ:
+\begin{equation}
+q = \text{clip}\left( \left\lfloor \frac{x}{S} \right\rceil, -q_{\max}, q_{\max} \right), \qquad \hat{x} = S \cdot q
+\end{equation}
+\textit{Lợi ích tính toán}: Trong lượng tử hóa đối xứng, phép nhân ma trận số nguyên $\hat{\mathbf{x}} \hat{\mathbf{W}} \approx (S_x \mathbf{q}_x) (S_w \mathbf{q}_w) = (S_x S_w) (\mathbf{q}_x \mathbf{q}_w)$ không cần phải cộng trừ các số hạng bù trừ $Z$, cho phép tận dụng tối đa các chỉ lệnh INT8 Tensor Cores (như chỉ lệnh \code{DP4A} hoặc \code{MMA} trên GPU NVIDIA) với tốc độ cao gấp đôi so với số thực!
+
+\subsection{Căn Bệnh Ngoại Lai Kích Hoạt (Activation Outliers)}
+Năm 2022, trong công trình nghiên cứu nổi tiếng \textit{LLM.int8()}, Tim Dettmers và các cộng sự đã phát hiện một hiện tượng kỳ lạ xảy ra khi kích thước mô hình Transformer vượt qua ngưỡng \textbf{$6.7$ tỷ tham số (6.7B)}:
+\begin{itemize}
+  \item Trong các tầng sâu của Transformer, xuất hiện một số lượng rất nhỏ (khoảng $0.1\%$ các kênh kích hoạt) có giá trị biên độ đột biến, lớn gấp \textbf{$20$ đến $100$ lần} so với phần còn lại của tensor!
+  \item Mặc dù số lượng cực ít, những kênh ngoại lai (Outliers) này nắm giữ toàn bộ thông tin phối hợp ngữ nghĩa và tư duy logic của mô hình.
+  \item Nếu áp dụng lượng tử hóa INT8 trên toàn bộ tensor (Per-tensor Quantization), hệ số Scale $S$ bị kéo lên rất lớn để bao phủ các giá trị ngoại lai này. Hệ quả là toàn bộ $99.9\%$ các giá trị kích hoạt bình thường bị làm tròn về $0$, phá hủy hoàn toàn độ chính xác của mô hình!
+\end{itemize}
+
+Để giải quyết hiện tượng này, các kỹ thuật hiện đại chia tensor thành các nhóm nhỏ (\textbf{Group-wise / Per-channel Quantization}) với kích thước nhóm thường là 64 hoặc 128 phần tử, mỗi nhóm có một hệ số Scale $S$ riêng biệt.
+
+---
+
+\section{Giải Phẫu Các Công Nghệ Lượng Tử Hóa Hiện Đại: GPTQ, AWQ \& GGUF}
+\label{sec:ptq-methods}
+
+Trong giai đoạn sau huấn luyện (Post-Training Quantization -- PTQ), chúng ta nén mô hình đã huấn luyện xong mà không cần phải thực hiện quá trình tiền huấn luyện tốn kém. Ba công nghệ thống trị ngành công nghiệp hiện nay gồm:
+
+\subsection{1. GPTQ (Generalized Post-Training Quantization)}
+Được phát triển bởi Frantar et al. (2022), GPTQ tối ưu hóa việc làm tròn trọng số dựa trên thông tin đạo hàm bậc hai của hàm mất mát.
+
+Mục tiêu của GPTQ là tìm ma trận trọng số lượng tử hóa $\widehat{\mathbf{W}}$ sao cho sai số đầu ra trên một tập dữ liệu hiệu chỉnh nhỏ (Calibration Dataset, khoảng 128 đoạn văn bản) là tối thiểu:
+\begin{equation}
+\min_{\widehat{\mathbf{W}}} \|\mathbf{W} \mathbf{X} - \widehat{\mathbf{W}} \mathbf{X}\|_F^2
+\end{equation}
+Thay vì làm tròn độc lập từng trọng số một cách mù quáng, GPTQ sử dụng ma trận Hessian nghịch đảo $\mathbf{H}^{-1} = (2 \mathbf{X} \mathbf{X}^T)^{-1}$:
+Khi một cột trọng số $w_i$ bị lượng tử hóa thành $\hat{w}_i$ (tạo ra sai số cục bộ $w_i - \hat{w}_i$), GPTQ lập tức \textbf{cập nhật giải tích bù trừ lên toàn bộ các trọng số chưa lượng tử hóa còn lại} trong tầng theo công thức:
+\begin{equation}
+\mathbf{w}_{\text{remaining}} \leftarrow \mathbf{w}_{\text{remaining}} - \frac{w_i - \hat{w}_i}{[\mathbf{H}^{-1}]_{ii}} \cdot \mathbf{H}^{-1}_{:, i}
+\end{equation}
+Nhờ cơ chế bù trừ sai số thông minh bậc hai này, GPTQ nén mô hình 70B xuống INT4 một cách xuất sắc với tốc độ nén chỉ mất vài giờ trên 1 GPU duy nhất.
+
+\subsection{2. AWQ (Activation-aware Weight Quantization)}
+Được Lin et al. (MIT HAN Lab, 2023) đề xuất, \textbf{AWQ} xuất phát từ một quan sát thực nghiệm sâu sắc: \textit{``Trọng số của mô hình không quan trọng như nhau! Trọng số kết nối với các kênh kích hoạt có biên độ lớn (Activation Outliers) đóng vai trò quyết định đến $90\%$ độ chính xác của mạng.''}.
+
+\begin{figure}[ht]
+\centering
+\small
+\begin{verbatim}
+1. Nhận diện các kênh kích hoạt quan trọng nhất (Top 1% Salient Channels).
+2. Nhân hệ số bảo vệ Scale s > 1 vào các trọng số thuộc kênh đó:
+   W' = W * s
+3. Để giữ nguyên tính chất tương đương toán học của hàm f(x) = x @ W:
+   Chia véc-tơ kích hoạt đầu vào cho cùng hệ số s:
+   f(x) = (x / s) @ (W * s) = x @ W
+4. Thực hiện lượng tử hóa INT4 trên ma trận W' đã được bảo vệ!
+\end{verbatim}
+\caption{Nguyên lý bảo vệ trọng số kích hoạt quan trọng trong thuật toán AWQ.}
+\label{fig:awq-concept}
+\end{figure}
+
+\textit{Ưu thế của AWQ}: AWQ không phụ thuộc vào dữ liệu hiệu chỉnh quá sâu như GPTQ, tránh được hiện tượng học vẹt (Overfitting) trên tập dữ liệu calibration, và giữ được khả năng suy luận khái quát tốt hơn trên các tác vụ lập trình (Coding) và toán học.
+
+\subsection{3. Định Dạng GGUF \& Thư Viện llama.cpp}
+Được phát triển bởi Georgi Gerganov, định dạng \textbf{GGUF} (thay thế cho định dạng GGML cũ) là chuẩn mực lưu trữ nhị phân thống trị các ứng dụng chạy trên CPU và GPU máy tính cá nhân:
+\begin{itemize}
+  \item \textbf{Cơ chế nạp trực tiếp qua Memory Mapping (\code{mmap})}: Toàn bộ trọng số mô hình được lưu trữ ở định dạng nhị phân thẳng hàng (Aligned Binary). Khi mở ứng dụng, hệ điều hành chỉ cần ánh xạ tệp từ ổ SSD trực tiếp vào không gian địa chỉ bộ nhớ mà không cần tốn chu kỳ CPU để parse hay chuyển đổi định dạng.
+  \item \textbf{Cơ chế k-quants (Q4\_K\_M, Q5\_K\_M, Q8\_0)}: GGUF cho phép lượng tử hóa không đồng đều: Các tầng trọng số nhạy cảm (như tầng Embedding và tầng Attention Output) được giữ ở mức độ chính xác cao hơn (INT6 hoặc INT8), trong khi các ma trận MLP lớn được nén sâu xuống INT4 để tối ưu tỷ lệ nén/độ chính xác.
+\end{itemize}
+
+---
+
+\section{Giải Phẫu Toán Học Tinh Chỉnh LoRA \& QLoRA}
+\label{sec:lora-and-qlora}
+
+\subsection{Bế Tắc Của Phương Pháp Tinh Chỉnh Toàn Phần (Full Fine-Tuning)}
+Khi muốn dạy mô hình học thêm một miền kiến thức mới (ví dụ: luật pháp Việt Nam hoặc y khoa), phương pháp truyền thống là \textbf{Full Fine-Tuning} -- cập nhật toàn bộ tham số của mô hình.
+Hãy làm một bài toán phần cứng để thấy sự bất khả thi của phương pháp này đối với mô hình 70B:
+\begin{itemize}
+  \item Trọng số mô hình tĩnh (FP16): $70 \times 10^9 \times 2\text{ Bytes} = 140\text{ GB}$.
+  \item Gradients đạo hàm: $140\text{ GB}$.
+  \item Trạng thái Optimizer AdamW (First moment $m_t$ và Second moment $v_t$ dạng FP32): $70 \times 10^9 \times (4 + 4)\text{ Bytes} = 560\text{ GB}$!
+\end{itemize}
+Tổng dung lượng VRAM tối thiểu để huấn luyện Full Fine-Tuning:
+\begin{equation}
+M_{\text{train}} = 140 + 140 + 560 = 840\text{ GB VRAM!}
+\end{equation}
+Chi phí này đòi hỏi một cụm ít nhất 12 GPU A100 80GB kết nối NVLink đắt đỏ.
+
+\subsection{Bản Chất Toán Học Của LoRA (Low-Rank Adaptation)}
+Được Edward Hu và nhóm nghiên cứu Microsoft đề xuất năm 2021, \textbf{LoRA} dựa trên một giả thuyết giải tích nền tảng:
+
+\begin{theorem}[Giả Thuyết Số Chiều Nội Tại Thấp -- Low Intrinsic Dimension]
+Mặc dù các ma trận trọng số $\mathbf{W}_0 \in \mathbb{R}^{d \times k}$ của mô hình Transformer có số chiều biểu diễn khổng lồ, sự biến thiên trọng số $\Delta \mathbf{W}$ cần thiết để thích ứng với một tác vụ mới thực chất chỉ nằm trên một không gian con có \textbf{hạng ma trận (Rank) rất nhỏ}:
+\begin{equation}
+\text{rank}(\Delta \mathbf{W}) = r \ll \min(d, k)
+\end{equation}
+\end{theorem}
+
+Thay vì cập nhật trực tiếp ma trận kích thước lớn $\Delta \mathbf{W} \in \mathbb{R}^{d \times k}$, LoRA phân rã ma trận này thành tích của hai ma trận hạng thấp:
+\begin{equation}
+\mathbf{W} = \mathbf{W}_0 + \Delta \mathbf{W} = \mathbf{W}_0 + \frac{\alpha}{r} (\mathbf{A} \mathbf{B})
+\end{equation}
+Trong đó:
+\begin{itemize}
+  \item $\mathbf{W}_0 \in \mathbb{R}^{d \times k}$: Ma trận trọng số ban đầu, được \textbf{đóng băng hoàn toàn (Frozen)}, không tham gia tính đạo hàm.
+  \item $\mathbf{A} \in \mathbb{R}^{d \times r}$: Ma trận hạ chiều, được khởi tạo bằng phân phối Gauss chuẩn: $\mathcal{N}(0, \sigma^2)$.
+  \item $\mathbf{B} \in \mathbb{R}^{r \times k}$: Ma trận tăng chiều, được \textbf{khởi tạo toàn bộ bằng số 0} ($\mathbf{B} = \mathbf{0}$).
+  \item $r$: Siêu tham số Hạng (Rank), thường chọn $r \in \{4, 8, 16, 32, 64\}$.
+  \item $\alpha$: Hệ số co giãn cố định (LoRA Alpha).
+\end{itemize}
+
+\begin{figure}[ht]
+\centering
+\footnotesize
+\begin{verbatim}
+                 x in R^(1 x d)
+                /              \
+               /                \
+        [ W_0 (d x k) ]      [ A (d x r) ]  (Khoi tao Gauss)
+          (DONG BANG)             |
+               |             [ B (r x k) ]  (Khoi tao Zero: A * B = 0 ban dau!)
+               |                  |
+               |             * (alpha / r)
+               \                 /
+                \               /
+                 (+) ----------+  ---> y = x @ W_0 + (alpha / r) * (x @ A @ B)
+\end{verbatim}
+\caption{Kiến trúc phân rã ma trận nhánh phụ hạng thấp trong kỹ thuật LoRA.}
+\label{fig:lora-architecture}
+\end{figure}
+
+\begin{note}
+Tại sao ma trận $\mathbf{B}$ bắt buộc phải được khởi tạo bằng $0$?
+Bởi vì tại bước huấn luyện đầu tiên ($t=0$), ta có:
+\begin{equation}
+\Delta \mathbf{W} = \mathbf{A} \mathbf{B} = \mathbf{A} \times \mathbf{0} = \mathbf{0} \implies \mathbf{W} = \mathbf{W}_0
+\end{equation}
+Điều này đảm bảo rằng tại thời điểm bắt đầu tinh chỉnh, hành vi của mô hình hoàn toàn giống hệt mô hình gốc nguyên bản $100\%$, không bị nhiễu loạn ngẫu nhiên làm hỏng tri thức sẵn có!
+\end{note}
+
+\subsection{Cơ Chế Hợp Nhất Trọng Số (Zero Inference Latency Merging)}
+Một ưu điểm kỹ thuật vượt trội của LoRA so với các phương pháp Adapter truyền thống là: \textbf{Hoàn toàn không làm tăng thêm độ trễ khi phục vụ suy luận}.
+Sau khi quá trình huấn luyện hoàn tất, chúng ta có thể cộng trực tiếp phần chênh lệch $\Delta \mathbf{W}$ vào ma trận trọng số gốc:
+\begin{equation}
+\mathbf{W}_{\text{merged}} = \mathbf{W}_0 + \frac{\alpha}{r} (\mathbf{A} \mathbf{B})
+\end{equation}
+Sau phép cộng ma trận tĩnh một lần duy nhất này, nhánh LoRA được xóa bỏ. Mô hình suy luận với cấu trúc mạng nguyên bản, đạt tốc độ suy luận đỉnh cao mà không tốn thêm bất kỳ phép tính rẽ nhánh nào!
+
+\subsection{Đột Phá QLoRA (Quantized LoRA)}
+Năm 2023, Tim Dettmers công bố công trình lịch sử \textbf{QLoRA}, đẩy giới hạn tối ưu lên cực đại bằng cách kết hợp lượng tử hóa 4-bit với tinh chỉnh LoRA:
+\begin{enumerate}
+  \item \textbf{Kiểu dữ liệu NF4 (NormalFloat-4)}: Thiết kế các mức lượng tử hóa 4-bit theo phân phối chuẩn lý thuyết của trọng số mạng nơ-ron, tối ưu hóa lượng thông tin lưu trữ cao hơn hẳn INT4 truyền thống.
+  \item \textbf{Lượng tử hóa kép (Double Quantization)}: Lượng tử hóa tiếp chính các hệ số Scale của quá trình quantization từ FP32 xuống FP8, tiết kiệm thêm $0.37\text{ bit/tham số}$.
+  \item \textbf{Paged Optimizers}: Tận dụng kỹ thuật phân trang bộ nhớ của CUDA để tự động đẩy trạng thái Optimizer của AdamW sang bộ nhớ RAM máy chủ khi GPU VRAM chạm ngưỡng nguy hiểm, ngăn chặn hoàn toàn lỗi sập OOM.
+\end{enumerate}
+
+Nhờ QLoRA, một Kỹ sư AI có thể tinh chỉnh mô hình Llama-3-70B trên \textbf{đúng 2 chiếc GPU RTX 3090/4090 thương mại (24GB VRAM)} thay vì cần một trung tâm dữ liệu chuyên dụng!
+
+---
+
+\section{Ví Dụ Giải Mẫu Tính Toán Số Học Bằng Tay}
+\label{sec:quant-lora-worked-examples}
+
+Chúng ta cùng thực hiện tính toán số học chi tiết để hiểu sâu sắc cơ chế làm tròn của lượng tử hóa INT8 và định lượng số lượng tham số huấn luyện của LoRA.
+
+\begin{example}[Tính Toán Lượng Tử Hóa Đối Xứng INT8 Bằng Tay]
+Xét một véc-tơ kích hoạt trung gian gồm 6 giá trị số thực dạng FP32:
+\begin{equation*}
+\mathbf{x} = [-10.0, -5.0, 0.0, 2.5, 7.5, 10.0]
+\end{equation*}
+Hãy thực hiện lượng tử hóa đối xứng sang định dạng số nguyên 8-bit có dấu ($q \in [-127, 127]$).
+\begin{enumerate}
+  \item Xác định giá trị cực đại tuyệt đối và tính hệ số co giãn $S$.
+  \item Tính véc-tơ lượng tử hóa $\mathbf{q} \in \mathbb{Z}^6$.
+  \item Thực hiện giải lượng tử hóa để tìm véc-tơ xấp xỉ $\hat{\mathbf{x}} \in \mathbb{R}^6$.
+  \item Tính sai số bình phương trung bình (Mean Squared Quantization Error -- MSE).
+\end{enumerate}
+\end{example}
+
+\paragraph{Lời giải chi tiết từng bước}:
+
+\paragraph{Bước 1: Tính giá trị cực đại và Scale factor $S$}
+\begin{equation*}
+\max(|\mathbf{x}|) = \max(|-10.0|, |-5.0|, |0.0|, |2.5|, |7.5|, |10.0|) = 10.0
+\end{equation*}
+Hệ số co giãn đối xứng với $q_{\max} = 127$:
+\begin{equation*}
+S = \frac{\max(|\mathbf{x}|)}{q_{\max}} = \frac{10.0}{127} \approx 0.07874016
+\end{equation*}
+
+\paragraph{Bước 2: Lượng tử hóa từng phần tử sang số nguyên INT8}
+Áp dụng quy tắc làm tròn đối xứng với hệ số co giãn $S \approx 0.07874$:
+\begin{equation*}
+q_i = \text{clip}\left( \text{round}\left(\frac{x_i}{S}\right), -127, 127 \right)
+\end{equation*}
+\begin{itemize}
+  \item $x_1 = -10.0 \implies q_1 = \text{round}(-10.0 / S) = -127$
+  \item $x_2 = -5.0 \implies q_2 = \text{round}(-5.0 / S) = -64$
+  \item $x_3 = 0.0 \implies q_3 = \text{round}(0.0 / S) = 0$
+  \item $x_4 = 2.5 \implies q_4 = \text{round}(2.5 / S) = 32$
+  \item $x_5 = 7.5 \implies q_5 = \text{round}(7.5 / S) = 95$
+  \item $x_6 = 10.0 \implies q_6 = \text{round}(10.0 / S) = 127$
+\end{itemize}
+Véc-tơ số nguyên INT8 thu được:
+\begin{equation*}
+\mathbf{q} = [-127, -64, 0, 32, 95, 127]
+\end{equation*}
+
+\paragraph{Bước 3: Giải lượng tử hóa khôi phục $\hat{\mathbf{x}} = \mathbf{q} \cdot S$}
+\begin{itemize}
+  \item $\hat{x}_1 = -127 \times 0.07874016 = -10.0000$
+  \item $\hat{x}_2 = -64 \times 0.07874016 \approx -5.0394$
+  \item $\hat{x}_3 = 0 \times 0.07874016 = 0.0000$
+  \item $\hat{x}_4 = 32 \times 0.07874016 \approx 2.5197$
+  \item $\hat{x}_5 = 95 \times 0.07874016 \approx 7.4803$
+  \item $\hat{x}_6 = 127 \times 0.07874016 = 10.0000$
+\end{itemize}
+Véc-tơ tái tạo: $\hat{\mathbf{x}} \approx [-10.0000, -5.0394, 0.0000, 2.5197, 7.4803, 10.0000]$.
+
+\paragraph{Bước 4: Tính sai số bình phương trung bình MSE}
+Sai số tại từng vị trí $(x_i - \hat{x}_i)^2$:
+\begin{itemize}
+  \item $(x_1 - \hat{x}_1)^2 = 0.0$
+  \item $(x_2 - \hat{x}_2)^2 = (-5.0 - (-5.0394))^2 = (0.0394)^2 \approx 0.00155$
+  \item $(x_3 - \hat{x}_3)^2 = 0.0$
+  \item $(x_4 - \hat{x}_4)^2 = (2.5 - 2.5197)^2 = (-0.0197)^2 \approx 0.00039$
+  \item $(x_5 - \hat{x}_5)^2 = (7.5 - 7.4803)^2 = (0.0197)^2 \approx 0.00039$
+  \item $(x_6 - \hat{x}_6)^2 = 0.0$
+\end{itemize}
+\begin{equation*}
+\text{MSE} = \frac{0.0 + 0.00155 + 0.0 + 0.00039 + 0.00039 + 0.0}{6} = \frac{0.00233}{6} \approx 0.000388
+\end{equation*}
+\textit{Bình luận}: Sai số lượng tử hóa $\text{MSE} < 0.0004$ là cực kỳ nhỏ, nhưng dung lượng bộ nhớ giảm đi chính xác một nửa (từ 16 bits xuống 8 bits)!
+
+---
+
+\begin{example}[Định Lượng Tham Số \& Bộ Nhớ Khi Tinh Chỉnh LoRA Cho Llama-3-8B]
+Xét mô hình Llama-3-8B có cấu hình:
+\begin{itemize}
+  \item Số tầng Transformer: $n_{\text{layers}} = 32$.
+  \item Chiều ẩn: $d_{\text{model}} = 4.096$.
+  \item Chúng ta gắn adapter LoRA vào hai ma trận quan trọng nhất trong Self-Attention là ma trận Query ($\mathbf{W}_q \in \mathbb{R}^{4096 \times 4096}$) và ma trận Value ($\mathbf{W}_v \in \mathbb{R}^{4096 \times 4096}$).
+  \item Cấu hình hạng LoRA: $r = 16$.
+\end{itemize}
+Hãy tính toán:
+\begin{enumerate}
+  \item Số lượng tham số cần huấn luyện của một tầng cho hai adapter $\mathbf{W}_q$ và $\mathbf{W}_v$.
+  \item Tổng số lượng tham số huấn luyện được của toàn bộ 32 tầng.
+  \item Tỷ lệ phần trăm tham số huấn luyện được so với 8 tỷ tham số gốc của mô hình.
+\end{enumerate}
+\end{example}
+
+\paragraph{Lời giải chi tiết}:
+\begin{itemize}
+  \item[1)] Với mỗi ma trận vuông $4.096 \times 4.096$, adapter LoRA gồm hai ma trận $\mathbf{A} \in \mathbb{R}^{4096 \times 16}$ và $\mathbf{B} \in \mathbb{R}^{16 \times 4096}$:
+  \begin{equation*}
+  P_{\text{adapter}} = (4.096 \times 16) + (16 \times 4.096) = 65.536 + 65.536 = 131.072\text{ tham số}
+  \end{equation*}
+  Vì gắn vào cả $\mathbf{W}_q$ và $\mathbf{W}_v$, số tham số cho mỗi tầng là:
+  \begin{equation*}
+  P_{\text{layer}} = 2 \times 131.072 = 262.144\text{ tham số/tầng}
+  \end{equation*}
+
+  \item[2)] Tổng số lượng tham số của toàn bộ 32 tầng:
+  \begin{equation*}
+  P_{\text{total\_LoRA}} = 32 \times 262.144 = 8.388.608\text{ tham số} \approx 8.39\text{ triệu tham số}
+  \end{equation*}
+
+  \item[3)] Tỷ lệ phần trăm so với 8 tỷ ($8.03 \times 10^9$) tham số gốc:
+  \begin{equation*}
+  \text{Tỷ lệ} = \frac{8.388.608}{8.03 \times 10^9} \approx 0.00104 \approx 0.104\%!
+  \end{equation*}
+\end{itemize}
+\textit{Bình luận kỹ thuật chấn động}: Chúng ta chỉ cần huấn luyện đúng \textbf{$0.1\%$} số lượng tham số (khoảng $8.4$ triệu tham số), nhưng thu được năng lực thích ứng tương đương $99\%$ so với việc tinh chỉnh toàn bộ 8 tỷ tham số! Trạng thái Optimizer AdamW chỉ cần lưu cho 8.4 triệu tham số này (khoảng $67\text{ MB}$ RAM), biến việc tinh chỉnh trên một chiếc GPU đơn lẻ thành hiện thực!
+
+---
+
+\section{Hiện Thực Hóa: Thuật Toán Lượng Tử Hóa INT8 \& Module LoRALinear}
+\label{sec:python-quant-lora-code}
+
+Dưới đây là mã nguồn Python chuẩn mực, tự chứa và không phụ thuộc vào thư viện ngoài, hiện thực hóa bộ lượng tử hóa đối xứng và lớp module LoRA Linear:
+
+\begin{lstlisting}[language=Python, caption={Cài đặt Lượng tử hóa đối xứng INT8 và Giải lượng tử hóa thuần NumPy.}]
+import numpy as np
+
+def symmetric_quantize_int8(x: np.ndarray) -> tuple[np.ndarray, float]:
+    """
+    Luong tu hoa doi xung sang so nguyen INT8 (-127 den 127).
+    Tra ve: Ma tran int8 q va he so co gian scale.
+    """
+    max_val = np.max(np.abs(x))
+    if max_val == 0.0:
+        return np.zeros_like(x, dtype=np.int8), 1.0
+
+    scale = float(max_val / 127.0)
+    q = np.clip(np.round(x / scale), -127, 127).astype(np.int8)
+    return q, scale
+
+def dequantize_int8(q: np.ndarray, scale: float) -> np.ndarray:
+    """Giai luong tu hoa INT8 ve so thuc float32: x_hat = q * scale."""
+    return q.astype(np.float32) * scale
+\end{lstlisting}
+
+Tiếp theo là module LoRA Linear hỗ trợ cơ chế hợp nhất trọng số (Weight Merging):
+
+\begin{lstlisting}[language=Python, caption={Cài đặt module LoRA Linear với cơ chế Weight Merging.}]
+class SimpleLoRALayer:
+    """
+    Mo phong mot tang Linear duoc gan them adapter LoRA:
+    y = x @ W0 + (alpha / r) * (x @ A @ B)
+    """
+    def __init__(self, d_in: int, d_out: int, r: int = 8, alpha: float = 16.0):
+        self.d_in = d_in
+        self.d_out = d_out
+        self.r = r
+        self.alpha = alpha
+        self.scaling = alpha / r
+
+        # Trong so goc dong bang (Frozen Base Weight)
+        self.w0 = np.random.standard_normal((d_in, d_out)).astype(np.float32)
+
+        # Cac ma tran nhanh phu LoRA
+        # A duoc khoi tao theo phan phoi chuan Gauss
+        self.a = np.random.standard_normal((d_in, r)).astype(np.float32) * 0.01
+        # B duoc khoi tao bang 0 de ban dau A @ B = 0 tuyet doi
+        self.b = np.zeros((r, d_out), dtype=np.float32)
+
+    def forward(self, x: np.ndarray) -> np.ndarray:
+        """Lan truyen xuoi: Nhan ket qua goc cong voi nhanh LoRA."""
+        base_out = np.matmul(x, self.w0)
+        lora_out = self.scaling * np.matmul(np.matmul(x, self.a), self.b)
+        return base_out + lora_out
+
+    def merge_weights(self) -> np.ndarray:
+        """Hop nhat vinh vien trong so LoRA vao trong so goc cho suy luan zero-overhead."""
+        delta_w = self.scaling * np.matmul(self.a, self.b)
+        return self.w0 + delta_w
+\end{lstlisting}
+
+---
+
+\section{Hệ Thống Bài Tập \& Câu Hỏi Tư Duy Đa Tầng}
+\label{sec:ch11-exercises}
+
+\subsection{Nhóm A: Câu Hỏi Tư Duy Bản Chất (Conceptual Reasoning)}
+\begin{enumerate}
+  \item \textbf{Câu A.1}: Tại sao thuật toán AWQ (Activation-aware Weight Quantization) lại vượt trội hơn phương pháp làm tròn trọng số độc lập truyền thống (Round-To-Nearest -- RTN), dù cả hai cùng nén xuống định dạng INT4?
+  \item \textbf{Câu A.2}: Phân tích vai trò của siêu tham số $\alpha$ (LoRA Alpha) và tỷ số $\frac{\alpha}{r}$. Tại sao khi thay đổi Hạng $r$ từ 8 lên 32, người ta thường điều chỉnh $\alpha$ tương ứng để tỷ số $\frac{\alpha}{r}$ không đổi?
+  \item \textbf{Câu A.3}: Trong kiến trúc QLoRA, tại sao việc giữ nguyên ma trận adapter LoRA ở định dạng 16-bit (BF16) trong khi toàn bộ trọng số gốc bị nén xuống 4-bit (NF4) lại là một quyết định kiến trúc thiên tài?
+\end{enumerate}
+
+\subsection{Nhóm B: Bài Toán Tính Toán Giải Tích Bằng Tay (Analytical Problems)}
+\begin{enumerate}
+  \item \textbf{Bài B.1 (Tính Định Cỡ VRAM Cho QLoRA 70B Trên GPU Tiêu Dùng)}:
+  Xét mô hình Llama-3-70B có 70 tỷ tham số.
+  Chúng ta tinh chỉnh mô hình bằng QLoRA:
+  Trọng số gốc được lượng tử hóa sang NF4 ($0.5\text{ byte/tham số}$).
+  Adapter LoRA có $100\text{ triệu}$ tham số ở định dạng BF16 ($2\text{ bytes/tham số}$).
+  \begin{itemize}
+    \item[a)] Tính dung lượng VRAM để lưu trọng số gốc dạng NF4.
+    \item[b)] Tính dung lượng VRAM để lưu trọng số LoRA, gradients của LoRA, và trạng thái Optimizer AdamW của LoRA (giả sử trạng thái AdamW chiếm 8 bytes cho mỗi tham số LoRA).
+    \item[c)] Cộng thêm $4\text{ GB}$ bộ đệm kích hoạt (Activation memory) cho batch size nhỏ, kiểm tra xem toàn bộ quá trình tinh chỉnh có thể chạy vừa trên 2 card đồ họa RTX 3090 (mỗi card $24\text{ GB}$, tổng $48\text{ GB}$) hay không.
+  \end{itemize}
+
+  \item \textbf{Bài B.2 (Sai Số Lượng Tử Hóa Của Phân Phối Đều)}:
+  Giả sử biến ngẫu nhiên kích hoạt $X$ tuân theo phân phối đều $X \sim \mathcal{U}[-a, a]$.
+  Chúng ta thực hiện lượng tử hóa đối xứng sang $K$ mức rời rạc với bước nhảy $\Delta = \frac{2a}{K}$.
+  Chứng minh rằng sai số làm tròn $e = X - \hat{X}$ có kỳ vọng $E[e] = 0$ và phương sai sai số là:
+  \begin{equation*}
+  \text{Var}(e) = \frac{\Delta^2}{12}
+  \end{equation*}
+\end{enumerate}
+
+\subsection{Nhóm C: Thực Hành Kỹ Nghệ \& Lập Trình (Implementation Labs)}
+\begin{enumerate}
+  \item \textbf{Bài C.1 (Bộ Quản Lý Đa Adapter LoRA Cho Dịch Vụ SaaS)}: \\
+  Xây dựng lớp Python \code{MultiLoRAManager} với các yêu cầu kỹ thuật:
+  \begin{itemize}
+    \item Duy trì một mô hình nền tảng gốc duy nhất $\mathbf{W}_0$ cố định trên GPU VRAM.
+    \item Hỗ trợ nạp động nhiều bộ adapter LoRA cho từng khách hàng (như adapter tài chính, adapter y tế).
+    \item Khi nhận yêu cầu kèm định danh khách hàng (\code{tenant_id}), tự động kích hoạt cặp ma trận $(\mathbf{A}, \mathbf{B})$ tương ứng để suy luận mà không cần sao chép nhân bản mô hình gốc.
+  \end{itemize}
+\end{enumerate}
+
+\subsection{Nhóm D: Phân Tích Thất Bại \& Debugging Thực Tế (Post-Mortem Analysis)}
+\begin{enumerate}
+  \item \textbf{Tình huống sự cố}: Đội ngũ AI tiến hành lượng tử hóa mô hình Qwen-72B từ FP16 xuống INT4 bằng phương pháp GPTQ.
+  Sau khi nén, chỉ số độ bối rối (Perplexity) trên tập dữ liệu tin tức tiếng Anh chỉ tăng nhẹ $0.2\%$ (rất tốt). Tuy nhiên, khi đưa vào sản xuất cho ứng dụng giải bài toán lập trình và logic, mô hình bị suy thoái nghiêm trọng: Tỷ lệ vượt qua bài thi giải thuật (Pass@1 trên HumanEval) rơi thẳng đứng từ $75\%$ xuống còn $31\%$!
+  Hãy phân tích nguyên nhân gốc rễ và đề xuất phương án khắc phục chuẩn kỹ nghệ.
+\end{enumerate}
+
+---
+
+\section{Hướng Dẫn Lời Giải \& Bình Luận Kỹ Thuật Chi Tiết}
+\label{sec:ch11-solutions}
+
+\subsection{Lời Giải Nhóm A: Câu Hỏi Tư Duy Bản Chất}
+\begin{itemize}
+  \item \textbf{Lời giải Câu A.1}:
+  Phương pháp Round-To-Nearest (RTN) đối xử với mọi trọng số bình đẳng như nhau. Tuy nhiên, trong mô hình Transformer, các trọng số kết nối với các kênh kích hoạt ngoại lai (Activation Outliers) có tác động lớn gấp hàng trăm lần đến sự ổn định của ma trận chú ý (Attention Matrix). RTN làm tròn các trọng số nhạy cảm này một cách thô bạo, gây lệch hướng véc-tơ nghiêm trọng. Ngược lại, AWQ nhận diện chính xác các kênh ngoại lai này và phóng đại trọng số tương ứng lên trước khi làm tròn, bảo vệ trọn vẹn $1\%$ thông tin nhạy cảm nhất của mạng.
+
+  \item \textbf{Lời giải Câu A.2}:
+  Hệ số co giãn thực tế của LoRA là $\text{scaling} = \frac{\alpha}{r}$. Giá trị này đóng vai trò tương tự như một tốc độ học bổ sung (Learning Rate Multiplier) cho nhánh adapter. Nếu tăng hạng $r$ từ 8 lên 32 mà giữ nguyên $\alpha = 16$, hệ số co giãn bị giảm 4 lần ($\frac{16}{8} = 2 \to \frac{16}{32} = 0.5$), khiến các bước cập nhật gradient bị suy giảm độ lớn, làm mô hình học rất chậm. Bằng cách giữ nguyên tỷ số $\frac{\alpha}{r} = \text{const}$ (hoặc tăng $\alpha$ tương ứng lên 64), ta đảm bảo cường độ của nhánh adapter tác động lên luồng chính luôn ổn định bất kể cấu hình hạng $r$.
+
+  \item \textbf{Lời giải Câu A.3}:
+  Số lượng tham số của LoRA chỉ chiếm khoảng $0.1\%$ đến $0.5\%$ tổng số tham số mạng. Việc giữ chúng ở định dạng 16-bit (BF16) chỉ tốn thêm vài chục đến vài trăm megabytes VRAM (không đáng kể so với dung lượng hàng chục GB của mô hình). Nhưng đổi lại, nó cho phép quá trình tích lũy gradient và tính toán trạng thái Optimizer duy trì độ chính xác số học cao, không bao giờ bị hiện tượng triệt tiêu gradient (Vanishing Gradient) hay tràn số âm dưới dạng số nguyên, giữ cho quá trình hội tụ mượt mà như huấn luyện đầy đủ.
+\end{itemize}
+
+\subsection{Lời Giải Nhóm B: Bài Toán Tính Toán Giải Tích Bằng Tay}
+
+\paragraph{Lời giải Bài B.1}:
+\begin{itemize}
+  \item[a)] Dung lượng VRAM chứa trọng số gốc dạng NF4 (4-bit = $0.5\text{ byte}$):
+  \begin{equation*}
+  V_{\text{base}} = 70 \times 10^9 \times 0.5\text{ Bytes} = 35.0 \times 10^9\text{ Bytes} \approx 32.60\text{ GiB}
+  \end{equation*}
+
+  \item[b)] Dung lượng cho nhánh LoRA ($10^8$ tham số):
+  \begin{itemize}
+    \item Trọng số LoRA (BF16, 2 bytes): $10^8 \times 2\text{ B} = 0.2\text{ GB}$.
+    \item Gradients LoRA (BF16, 2 bytes): $10^8 \times 2\text{ B} = 0.2\text{ GB}$.
+    \item Trạng thái Optimizer AdamW (8 bytes): $10^8 \times 8\text{ B} = 0.8\text{ GB}$.
+  \end{itemize}
+  Tổng bộ nhớ cho LoRA:
+  \begin{equation*}
+  V_{\text{LoRA}} = 0.2 + 0.2 + 0.8 = 1.2\text{ GB}
+  \end{equation*}
+
+  \item[c)] Tổng VRAM toàn cục:
+  \begin{equation*}
+  V_{\text{total}} = V_{\text{base}} + V_{\text{LoRA}} + V_{\text{activation}} \approx 32.60\text{ GiB} + 1.2\text{ GiB} + 4.0\text{ GiB} \approx 37.8\text{ GiB}
+  \end{equation*}
+  Vì $37.8\text{ GiB} < 48.0\text{ GiB}$ (tổng bộ nhớ của 2 card RTX 3090/4090 24GB), hệ thống \textbf{hoàn toàn có thể chạy vừa vặn và mượt mà} trên máy tính cá nhân cao cấp!
+\end{itemize}
+
+\paragraph{Lời giải Bài B.2}:
+Sai số làm tròn $e = X - \hat{X}$ nằm trong khoảng $[-\Delta / 2, \Delta / 2]$ và tuân theo phân phối đều liên tục $e \sim \mathcal{U}[-\Delta/2, \Delta/2]$.
+Hàm mật độ xác suất:
+\begin{equation*}
+f(e) = \frac{1}{\frac{\Delta}{2} - \left(-\frac{\Delta}{2}\right)} = \frac{1}{\Delta}
+\end{equation*}
+Kỳ vọng của sai số:
+\begin{equation*}
+E[e] = \int_{-\Delta/2}^{\Delta/2} e \cdot \frac{1}{\Delta} \, de = \left[ \frac{e^2}{2\Delta} \right]_{-\Delta/2}^{\Delta/2} = 0
+\end{equation*}
+Phương sai của sai số:
+\begin{equation*}
+\text{Var}(e) = E[e^2] - (E[e])^2 = \int_{-\Delta/2}^{\Delta/2} e^2 \cdot \frac{1}{\Delta} \, de = \frac{1}{\Delta} \left[ \frac{e^3}{3} \right]_{-\Delta/2}^{\Delta/2} = \frac{1}{\Delta} \left( \frac{\Delta^3}{24} - \left(-\frac{\Delta^3}{24}\right) \right) = \frac{\Delta^2}{12}
+\end{equation*}
+(Điều phải chứng minh).
+
+\subsection{Lời Giải Nhóm C: Thực Hành Kỹ Nghệ \& Lập Trình}
+Hiện thực hóa module `MultiLoRAManager`:
+
+\begin{lstlisting}[language=Python, caption={Bộ quản lý đa khách hàng Multi-LoRA Manager phục vụ SaaS.}]
+from typing import Dict
+import numpy as np
+
+class MultiLoRAManager:
+    def __init__(self, d_in: int, d_out: int, r: int = 8, alpha: float = 16.0):
+        self.d_in = d_in
+        self.d_out = d_out
+        self.r = r
+        self.scaling = alpha / r
+        # Mot mo hinh nen tang duy nhat (Shared Base Model)
+        self.w0 = np.random.standard_normal((d_in, d_out)).astype(np.float32)
+        # Bieu dien cac adapter: tenant_id -> (A, B)
+        self.adapters: Dict[str, tuple[np.ndarray, np.ndarray]] = {}
+
+    def register_adapter(self, tenant_id: str, a_matrix: np.ndarray, b_matrix: np.ndarray):
+        """Dang ky hoac nap adapter moi cho mot khach hang."""
+        self.adapters[tenant_id] = (a_matrix, b_matrix)
+
+    def forward(self, x: np.ndarray, tenant_id: str = None) -> np.ndarray:
+        """Suy luan voi adapter cua tung tenant ma khong ton them RAM sao chep W0."""
+        base_out = np.matmul(x, self.w0)
+        if not tenant_id or tenant_id not in self.adapters:
+            return base_out  # Khong dung adapter, tra ve mo hinh goc
+
+        a, b = self.adapters[tenant_id]
+        lora_out = self.scaling * np.matmul(np.matmul(x, a), b)
+        return base_out + lora_out
+\end{lstlisting}
+
+\subsection{Lời Giải Nhóm D: Phân Tích Thất Bại \& Debugging Thực Tế}
+\begin{itemize}
+  \item \textbf{Nguyên nhân gốc rễ (Root Cause)}:
+  \begin{enumerate}
+    \item \textbf{Lệch phân phối dữ liệu hiệu chỉnh (Calibration Distribution Mismatch)}: Tập dữ liệu calibration dùng cho GPTQ thường là các đoạn văn bản ngẫu nhiên từ kho ngữ liệu tổng hợp (như C4 hoặc WikiText). Nó chứa rất ít mã nguồn (Code) và các ký hiệu toán học đặc thù. Do đó, ma trận Hessian $\mathbf{H}$ chỉ tối ưu hóa các kênh ngôn ngữ tự nhiên thông thường mà làm méo mó các kênh kích hoạt biểu diễn logic thuật toán.
+    \item \textbf{Lượng tử hóa cả ma trận nhạy cảm}: Các ma trận $\mathbf{W}_{\text{down}}$ trong khối MLP và ma trận chiếu Attention Output $\mathbf{W}_o$ có độ nhạy cảm rất cao với sai số làm tròn trong các bài toán nhiều bước suy luận (Multi-step Reasoning).
+  \end{enumerate}
+
+  \item \textbf{3 Biện pháp khắc phục chuẩn mực}:
+  \begin{enumerate}
+    \item \textbf{Chuyển sang sử dụng AWQ với Group Size nhỏ}: AWQ bảo vệ các kênh kích hoạt ngoại lai dựa trên biên độ thực tế thay vì phụ thuộc quá mức vào ma trận Hessian cục bộ. Sử dụng \code{group_size=64} hoặc \code{group_size=32} để thu hẹp phạm vi làm tròn.
+    \item \textbf{Trộn tập dữ liệu Calibration đa miền}: Bắt buộc đưa ít nhất $30\%$ dữ liệu mã nguồn Python/C++ và các bài toán GSM8K vào tập dữ liệu hiệu chỉnh khi chạy quantization.
+    \item \textbf{Lượng tử hóa hỗn hợp (Mixed-Precision Quantization)}: Giữ nguyên $5\%$ số tầng nhạy cảm nhất (tầng đầu tiên, tầng cuối cùng, và các ma trận chiếu) ở định dạng FP16 hoặc INT8, chỉ nén INT4 trên các tầng còn lại.
+  \end{enumerate}
+\end{itemize}

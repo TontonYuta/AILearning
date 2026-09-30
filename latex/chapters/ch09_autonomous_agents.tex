@@ -1,0 +1,656 @@
+% ==============================================================================
+% CH09_AUTONOMOUS_AGENTS.TEX — CHƯƠNG 9: KIẾN TRÚC AI AGENT TỰ HÀNH, ĐỒ THỊ TRẠNG THÁI & LANGGRAPH
+% ==============================================================================
+% Định dạng: Sách chuyên khảo kinh điển (Classic Engineering Monograph)
+% Chuẩn mực: Không dùng hộp đóng khung 4 phía, toán học 5 bước, bài tập đa tầng
+% ==============================================================================
+
+\chapter{Kiến Trúc AI Agent Tự Hành, Đồ Thị Trạng Thái \& LangGraph}
+\label{ch:autonomous-agents}
+
+Khi một hệ thống LLM chỉ đơn thuần trả lời câu hỏi dựa trên ngữ cảnh được cung cấp (như trong kiến trúc RAG thuần túy), nó vẫn chỉ đóng vai trò là một khối tính toán thụ động (Passive Function). Cuộc cách mạng thực sự của Kỹ nghệ AI bắt đầu khi chúng ta trao cho mô hình ngôn ngữ khả năng \textbf{chủ động hành động} (Agency): Tự phân tích bài toán, tự lập kế hoạch nhiều bước, tự gọi các công cụ ngoại vi (APIs, cơ sở dữ liệu, máy chủ tính toán), tự quan sát kết quả phản hồi, và tự sửa sai khi gặp thất bại.
+
+Tuy nhiên, giữa một bản demo thú vị trên mạng xã hội và một hệ thống \textbf{Tác tử AI Tự hành (Autonomous Agent)} hoạt động bền bỉ trong môi trường sản xuất là một vực thẳm kỹ thuật khổng lồ. Các framework thế hệ đầu (như BabyAGI hay AutoGPT) thường nhanh chóng rơi vào vòng lặp vô tận, làm tiêu tốn hàng nghìn USD tiền API mà không hoàn thành được mục tiêu.
+
+Chương này sẽ trang bị cho bạn tư duy thiết kế kiến trúc Agent chuẩn công nghiệp: Từ bản chất toán học của quá trình ra quyết định, giải phẫu giao thức \textbf{Tool Calling}, đến cuộc cách mạng \textbf{Đồ thị Trạng thái (State Graphs)} với \textbf{LangGraph}, kiểm soát rủi ro bằng cơ chế \textbf{Human-in-the-Loop (HITL)}, và phân tích xác suất sai số tích lũy trong hệ thống đa tác tử.
+
+---
+
+\section{Bản Chất Của AI Agent: Từ Chuỗi Tuyến Tính Đến Đồ Thị Có Chu Trình}
+\label{sec:agent-fundamentals}
+
+\subsection{Định Nghĩa Hình Thức Về Một Tác Tử AI}
+Trong lý thuyết điều khiển học và trí tuệ nhân tạo, một Agent không phải là một chiếc "hộp đen thần kỳ". Nó được định nghĩa một cách toán học chặt chẽ như sau:
+
+\begin{definition}[Tác tử AI Tự hành -- Autonomous AI Agent]
+Một Tác tử AI là một hệ thống động được đặc trưng bởi bộ ba:
+\begin{equation}
+\text{Agent} = \langle \mathcal{S}, \mathcal{A}, \mathcal{P} \rangle
+\end{equation}
+Trong đó:
+\begin{itemize}
+  \item $\mathcal{S}$ là \textbf{Không gian Trạng thái (State Space)}: Đại diện cho toàn bộ bộ nhớ làm việc hiện tại của Agent, bao gồm lịch sử hội thoại, các biến môi trường, các tài liệu đã đọc, và kết quả thực thi của các công cụ trước đó: $s_t \in \mathcal{S}$.
+  \item $\mathcal{A}$ là \textbf{Không gian Hành động (Action / Tool Space)}: Tập hợp tất cả các hành động hợp lệ mà Agent có quyền thực thi, bao gồm việc gọi một API bên ngoài, thực thi một câu lệnh SQL, truy vấn chỉ mục RAG, hoặc phát ra câu trả lời cuối cùng cho người dùng: $a_t \in \mathcal{A}$.
+  \item $\mathcal{P}$ là \textbf{Chính sách Điều phối (Policy / LLM Controller)}: Ánh xạ từ trạng thái hiện tại $s_t$ sang một hành động tiếp theo $a_t$:
+  \begin{equation}
+  \mathcal{P}: \mathcal{S} \to \mathcal{A}
+  \end{equation}
+\end{itemize}
+Sau khi hành động $a_t$ được thực thi trong môi trường thực tế, môi trường sẽ trả về một quan sát mới (Observation $o_{t+1}$), và trạng thái của Agent được cập nhật theo hàm chuyển dịch:
+\begin{equation}
+s_{t+1} = \mathcal{T}(s_t, a_t, o_{t+1})
+\end{equation}
+\end{definition}
+
+\subsection{Phân Biệt Cốt Lõi: Workflow (DAG) vs Autonomous Agent}
+Nhiều kỹ sư thường nhầm lẫn giữa một quy trình tự động hóa phức tạp (Workflow) và một Tác tử thực thụ (Agent). Sự khác biệt nằm ở quyền tự chủ kiểm soát luồng điều khiển:
+
+\begin{table}[ht]
+\centering
+\small
+\begin{tabular}{p{3.2cm}p{5.5cm}p{5.5cm}}
+\hline
+\textbf{Tiêu chí So sánh} & \textbf{Luồng Công việc (Workflow / Chain)} & \textbf{Tác tử Tự hành (Autonomous Agent)} \\ \hline
+Kiến trúc luồng điều khiển & Đồ thị có hướng không chu trình (DAG) & Đồ thị có vòng lặp trạng thái (Cyclic Graph) \\
+Quyền quyết định bước tiếp theo & Cố định cứng bằng mã nguồn của lập trình viên & Do mô hình LLM tự suy luận động tại runtime \\
+Số lượng bước thực thi & Cố định và biết trước & Biến thiên, phụ thuộc vào kết quả quan sát \\
+Cơ chế xử lý lỗi ngoại lệ & Bắt lỗi theo khối \code{try-except} truyền thống & Tự đọc mã lỗi và tự điều chỉnh chiến lược \\
+Mức độ rủi ro vận hành & Thấp, hành vi hoàn toàn tất định & Cao, cần có rào chắn bảo vệ (Guardrails) \\ \hline
+\end{tabular}
+\caption{Đối chiếu bản chất kiến trúc giữa Workflow tất định và Autonomous Agent.}
+\label{tab:workflow-vs-agent}
+\end{table}
+
+---
+
+\section{Các Mô Hình Tư Duy Agent Cổ Điển \& Cạm Bẫy Vòng Lặp Vô Tận}
+\label{sec:agent-patterns-and-pitfalls}
+
+\subsection{Khuôn Mẫu ReAct: Suy Tưởng \& Hành Động Đan Xen}
+Mô hình nền tảng nổi tiếng nhất định hình ngành kỹ nghệ Agent là \textbf{ReAct (Reasoning + Acting)} do Yao et al. (Princeton University \& Google Brain, 2022) đề xuất.
+
+Trước khi ReAct ra đời, các kỹ sư thường dùng kỹ thuật \textbf{Act-only} (cho LLM gọi công cụ trực tiếp mà không suy nghĩ) hoặc \textbf{Reason-only} (Chain-of-Thought thuần túy không có công cụ). ReAct kết hợp hai sức mạnh này thành một vòng lặp nhịp nhàng:
+
+\begin{figure}[ht]
+\centering
+\footnotesize
+\begin{verbatim}
+       +-------------------------------------------------------+
+       |                                                       |
+       v                                                       |
+[ THOUGHT ]  --->  Phân tích tình huống hiện tại và lên kế hoạch|
+       |                                                       |
+       v                                                       |
+[ ACTION ]   --->  Phát ra lệnh gọi công cụ: tool_name(args)   |
+       |                                                       |
+       v                                                       |
+[ OBSERVATION ] -> Nhận kết quả từ thế giới thực (API, DB)----+
+       |
+       | (Khi đã thu thập đủ dữ kiện)
+       v
+[ FINAL ANSWER ] -> Trả lời người dùng hoàn chỉnh.
+\end{verbatim}
+\caption{Vòng lặp tương tác ba pha kinh điển của kiến trúc ReAct.}
+\label{fig:react-loop}
+\end{figure}
+
+\begin{itemize}
+  \item \textbf{Thought (Suy tưởng)}: LLM tự nói với chính mình để phân tích: \textit{``Mình cần tìm doanh thu quý 3 của công ty X. Mình sẽ tra cứu cơ sở dữ liệu tài chính.''}.
+  \item \textbf{Action (Hành động)}: LLM phát ra lời gọi hàm có cấu trúc: \code{query_sql("SELECT revenue FROM q3_reports WHERE company='X'")}.
+  \item \textbf{Observation (Quan sát)}: Hệ thống thực thi câu truy vấn và trả kết quả văn bản thô vào ngữ cảnh: \code{"Revenue: $4.2B"}.
+\end{itemize}
+
+\subsection{Căn Bệnh Vòng Lặp Ảo Giác Vô Tận (Infinite Hallucination Loop)}
+Mặc dù trực quan và thanh lịch, mô hình ReAct ngây thơ chứa đựng một cạm bẫy chết người khi triển khai vào thực tế sản xuất:
+\begin{itemize}
+  \item Giả sử ở bước hành động, Agent gọi API \code{get_weather(city="HaNoi")}.
+  \item Máy chủ thời tiết bị lỗi và trả về phản hồi: \code{"Error 500: Internal Server Error"}.
+  \item Trong bước Thought tiếp theo, vì không được thiết kế rào chắn, LLM suy nghĩ: \textit{``Ồ, có lỗi xảy ra. Mình sẽ thử gọi lại xem sao.''}. Nó tiếp tục phát ra lệnh \code{get_weather(city="HaNoi")}.
+  \item Vòng lặp này lặp đi lặp lại 50 lần liên tục cho đến khi cạn kiệt ngân sách token hoặc chạm giới hạn thời gian (Timeout). Hệ thống bị treo cứng, hóa đơn API tăng vọt, và người dùng không nhận được bất kỳ kết quả nào!
+\end{itemize}
+
+\begin{debugbox}[Chiến Lược Chống Vòng Lặp Ảo Giác Vô Tận]
+Để Agent không tự sát trong môi trường sản xuất, mọi vòng lặp Agent bắt buộc phải có hai cơ chế bảo vệ tối thượng:
+\begin{enumerate}
+  \item \textbf{Rào chắn số bước tối đa (Hard Max Iterations Guardrail)}: Giới hạn cứng số lần lặp (ví dụ: tối đa 6 bước). Nếu vượt quá ngưỡng này mà chưa có câu trả lời, Agent buộc phải dừng lại và kích hoạt nhánh thoát hiểm (Fallback Handler).
+  \item \textbf{Bộ phát hiện lặp lại hành động (Action Deduplication Filter)}: Nếu Agent phát ra cùng một hành động với cùng một bộ tham số giống hệt hành động vừa thất bại trước đó, hệ thống lập tức can thiệp và tiêm một thông điệp cảnh báo vào ngữ cảnh: \textit{``Hành động này vừa thất bại. Bạn bắt buộc phải thử một công cụ khác hoặc giải thích lý do không thể tiếp tục.''}.
+\end{enumerate}
+\end{debugbox}
+
+---
+
+\section{Giải Phẫu Hạ Tầng Function Calling / Tool Calling}
+\label{sec:tool-calling-internals}
+
+Để LLM có thể giao tiếp tin cậy với thế giới phần mềm, các nhà phát triển không thể dùng biểu thức chính quy (Regex) thô sơ để bóc tách câu chữ từ phản hồi tự nhiên. Chúng ta dựa vào cơ chế hạ tầng được tối ưu hóa ở cấp độ trọng số mô hình: \textbf{Function Calling (hoặc Tool Calling)}.
+
+\subsection{Đặc Tả Công Cụ Bằng JSON Schema}
+Mỗi công cụ mà Agent được phép sử dụng phải được mô tả tường minh dưới dạng một đối tượng \textbf{JSON Schema} chuẩn mực:
+
+\begin{lstlisting}[language=Python, caption={Đặc tả công cụ tra cứu thông tin khách hàng bằng JSON Schema.}]
+get_customer_info_schema = {
+    "type": "function",
+    "function": {
+        "name": "get_customer_info",
+        "description": "Tra cuu thong tin ho so va so du tai khoan cua khach hang qua ma dinh danh.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "customer_id": {
+                    "type": "string",
+                    "description": "Ma dinh danh khach hang duy nhat (vi du: CUST-8899)."
+                },
+                "include_balance": {
+                    "type": "boolean",
+                    "description": "Co lay so du tai khoan hien tai hay khong."
+                }
+            },
+            "required": ["customer_id"]
+        }
+    }
+}
+\end{lstlisting}
+
+\subsection{Cơ Chế Điều Phối Thực Thi (The Tool Execution Dispatcher)}
+Quy trình kỹ thuật diễn ra bên dưới hạ tầng khi Agent thực thi một công cụ:
+
+\begin{enumerate}
+  \item \textbf{Tiêm Schema vào System Prompt}: Danh sách JSON Schema của tất cả các công cụ được tuần tự hóa và đưa vào phần ngữ cảnh điều khiển của mô hình.
+  \item \textbf{Phát hiện ý định gọi công cụ}: Khi mô hình nhận thấy cần sử dụng công cụ, nó ngừng sinh văn bản hội thoại thông thường và phát ra một token cấu trúc đặc biệt (như \code{<tool_call>} trong Llama-3 hoặc đối tượng \code{tool_calls} trong OpenAI API), kèm chuỗi JSON chứa tên hàm và tham số đầu vào.
+  \item \textbf{Kiểm thực tham số (Schema Validation)}: Trình điều phối (Dispatcher) ở tầng Backend nhận chuỗi JSON này, sử dụng thư viện \textbf{Pydantic} để kiểm thực kiểu dữ liệu nghiêm ngặt. Nếu người dùng thiếu tham số bắt buộc hoặc sai định dạng số/chuỗi, lỗi được ném ra ngay tại chỗ mà không làm crash máy chủ.
+  \item \textbf{Thực thi trong môi trường an toàn (Sandboxed Execution)}: Hàm Python nội bộ tương ứng được gọi. Kết quả trả về được định dạng thành một thông điệp với vai trò \code{role: "tool"} và được gửi ngược lại vào lịch sử ngữ cảnh của LLM.
+  \item \textbf{Tổng hợp câu trả lời}: LLM đọc kết quả quan sát từ thông điệp của công cụ và sinh ra phản hồi ngôn ngữ tự nhiên cuối cùng cho người dùng.
+\end{enumerate}
+
+---
+
+\section{Cuộc Cách Mạng Đồ Thị Trạng Thái (State Graphs) \& LangGraph}
+\label{sec:langgraph-state-graphs}
+
+\subsection{Giới Hạn Của Các Chuỗi Tuyến Tính (Linear Chains)}
+Các thư viện ban đầu (như LangChain phiên bản cũ) tiếp cận bài toán xây dựng ứng dụng LLM theo dạng các chuỗi tuyến tính nối tiếp (\code{Chain A -> Chain B -> Chain C}). Cách tiếp cận này bộc lộ những điểm yếu chí mạng khi đối mặt với các bài toán nghiệp vụ phức tạp:
+\begin{itemize}
+  \item Không thể biểu diễn các nhánh rẽ điều kiện phức tạp (Conditional Branching).
+  \item Không thể quay ngược trở lại các bước trước đó để tự sửa sai (Cyclic Graph Loops).
+  \item Bộ nhớ làm việc phân tán, khó kiểm soát việc các bước sau vô tình ghi đè làm mất dữ liệu của các bước trước.
+\end{itemize}
+
+\subsection{Kiến Trúc Máy Trạng Thái Của LangGraph}
+Để khắc phục hoàn toàn những hạn chế trên, \textbf{LangGraph} (do Harrison Chase và nhóm LangChain phát triển vào cuối năm 2023) đã mang lý thuyết \textbf{Máy Trạng Thái Hữu Hạn (Finite State Machine -- FSM)} và \textbf{Đồ Thị Tính Toán} vào kỹ nghệ Agent:
+
+\begin{figure}[ht]
+\centering
+\small
+\begin{verbatim}
+                 +--------------------------------+
+                 |       CENTRAL STATE            |
+                 |  - messages: List[BaseMessage] |
+                 |  - documents: List[Document]   |
+                 |  - step_count: int             |
+                 +--------------------------------+
+                                 |
+         +-----------------------+-----------------------+
+         |                       |                       |
+         v                       v                       v
+    [ NODE 1 ]              [ NODE 2 ]              [ NODE 3 ]
+  (LLM Reasoner)         (Tool Execution)        (RAG Retriever)
+         |                       |                       |
+         +--- Cập nhật State qua Reducers (operator.add)-+
+\end{verbatim}
+\caption{Kiến trúc đồ thị trạng thái trung tâm với các Node tính toán độc lập trong LangGraph.}
+\label{fig:langgraph-state-model}
+\end{figure}
+
+Ba trụ cột cấu thành một đồ thị LangGraph:
+
+\paragraph{1. Trạng thái Trung tâm (Central State Schema)}:
+Là cấu trúc dữ liệu duy nhất đại diện cho bộ nhớ làm việc của toàn bộ hệ thống (được định nghĩa bằng \code{TypedDict} hoặc \code{BaseModel} của Pydantic).
+Mỗi trường trong State có thể được cấu hình một hàm tích lũy (\textbf{Reducer}). Ví dụ: với trường \code{messages}, thay vì mỗi Node ghi đè làm mất lịch sử hội thoại cũ, chúng ta gắn Reducer \code{operator.add} để tự động nối thêm (Append) các tin nhắn mới vào danh sách sẵn có.
+
+\paragraph{2. Các Đỉnh Xử Lý (Nodes)}:
+Mỗi Node là một hàm Python độc lập thuần túy nhận vào trạng thái hiện tại $s_t$ và trả về một từ điển đại diện cho bản cập nhật của trạng thái đó. Các Node không trực tiếp gọi nhau mà hoàn toàn bị cô lập, đảm bảo nguyên lý thiết kế module hóa cao.
+
+\paragraph{3. Các Cạnh Điều Hướng (Edges)}:
+Quy định đường đi của dòng điều khiển giữa các Node:
+\begin{itemize}
+  \item \textbf{Cạnh cố định (Normal Edge)}: Luôn luôn chuyển từ Node A sang Node B: \code{graph.add_edge("node_a", "node_b")}.
+  \item \textbf{Cạnh có điều kiện (Conditional Edge)}: Nhận một hàm định tuyến (Router function) phân tích trạng thái hiện tại để quyết định Node đích tiếp theo:
+  \begin{equation}
+  \text{Router}(s_t) \to \{\text{"continue"}, \text{"retry"}, \text{"end"}\}
+  \end{equation}
+\end{itemize}
+
+\subsection{Cơ Chế Checkpointing \& Con Người Trong Vòng Lặp (Human-in-the-Loop)}
+Một trong những khả năng mạnh mẽ nhất của LangGraph trong môi trường doanh nghiệp là khả năng \textbf{Lưu vết Trạng thái (State Checkpointing)}:
+Sau mỗi bước chuyển dịch Node, toàn bộ đối tượng State được tự động chụp ảnh nhanh (Snapshot) và lưu xuống cơ sở dữ liệu bền vững (như PostgreSQL hoặc Redis).
+
+Khả năng này mở ra hai tính năng sống còn:
+\begin{enumerate}
+  \item \textbf{Du hành Thời gian (Time Travel \& Replay)}: Nếu Agent gặp lỗi ở bước 5, kỹ sư có thể xem lại chính xác toàn bộ trạng thái của nó ở bước 4, sửa đổi một vài tham số trong State, và cho chạy tiếp mà không cần chạy lại từ đầu!
+  \item \textbf{Con Người Trong Vòng Lặp (Human-in-the-Loop -- HITL)}: Đối với các hành động nhạy cảm hoặc có tính phá hủy (như: duyệt lệnh chuyển tiền, phát hành hóa đơn, xóa dữ liệu khách hàng), đồ thị có thể đặt một điểm dừng (\textbf{Interrupt / Breakpoint}). Đồ thị sẽ đóng băng trạng thái, trả quyền kiểm soát về cho người quản trị qua giao diện Web để phê duyệt. Chỉ khi con người nhấn nút \code{Approve}, đồ thị mới tiếp tục bước sang Node thực thi!
+\end{enumerate}
+
+---
+
+\section{Phân Tích Xác Suất Sai Số Tích Lũy (Compound Error Problem)}
+\label{sec:compound-error-analysis}
+
+Một trong những bài toán toán học quan trọng nhất giải thích tại sao các Agent tự hành phức tạp thường thất bại trong thực tế là hiện tượng \textbf{Sai số Tích lũy (Compound Error Probability)}:
+
+\begin{theorem}[Xác suất Thành công Của Chuỗi Hành Động Độc Lập]
+Xét một Agent cần thực hiện một chuỗi gồm $N$ bước hành động liên tiếp để hoàn thành một nhiệm vụ lớn (ví dụ: 1 bước phân tích, 3 bước gọi API, 2 bước truy vấn cơ sở dữ liệu, 1 bước tổng hợp).
+Giả sử xác suất để Agent thực thi thành công hoàn hảo mỗi bước đơn lẻ là $p \in (0, 1)$, và các bước có tính chất độc lập có điều kiện.
+
+Xác suất để toàn bộ chuỗi $N$ bước hoàn thành trọn vẹn mà không gặp bất kỳ lỗi nào là:
+\begin{equation}
+P_{\text{success}}(N) = p^N
+\end{equation}
+\end{theorem}
+
+\begin{example}[Sự Suy Giảm Khốc Liệt Của Độ Tin Cậy]
+Giả sử chúng ta sử dụng một mô hình LLM tiên tiến nhất hiện nay, và mỗi bước gọi công cụ đạt độ chính xác cực cao lên tới $p = 0.95$ ($95\%$ thành công, chỉ $5\%$ rủi ro).
+Hãy quan sát xác suất thành công toàn cục khi số lượng bước tăng lên:
+\begin{align*}
+N = 1\text{ bước}:  \quad P_{\text{success}} &= 0.95^1 = 95.0\% \\
+N = 3\text{ bước}:  \quad P_{\text{success}} &= 0.95^3 \approx 85.7\% \\
+N = 5\text{ bước}:  \quad P_{\text{success}} &= 0.95^5 \approx 77.4\% \\
+N = 10\text{ bước}: \quad P_{\text{success}} &= 0.95^{10} \approx 59.9\% \\
+N = 20\text{ bước}: \quad P_{\text{success}} &= 0.95^{20} \approx 35.8\%!
+\end{align*}
+\textit{Bình luận kỹ thuật}: Khi nhiệm vụ đòi hỏi 10 bước lặp, dù mỗi bước đạt độ tin cậy $95\%$, xác suất toàn bộ hệ thống hoàn thành nhiệm vụ \textbf{chỉ còn dưới $60\%$}! Đến 20 bước, hệ thống gần như chắc chắn sẽ sụp đổ ($>64\%$ xác suất thất bại).
+\end{example}
+
+\begin{tradeoffbox}[Giải Pháp Kỹ Nghệ: Cơ Chế Tự Sửa Sai (Self-Correction via Cyclic Edges)]
+Đây là lý do toán học tại sao các chuỗi tuyến tính (Linear Chains) bắt buộc phải bị khai tử! Trong một chuỗi tuyến tính, chỉ cần 1 bước bị hỏng, toàn bộ quy trình chết đứng.
+Trong kiến trúc Đồ thị Trạng thái (LangGraph), chúng ta thiết kế các \textbf{Cạnh Tự Sửa Sai (Self-Healing / Retry Loops)}:
+Nếu một Node kiểm tra (Evaluator Node) phát hiện bước hành động trước đó bị lỗi, nó không quẳng ra ngoại lệ để làm sập hệ thống, mà điều hướng trạng thái quay trở lại Node hành động kèm theo thông điệp phản hồi (Feedback Prompt) để LLM thử lại với tham số đã được hiệu chỉnh.
+Nhờ cơ chế Retry với số lần tối đa $K$, độ tin cậy của mỗi bước được nâng từ $p$ lên:
+\begin{equation}
+p_{\text{robust}} = 1 - (1 - p)^K
+\end{equation}
+Với $p=0.95$ và $K=2$ lần thử, $p_{\text{robust}} = 1 - (0.05)^2 = 0.9975$ ($99.75\%$). Độ tin cậy cho 10 bước lúc này tăng vọt từ $59.9\%$ lên:
+\begin{equation*}
+P_{\text{success}}(10) = (0.9975)^{10} \approx 97.5\%!
+\end{equation*}
+\end{tradeoffbox}
+
+---
+
+\section{Ví Dụ Giải Mẫu Tính Toán Số Học Bằng Tay}
+\label{sec:agent-worked-examples}
+
+Chúng ta cùng thực hiện một bài toán định lượng chi phí tài chính và tiêu hao tài nguyên bộ nhớ cho một Agent chăm sóc khách hàng tự hành chạy trong môi trường doanh nghiệp.
+
+\begin{example}[Định Lượng Tiêu Hao Token \& Chi Phí Của Agent ReAct Đa Bước]
+Một Agent hỗ trợ khách hàng ngân hàng giải quyết khiếu nại giao dịch cần trải qua quy trình ReAct gồm 3 vòng lặp công cụ trước khi đưa ra câu trả lời:
+\begin{itemize}
+  \item \textbf{System Prompt \& Tool Schemas}: Chiếm cố định $S = 1.500$ tokens đầu vào.
+  \item \textbf{Câu hỏi của người dùng}: Chiếm $U = 100$ tokens.
+  \item \textbf{Mỗi bước lặp $i \in \{1, 2, 3\}$}:
+  \begin{itemize}
+    \item Agent sinh ra đoạn suy tưởng (Thought) và lệnh gọi công cụ: dài trung bình $T_i = 150$ tokens đầu ra.
+    \item Môi trường thực thi công cụ và trả về kết quả quan sát (Observation): dài trung bình $O_i = 350$ tokens được nối tiếp vào ngữ cảnh.
+  \end{itemize}
+  \item \textbf{Bước kết thúc}: Agent tổng hợp toàn bộ lịch sử để đưa ra câu trả lời cuối cùng cho người dùng: dài $A_{\text{final}} = 300$ tokens đầu ra.
+  \item \textbf{Đơn giá API (mô hình GPT-4o)}:
+  \begin{itemize}
+    \item Token đầu vào (Prompt): $5.00\text{ USD} / 10^6\text{ tokens}$.
+    \item Token đầu ra (Completion): $15.00\text{ USD} / 10^6\text{ tokens}$.
+  \end{itemize}
+\end{itemize}
+
+Hãy tính toán chi tiết:
+\begin{enumerate}
+  \item Số lượng token đầu vào (Input Tokens) mà mô hình phải đọc ở từng bước lặp.
+  \item Tổng số token đầu vào và đầu ra của toàn bộ phiên làm việc của Agent.
+  \item Chi phí tài chính (USD) để giải quyết phiên khiếu nại này.
+  \item Tỷ lệ chi phí bị lãng phí do việc đọc lặp lại ngữ cảnh tích lũy (Context Accumulation Overhead).
+\end{enumerate}
+\end{example}
+
+\paragraph{Lời giải chi tiết từng bước}:
+
+\paragraph{Bước 1: Tính số lượng token đầu vào tại mỗi bước gọi mô hình}
+Tại mỗi bước lặp, toàn bộ lịch sử các bước trước đó bắt buộc phải được gửi lại vào mô hình:
+\begin{itemize}
+  \item \textbf{Lượt 1 (Vòng lặp 1)}:
+  Mô hình nhận System Prompt và câu hỏi ban đầu:
+  \begin{equation*}
+  \text{Input}_1 = S + U = 1.500 + 100 = 1.600\text{ tokens}
+  \end{equation*}
+  Mô hình sinh đầu ra: $\text{Output}_1 = 150\text{ tokens}$.
+  Hệ thống nhận kết quả công cụ: $O_1 = 350\text{ tokens}$.
+
+  \item \textbf{Lượt 2 (Vòng lặp 2)}:
+  Mô hình nhận toàn bộ ngữ cảnh cũ cộng thêm đầu ra của lượt 1 và kết quả công cụ 1:
+  \begin{equation*}
+  \text{Input}_2 = \text{Input}_1 + \text{Output}_1 + O_1 = 1.600 + 150 + 350 = 2.100\text{ tokens}
+  \end{equation*}
+  Mô hình sinh đầu ra: $\text{Output}_2 = 150\text{ tokens}$.
+  Hệ thống nhận kết quả công cụ: $O_2 = 350\text{ tokens}$.
+
+  \item \textbf{Lượt 3 (Vòng lặp 3)}:
+  Mô hình nhận toàn bộ ngữ cảnh cũ:
+  \begin{equation*}
+  \text{Input}_3 = \text{Input}_2 + \text{Output}_2 + O_2 = 2.100 + 150 + 350 = 2.600\text{ tokens}
+  \end{equation*}
+  Mô hình sinh đầu ra: $\text{Output}_3 = 150\text{ tokens}$.
+  Hệ thống nhận kết quả công cụ: $O_3 = 350\text{ tokens}$.
+
+  \item \textbf{Lượt 4 (Tổng hợp câu trả lời cuối cùng)}:
+  \begin{equation*}
+  \text{Input}_4 = \text{Input}_3 + \text{Output}_3 + O_3 = 2.600 + 150 + 350 = 3.100\text{ tokens}
+  \end{equation*}
+  Mô hình sinh câu trả lời cuối: $\text{Output}_4 = A_{\text{final}} = 300\text{ tokens}$.
+\end{itemize}
+
+\paragraph{Bước 2: Tính tổng số token của toàn phiên}
+\begin{itemize}
+  \item Tổng token đầu vào:
+  \begin{equation*}
+  \text{Total Input} = 1.600 + 2.100 + 2.600 + 3.100 = 9.400\text{ tokens}
+  \end{equation*}
+  \item Tổng token đầu ra:
+  \begin{equation*}
+  \text{Total Output} = 150 + 150 + 150 + 300 = 750\text{ tokens}
+  \end{equation*}
+\end{itemize}
+
+\paragraph{Bước 3: Tính toán chi phí tài chính (USD)}
+\begin{align*}
+\text{Cost}_{\text{Input}} &= \frac{9.400}{10^6} \times 5.00\text{ USD} = 0.0470\text{ USD} \\
+\text{Cost}_{\text{Output}} &= \frac{750}{10^6} \times 15.00\text{ USD} = 0.01125\text{ USD} \\
+\text{Total Cost} &= 0.0470 + 0.01125 = 0.05825\text{ USD} \approx 5.83\text{ cents/phiên}
+\end{align*}
+
+\paragraph{Bước 4: Phân tích chi phí lãng phí do tích lũy ngữ cảnh}
+Phần System Prompt cố định ($1.500$ tokens) bị gửi đi gửi lại $4$ lần:
+\begin{equation*}
+\text{System Overhead} = 1.500 \times 4 = 6.000\text{ tokens}
+\end{equation*}
+Phần này chiếm tới:
+\begin{equation*}
+\frac{6.000}{9.400} \approx 63.8\% \text{ tổng lượng token đầu vào!}
+\end{equation*}
+\textit{Bài học FinOps sâu sắc}: Trong các hệ thống Agent, hơn $60\%$ chi phí đầu vào là để đọc đi đọc lại bản System Prompt và Schema công cụ giống hệt nhau! Để tối ưu hóa chi phí này, các Kỹ sư AI bắt buộc phải kích hoạt tính năng \textbf{Prompt Caching} (như tính năng lưu đệm prompt của Anthropic Claude hoặc OpenAI), giúp giảm tới $50\% - 90\%$ chi phí cho các token đầu vào tĩnh được tái sử dụng!
+
+---
+
+\section{Hiện Thực Hóa: Bộ Động Cơ Đồ Thị Trạng Thái Thuần Python}
+\label{sec:python-state-graph-implementation}
+
+Dưới đây là một bộ máy State Graph Engine mini hoàn chỉnh, tự chứa, được thiết kế theo đúng nguyên lý kiến trúc của LangGraph, hỗ trợ State Reducers, Conditional Edges, và rào chắn chống vòng lặp vô tận.
+
+\begin{lstlisting}[language=Python, caption={Cài đặt State Graph Engine với Reducers và Conditional Routing.}]
+import operator
+from typing import TypedDict, Annotated, Callable, Dict, Any, List, Optional
+
+class AgentState(TypedDict):
+    """Trang thai trung tam cua Agent."""
+    messages: Annotated[List[str], operator.add]
+    current_step: int
+    is_finished: bool
+
+class SimpleStateGraph:
+    """
+    Dong co do thi trang thai (State Graph Engine) mo phong kien truc LangGraph.
+    Ho tro: Nodes, Edges, Conditional Edges, va State Reducers.
+    """
+    def __init__(self, state_schema):
+        self.state_schema = state_schema
+        self.nodes: Dict[str, Callable[[dict], dict]] = {}
+        self.edges: Dict[str, str] = {}
+        self.conditional_edges: Dict[str, tuple[Callable[[dict], str], Dict[str, str]]] = {}
+        self.entry_point: Optional[str] = None
+
+    def add_node(self, name: str, fn: Callable[[dict], dict]):
+        """Them mot dinh xu ly vao do thi."""
+        self.nodes[name] = fn
+
+    def set_entry_point(self, name: str):
+        """Xac dinh dinh bat dau cua quy trinh."""
+        self.entry_point = name
+
+    def add_edge(self, source: str, target: str):
+        """Them canh co dinh noi giua hai Node."""
+        self.edges[source] = target
+
+    def add_conditional_edge(
+        self,
+        source: str,
+        router_fn: Callable[[dict], str],
+        path_map: Dict[str, str]
+    ):
+        """Them canh co dieu kien dua tren ham router."""
+        self.conditional_edges[source] = (router_fn, path_map)
+
+    def run(self, initial_state: dict, max_steps: int = 10) -> dict:
+        """Thuc thi do thi trang thai voi rao chan gioi han so buoc."""
+        if not self.entry_point or self.entry_point not in self.nodes:
+            raise ValueError("Entry point chua duoc cau hinh hop le.")
+
+        state = dict(initial_state)
+        current_node_name = self.entry_point
+        steps = 0
+
+        while current_node_name and current_node_name != "__end__" and steps < max_steps:
+            steps += 1
+            node_fn = self.nodes[current_node_name]
+            
+            # 1. Thuc thi Node
+            updates = node_fn(state)
+
+            # 2. Cap nhat State qua co che Reducer
+            for k, v in updates.items():
+                if k == "messages" and k in state:
+                    state[k] = state[k] + v  # operator.add reducer
+                else:
+                    state[k] = v
+
+            # 3. Dieu huong sang Node ke tiep
+            if current_node_name in self.conditional_edges:
+                router, path_map = self.conditional_edges[current_node_name]
+                route_key = router(state)
+                current_node_name = path_map.get(route_key, "__end__")
+            elif current_node_name in self.edges:
+                current_node_name = self.edges[current_node_name]
+            else:
+                current_node_name = "__end__"
+
+        return state
+\end{lstlisting}
+
+---
+
+\section{Hệ Thống Bài Tập \& Câu Hỏi Tư Duy Đa Tầng}
+\label{sec:ch09-exercises}
+
+\subsection{Nhóm A: Câu Hỏi Tư Duy Bản Chất (Conceptual Reasoning)}
+\begin{enumerate}
+  \item \textbf{Câu A.1}: Tại sao việc gắn nhãn vai trò tin nhắn (\code{role: "system"}, \code{role: "user"}, \code{role: "assistant"}, \code{role: "tool"}) trong giao thức Tool Calling lại quan trọng hơn nhiều so với việc chỉ đơn thuần ghép nối văn bản thô vào một prompt duy nhất?
+  \item \textbf{Câu A.2}: Phân tích sự khác biệt về mặt cấu trúc bộ nhớ giữa cơ chế Checkpointing trong LangGraph và cơ chế Memory (như \code{ConversationBufferMemory}) trong các framework Agent cổ điển.
+  \item \textbf{Câu A.3}: Tại sao mô hình đa tác tử kiểu Giám sát - Phân việc (Supervisor Pattern) lại có khả năng kiểm soát rủi ro và chi phí token tốt hơn mô hình các Agent tự do trao đổi ngang hàng (Peer-to-Peer Chitchat)?
+\end{enumerate}
+
+\subsection{Nhóm B: Bài Toán Tính Toán Giải Tích Bằng Tay (Analytical Problems)}
+\begin{enumerate}
+  \item \textbf{Bài B.1 (Tính Toán Độ Bền Vững Đa Bước Của Hệ Thống)}:
+  Một quy trình phân tích tín dụng tự động của ngân hàng gồm $N = 8$ bước gọi công cụ liên tiếp.
+  Độ chính xác độc lập của mỗi bước gọi công cụ là $p = 0.92$.
+  \begin{itemize}
+    \item[a)] Tính xác suất toàn bộ quy trình hoàn thành thành công mà không có cơ chế tự sửa sai.
+    \item[b)] Nếu các kỹ sư cài đặt cạnh tự sửa sai (Retry Edge) cho phép thử lại tối đa $K = 2$ lần cho mỗi bước bị lỗi (với xác suất thành công ở mỗi lần thử lại vẫn là $0.92$), hãy tính xác suất thành công toàn cục của hệ thống lúc này.
+  \end{itemize}
+
+  \item \textbf{Bài B.2 (Mô Hình Hóa Chi Phí Vòng Lặp Vô Tận)}:
+  Xét một Agent bị rơi vào vòng lặp vô tận giữa hai công cụ.
+  Tại mỗi bước lặp $t$, số token đầu vào tăng tuyến tính: $I_t = I_0 + t \cdot \Delta$, với $I_0 = 2.000$ tokens và $\Delta = 400$ tokens. Đầu ra mỗi bước cố định $O = 100$ tokens.
+  Nếu hệ thống không có rào chắn giới hạn bước và chỉ bị ngắt bởi bộ đếm thời gian sau $T = 30$ bước lặp:
+  Tính tổng số token đầu vào tích lũy mà hệ thống đã tiêu tốn trong suốt 30 bước đó.
+\end{enumerate}
+
+\subsection{Nhóm C: Thực Hành Kỹ Nghệ \& Lập Trình (Implementation Labs)}
+\begin{enumerate}
+  \item \textbf{Bài C.1 (Xây Dựng Điểm Dừng Phê Duyệt Human-in-the-Loop)}:
+  Dựa trên lớp \code{SimpleStateGraph} đã hiện thực hóa ở mục trước, hãy mở rộng thêm tính năng:
+  \begin{itemize}
+    \item Đăng ký danh sách các Node nhạy cảm cần can thiệp qua tham số: \code{interrupt_before = ["transfer_funds"]}.
+    \item Khi luồng điều khiển chuẩn bị bước vào Node nhạy cảm này, hàm \code{run()} tự động dừng lại, lưu trạng thái, và trả về \code{state["status"] = "waiting_human_approval"}.
+    \item Cung cấp hàm \code{resume(state, approved: bool)} để tiếp tục thực thi nếu được con người chấp thuận, hoặc điều hướng sang Node hủy bỏ (\code{cancelled_node}) nếu bị từ chối.
+  \end{itemize}
+\end{enumerate}
+
+\subsection{Nhóm D: Phân Tích Thất Bại \& Debugging Thực Tế (Post-Mortem Analysis)}
+\begin{enumerate}
+  \item \textbf{Tình huống sự cố}: Agent phụ trách quản trị kho hàng của một sàn thương mại điện tử bất ngờ gửi lệnh hủy bỏ hàng loạt $500$ đơn hàng hợp lệ chỉ trong vòng 10 phút.
+  Điều tra log cho thấy Agent nhận được thông báo từ cổng vận chuyển: \code{"Carrier service unavailable"}. Thay vì đánh dấu đơn hàng cần giao lại sau, Agent suy luận rằng: \textit{``Đơn vị vận chuyển không tồn tại, do đó đơn hàng không thể hoàn tất, cần hủy ngay lập tức để hoàn tiền cho khách''}.
+  Hãy phân tích nguyên nhân gốc rễ và đề xuất 3 rào chắn an toàn (Agent Safety Guardrails) để ngăn ngừa thảm họa tương tự.
+\end{enumerate}
+
+---
+
+\section{Hướng Dẫn Lời Giải \& Bình Luận Kỹ Thuật Chi Tiết}
+\label{sec:ch09-solutions}
+
+\subsection{Lời Giải Nhóm A: Câu Hỏi Tư Duy Bản Chất}
+\begin{itemize}
+  \item \textbf{Lời giải Câu A.1}:
+  Trong quá trình huấn luyện căn chỉnh (Instruction Tuning / RLHF), các mô hình nền tảng được tối ưu hóa các mẫu chú ý (Attention Masks) để phân biệt ranh giới bảo mật giữa các vai trò:
+  \begin{itemize}
+    \item \code{role: "system"}: Thiết lập mệnh lệnh tối cao và quy tắc ứng xử bất biến.
+    \item \code{role: "user"}: Đại diện cho yêu cầu của con người bên ngoài (có thể chứa mã độc tấn công Prompt Injection).
+    \item \code{role: "assistant"}: Lời nói và suy luận của chính mô hình.
+    \item \code{role: "tool"}: Dữ liệu khách quan trả về từ các hàm máy tính đã được xác thực.
+  \end{itemize}
+  Nếu chỉ ghép nối văn bản thô không có vai trò, mô hình sẽ không thể phân biệt đâu là dữ liệu trả về từ công cụ thật, và đâu là kẻ tấn công đang giả mạo kết quả công cụ trong ô chat của người dùng!
+
+  \item \textbf{Lời giải Câu A.2}:
+  \code{ConversationBufferMemory} truyền thống chỉ đơn thuần lưu trữ một chuỗi ký tự hoặc danh sách tin nhắn phẳng trong bộ nhớ tạm thời RAM. Nó hoàn toàn mất sạch khi tiến trình máy chủ khởi động lại, và không có khả năng lưu trữ các biến nghiệp vụ phức tạp.
+  Ngược lại, Checkpointing trong LangGraph là một hệ thống quản lý phiên làm việc chuẩn cơ sở dữ liệu (Database Persistence): Nó đóng băng toàn bộ cây trạng thái (bao gồm cả biến nghiệp vụ, cấu trúc dữ liệu tùy biến, vị trí con trỏ đồ thị hiện tại) xuống đĩa cứng tại từng bước chuyển trạng thái, hỗ trợ khôi phục sau sự cố, phân nhánh phiên làm việc, và phân quyền kiểm soát Human-in-the-Loop.
+
+  \item \textbf{Lời giải Câu A.3}:
+  Trong mô hình Peer-to-Peer Chitchat, các Agent gửi tin nhắn tự do cho nhau mà không có người điều phối. Nếu Agent A hỏi một câu mơ hồ, Agent B trả lời chung chung, chúng sẽ rơi vào vòng xoáy đối thoại lan man, đốt cháy hàng trăm nghìn token mà không đi đến hồi kết.
+  Trong Supervisor Pattern, Agent đầu não đóng vai trò như một người quản lý dự án nghiêm khắc: Nó nhận yêu cầu, chia nhỏ thành các mục tiêu con, chỉ định đúng Agent chuyên trách thực thi, nhận kết quả, đánh giá xem mục tiêu đã đạt chưa, và trực tiếp chấm dứt quy trình khi hoàn thành. Cấu trúc này triệt tiêu hoàn toàn các hội thoại rác và giảm $70\%$ chi phí token.
+\end{itemize}
+
+\subsection{Lời Giải Nhóm B: Bài Toán Tính Toán Giải Tích Bằng Tay}
+
+\paragraph{Lời giải Bài B.1}:
+\begin{itemize}
+  \item[a)] Khi không có cơ chế tự sửa sai ($N = 8$ bước, $p = 0.92$):
+  \begin{equation*}
+  P_{\text{success}} = 0.92^8 \approx 0.5132 \approx 51.32\%
+  \end{equation*}
+  Hệ thống gần như chỉ có xác suất $50/50$ hoàn thành nhiệm vụ!
+
+  \item[b)] Khi cài đặt Retry Loop với tối đa $K = 2$ lần thử:
+  Xác suất để một bước đơn lẻ thất bại cả 2 lần liên tiếp là:
+  \begin{equation*}
+  P_{\text{fail\_step}} = (1 - 0.92)^2 = 0.08^2 = 0.0064
+  \end{equation*}
+  Xác suất thành công của mỗi bước sau khi có cơ chế tự sửa sai:
+  \begin{equation*}
+  p_{\text{robust}} = 1 - P_{\text{fail\_step}} = 1 - 0.0064 = 0.9936 \quad (99.36\%)
+  \end{equation*}
+  Xác suất thành công toàn cục của toàn bộ 8 bước lúc này là:
+  \begin{equation*}
+  P_{\text{success\_total}} = (0.9936)^8 \approx 0.9501 \approx 95.01\%!
+  \end{equation*}
+  Độ tin cậy của toàn bộ hệ sinh thái nhảy vọt từ $51.3\%$ lên $95.0\%$, cứu sống toàn bộ dự án triển khai thực tế!
+\end{itemize}
+
+\paragraph{Lời giải Bài B.2}:
+Số lượng token đầu vào tại bước lặp thứ $t$ là:
+\begin{equation*}
+I_t = 2.000 + t \cdot 400
+\end{equation*}
+Tổng số token đầu vào tích lũy sau $T = 30$ bước lặp là tổng của cấp số cộng:
+\begin{align*}
+\text{Total Input} &= \sum_{t=1}^{30} (2.000 + 400 \cdot t) = 30 \times 2.000 + 400 \sum_{t=1}^{30} t \\
+&= 60.000 + 400 \times \frac{30 \times 31}{2} = 60.000 + 400 \times 465 \\
+&= 60.000 + 186.000 = 246.000\text{ tokens!}
+\end{align*}
+Chỉ một vòng lặp ngớ ngẩn kéo dài 30 bước đã âm thầm thiêu rụi gần một phần tư triệu token!
+
+\subsection{Lời Giải Nhóm C: Thực Hành Kỹ Nghệ \& Lập Trình}
+Hiện thực hóa cơ chế Human-in-the-Loop Approval:
+
+\begin{lstlisting}[language=Python, caption={Cài đặt cơ chế tạm dừng Human-in-the-Loop Approval.}]
+class HumanInTheLoopStateGraph(SimpleStateGraph):
+    def __init__(self, state_schema, interrupt_before: List[str] = None):
+        super().__init__(state_schema)
+        self.interrupt_before = interrupt_before or []
+
+    def run(self, initial_state: dict, max_steps: int = 10) -> dict:
+        state = dict(initial_state)
+        current_node_name = self.entry_point
+        steps = 0
+
+        while current_node_name and current_node_name != "__end__" and steps < max_steps:
+            # Kiem tra diem ngat truoc khi thuc thi Node nhay cam
+            if current_node_name in self.interrupt_before:
+                state["pending_node"] = current_node_name
+                state["status"] = "waiting_human_approval"
+                return state  # Tam dung va tra quyen kiem soat cho con nguoi
+
+            steps += 1
+            node_fn = self.nodes[current_node_name]
+            updates = node_fn(state)
+
+            for k, v in updates.items():
+                if k == "messages" and k in state:
+                    state[k] = state[k] + v
+                else:
+                    state[k] = v
+
+            # Chuyen tiep buoc
+            if current_node_name in self.conditional_edges:
+                router, path_map = self.conditional_edges[current_node_name]
+                current_node_name = path_map.get(router(state), "__end__")
+            elif current_node_name in self.edges:
+                current_node_name = self.edges[current_node_name]
+            else:
+                current_node_name = "__end__"
+
+        return state
+
+    def resume(self, paused_state: dict, approved: bool) -> dict:
+        """Tiep tuc thuc thi sau khi con nguoi phe duyet."""
+        state = dict(paused_state)
+        pending = state.pop("pending_node", None)
+        if not pending:
+            raise ValueError("Khong co Node nao dang cho phe duyet.")
+
+        if approved:
+            # Con nguoi dong y: Thuc thi pending node va chay tiep
+            state["status"] = "running"
+            node_fn = self.nodes[pending]
+            updates = node_fn(state)
+            for k, v in updates.items():
+                state[k] = state[k] + v if k == "messages" and k in state else v
+            next_node = self.edges.get(pending, "__end__")
+            self.set_entry_point(next_node)
+            return self.run(state)
+        else:
+            # Con nguoi tu choi: Chuyen sang trang thai bi huy
+            state["status"] = "cancelled_by_human"
+            state["messages"] = state.get("messages", []) + ["System: Action rejected by admin."]
+            return state
+\end{lstlisting}
+
+\subsection{Lời Giải Nhóm D: Phân Tích Thất Bại \& Debugging Thực Tế}
+\begin{itemize}
+  \item \textbf{Nguyên nhân gốc rễ (Root Cause)}:
+  Hệ thống đã vi phạm hai nguyên lý an toàn cốt tử:
+  \begin{enumerate}
+    \item \textbf{Cấp quyền không giới hạn cho Agent tự hành (Unconstrained Agency)}: Trao quyền thực thi các hành động mang tính hủy hoại vĩnh viễn (\code{cancel_order}) mà không có sự xác nhận của con người.
+    \item \textbf{Thiếu tầng phân loại lỗi (Error Classification Blindness)}: Không phân biệt được giữa lỗi tạm thời (Transient Error -- lỗi mạng, quá tải dịch vụ cần giao lại sau) và lỗi vĩnh viễn (Permanent Error -- địa chỉ không tồn tại).
+  \end{enumerate}
+
+  \item \textbf{3 Rào chắn an toàn bắt buộc (Safety Guardrails)}:
+  \begin{enumerate}
+    \item \textbf{Rào chắn Giới hạn Tỷ lệ Hành động (Rate Limiting Circuit Breaker)}: Cài đặt cầu chì tự ngắt: Nếu Agent phát ra nhiều hơn 10 lệnh hủy đơn hàng trong vòng 1 phút, hệ thống tự động khóa tài khoản Agent ngay lập tức và gửi cảnh báo khẩn cấp cho đội ngũ vận hành.
+    \item \textbf{Bắt buộc Human-in-the-Loop cho hành động hủy}: Mọi hành động \code{cancel_order} phải được chuyển vào hàng đợi phê duyệt (Approval Queue), chỉ thực thi khi nhân viên quản trị ấn nút xác nhận trên Dashboard.
+    \item \textbf{Tầng trung gian kiểm soát lỗi nghiệp vụ}: Không bao giờ để Agent tự diễn giải mã lỗi thô của bên thứ ba. Tầng Backend phải chuẩn hóa lỗi mạng thành thông điệp chỉ định rõ ràng: \code{"STATUS: TEMPORARY_OUTAGE. REQUIRED_ACTION: RETRY_IN_24_HOURS. DO NOT CANCEL."}.
+  \end{enumerate}
+\end{itemize}

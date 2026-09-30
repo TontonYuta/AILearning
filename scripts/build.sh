@@ -41,14 +41,15 @@ echo "📋 File log: $LOG_FILE"
 
 # 5. Vòng lặp biên dịch 2 lượt (Two-pass compilation)
 echo "🔄 [PASS 1/2] Lượt 1: Tạo cấu trúc tài liệu, TOC và chỉ mục..."
-if ! pdflatex -interaction=nonstopmode -file-line-error -output-directory="$AUX_DIR" "$TARGET_TEX" > "$LOG_FILE" 2>&1; then
-    echo "❌ [FAIL] Biên dịch Lượt 1 thất bại! Xem chi tiết lỗi tại $LOG_FILE"
-    tail -n 30 "$LOG_FILE"
+PASS1_LOG="$LOG_DIR/pdflatex_pass1.log"
+if ! pdflatex -interaction=nonstopmode -file-line-error -output-directory="$AUX_DIR" "$TARGET_TEX" > "$PASS1_LOG" 2>&1; then
+    echo "❌ [FAIL] Biên dịch Lượt 1 thất bại! Xem chi tiết lỗi tại $PASS1_LOG"
+    tail -n 30 "$PASS1_LOG"
     exit 1
 fi
 
 echo "🔄 [PASS 2/2] Lượt 2: Cập nhật liên kết chéo, số trang mục lục và hyperref..."
-if ! pdflatex -interaction=nonstopmode -file-line-error -output-directory="$AUX_DIR" "$TARGET_TEX" >> "$LOG_FILE" 2>&1; then
+if ! pdflatex -interaction=nonstopmode -file-line-error -output-directory="$AUX_DIR" "$TARGET_TEX" > "$LOG_FILE" 2>&1; then
     echo "❌ [FAIL] Biên dịch Lượt 2 thất bại! Xem chi tiết lỗi tại $LOG_FILE"
     tail -n 30 "$LOG_FILE"
     exit 1

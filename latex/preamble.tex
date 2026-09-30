@@ -19,6 +19,22 @@
 % Toán học & Công thức
 \usepackage{amsmath,amssymb,amsfonts,amsthm}
 
+% Cấu hình Định lý, Định nghĩa chuẩn Sách Chuyên Khảo
+\theoremstyle{definition}
+\newtheorem{definition}{Định nghĩa}[chapter]
+\newtheorem{example}{Ví dụ}[chapter]
+\newtheorem{problem}{Bài toán}[chapter]
+
+\theoremstyle{plain}
+\newtheorem{theorem}{Định lý}[chapter]
+\newtheorem{lemma}[theorem]{Bổ đề}
+\newtheorem{proposition}[theorem]{Mệnh đề}
+\newtheorem{corollary}[theorem]{Hệ quả}
+
+\theoremstyle{remark}
+\newtheorem{remark}{Nhận xét}[chapter]
+\newtheorem{note}{Lưu ý kỹ thuật}[chapter]
+
 % Màu sắc chuẩn kỹ thuật
 \usepackage{xcolor}
 \definecolor{primarycolor}{HTML}{1E3A8A}   % Navy Đậm (Tiêu đề, Chapter)

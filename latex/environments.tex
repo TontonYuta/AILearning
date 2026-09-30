@@ -1,168 +1,162 @@
 % ==============================================================================
-% ENVIRONMENTS.TEX — HỆ THỐNG HỘP ĐỊNH DẠNG CHUYÊN BIỆT (TCOLORBOX)
+% ENVIRONMENTS.TEX — HỆ THỐNG MÔI TRƯỜNG THIẾT KẾ PHONG CÁCH SÁCH CHUYÊN KHẢO
+% ==============================================================================
+% Thiết kế theo chuẩn mực Academic & Engineering Monograph (Springer, MIT Press).
+% TUYỆT ĐỐI KHÔNG dùng hộp đóng khung 4 phía sặc sỡ làm ngắt quãng mạch đọc.
+% Sử dụng thanh kẻ dọc thanh lịch bên trái (minimalist left accent bar) hoặc
+% định dạng văn phong học thuật chuẩn mực.
 % ==============================================================================
 
-% 1. Hộp Định Nghĩa (Definition Box)
+% 1. Khối Định Nghĩa & Khái Niệm Cốt Lõi
 \newtcolorbox{definitionbox}[1][]{
-  enhanced,
+  blanker,
   breakable,
-  colback=boxbg,
-  colframe=accentcolor,
-  coltitle=white,
-  fonttitle=\bfseries\small,
-  title={ĐỊNH NGHĨA KỸ THUẬT: #1},
-  arc=2pt,
-  left=10pt, right=10pt, top=8pt, bottom=8pt,
-  boxrule=0.8pt,
-  leftrule=4pt
+  left=12pt,
+  top=6pt,
+  bottom=6pt,
+  borderline west={2.5pt}{0pt}{primarycolor},
+  fonttitle=\bfseries\color{primarycolor},
+  title={Khái Niệm Cốt Lõi: #1\vspace{2pt}},
+  before skip=10pt,
+  after skip=10pt
 }
 
-% 2. Hộp Trực Giác & Mô Hình Tư Duy (Intuition Box)
+% 2. Khối Trực Giác & Mô Hình Tư Duy
 \newtcolorbox{intuitionbox}[1][]{
-  enhanced,
+  blanker,
   breakable,
-  colback=boxbg,
-  colframe=secondarycolor,
-  coltitle=white,
-  fonttitle=\bfseries\small,
-  title={TRỰC GIÁC \& MÔ HÌNH TƯ DUY: #1},
-  arc=2pt,
-  left=10pt, right=10pt, top=8pt, bottom=8pt,
-  boxrule=0.8pt,
-  leftrule=4pt
+  left=12pt,
+  top=6pt,
+  bottom=6pt,
+  borderline west={2.5pt}{0pt}{secondarycolor},
+  fonttitle=\bfseries\color{secondarycolor},
+  title={Mô Hình Trực Giác \& Bản Chất: #1\vspace{2pt}},
+  before skip=10pt,
+  after skip=10pt
 }
 
-% 3. Hộp Ví Dụ Mẫu Giải Từng Bước (Worked Example Box)
+% 3. Khối Ví Dụ Mẫu Giải Chi Tiết Từng Bước
 \newtcolorbox{workedexamplebox}[1][]{
-  enhanced,
+  blanker,
   breakable,
-  colback=boxbg,
-  colframe=primarycolor,
-  coltitle=white,
-  fonttitle=\bfseries\small,
-  title={VÍ DỤ GIẢI MẪU CHI TIẾT: #1},
-  arc=2pt,
-  left=10pt, right=10pt, top=8pt, bottom=8pt,
-  boxrule=0.8pt,
-  leftrule=4pt
+  left=12pt,
+  top=6pt,
+  bottom=6pt,
+  borderline west={2.5pt}{0pt}{primarycolor},
+  fonttitle=\bfseries\color{primarycolor},
+  title={Ví Dụ Mẫu \& Phân Tích Thực Thi: #1\vspace{2pt}},
+  before skip=10pt,
+  after skip=10pt
 }
 
-% 4. Hộp Phòng Thực Hành Kỹ Sư (Hands-on Lab Box)
+% 4. Khối Phòng Thực Hành Kỹ Sư
 \newtcolorbox{labbox}[1][]{
-  enhanced,
+  blanker,
   breakable,
-  colback=boxbg,
-  colframe=secondarycolor,
-  coltitle=white,
-  fonttitle=\bfseries\small,
-  title={PHÒNG THỰC HÀNH (HANDS-ON LAB): #1},
-  arc=2pt,
-  left=10pt, right=10pt, top=8pt, bottom=8pt,
-  boxrule=0.8pt,
-  leftrule=4pt
+  left=12pt,
+  top=6pt,
+  bottom=6pt,
+  borderline west={2.5pt}{0pt}{secondarycolor},
+  fonttitle=\bfseries\color{secondarycolor},
+  title={Thực Hành Phòng Lab: #1\vspace{2pt}},
+  before skip=10pt,
+  after skip=10pt
 }
 
-% 5. Hộp Bài Tập Phân Cấp (Exercise Box)
+% 5. Khối Bài Tập Phân Cấp Thử Thách
 \newtcolorbox{exercisebox}[1][]{
-  enhanced,
+  blanker,
   breakable,
-  colback=boxbg,
-  colframe=warncolor,
-  coltitle=white,
-  fonttitle=\bfseries\small,
-  title={BÀI TẬP THỬ THÁCH (CẤP ĐỘ 1 - 6): #1},
-  arc=2pt,
-  left=10pt, right=10pt, top=8pt, bottom=8pt,
-  boxrule=0.8pt,
-  leftrule=4pt
+  left=12pt,
+  top=6pt,
+  bottom=6pt,
+  borderline west={2.5pt}{0pt}{warncolor},
+  fonttitle=\bfseries\color{warncolor},
+  title={Hệ Thống Bài Tập Thử Thách: #1\vspace{2pt}},
+  before skip=10pt,
+  after skip=10pt
 }
 
-% 6. Hộp Lời Giải & Hướng Dẫn Chi Tiết (Solution Box)
+% 6. Khối Lời Giải & Hướng Dẫn Tư Duy Chi Tiết
 \newtcolorbox{solutionbox}[1][]{
-  enhanced,
+  blanker,
   breakable,
-  colback=boxbg,
-  colframe=successcolor,
-  coltitle=white,
-  fonttitle=\bfseries\small,
-  title={HƯỚNG DẪN GIẢI CHI TIẾT: #1},
-  arc=2pt,
-  left=10pt, right=10pt, top=8pt, bottom=8pt,
-  boxrule=0.8pt,
-  leftrule=4pt
+  left=12pt,
+  top=6pt,
+  bottom=6pt,
+  borderline west={2.5pt}{0pt}{successcolor},
+  fonttitle=\bfseries\color{successcolor},
+  title={Hướng Dẫn Lời Giải \& Phân Tích: #1\vspace{2pt}},
+  before skip=10pt,
+  after skip=10pt
 }
 
-% 7. Hộp Kỹ Năng Debug & Lỗi Phổ Biến (Debug Box)
+% 7. Khối Kỹ Năng Debugging & Khắc Phục Sự Cố
 \newtcolorbox{debugbox}[1][]{
-  enhanced,
+  blanker,
   breakable,
-  colback=boxbg,
-  colframe=dangercolor,
-  coltitle=white,
-  fonttitle=\bfseries\small,
-  title={KỸ NĂNG DEBUGGING \& KHẮC PHỤC LỖI: #1},
-  arc=2pt,
-  left=10pt, right=10pt, top=8pt, bottom=8pt,
-  boxrule=0.8pt,
-  leftrule=4pt
+  left=12pt,
+  top=6pt,
+  bottom=6pt,
+  borderline west={2.5pt}{0pt}{dangercolor},
+  fonttitle=\bfseries\color{dangercolor},
+  title={Kỹ Năng Debugging \& Điều Tra Lỗi: #1\vspace{2pt}},
+  before skip=10pt,
+  after skip=10pt
 }
 
-% 8. Hộp An Ninh & Bảo Mật Hệ Thống AI (Security Box)
+% 8. Khối An Ninh & Điểm Yếu Hệ Thống
 \newtcolorbox{securitybox}[1][]{
-  enhanced,
+  blanker,
   breakable,
-  colback=boxbg,
-  colframe=dangercolor,
-  coltitle=white,
-  fonttitle=\bfseries\small,
-  title={GÓC NHÌN BẢO MẬT \& RỦI RO HỆ THỐNG: #1},
-  arc=2pt,
-  left=10pt, right=10pt, top=8pt, bottom=8pt,
-  boxrule=0.8pt,
-  leftrule=4pt
+  left=12pt,
+  top=6pt,
+  bottom=6pt,
+  borderline west={2.5pt}{0pt}{dangercolor},
+  fonttitle=\bfseries\color{dangercolor},
+  title={Góc Nhìn An Ninh \& Rủi Ro: #1\vspace{2pt}},
+  before skip=10pt,
+  after skip=10pt
 }
 
-% 9. Hộp Đánh Đổi Kỹ Thuật (Trade-off Box)
+% 9. Khối Đánh Đổi Kỹ Thuật (Engineering Trade-offs)
 \newtcolorbox{tradeoffbox}[1][]{
-  enhanced,
+  blanker,
   breakable,
-  colback=boxbg,
-  colframe=warncolor,
-  coltitle=white,
-  fonttitle=\bfseries\small,
-  title={ĐÁNH ĐỔI KỸ THUẬT (ENGINEERING TRADE-OFFS): #1},
-  arc=2pt,
-  left=10pt, right=10pt, top=8pt, bottom=8pt,
-  boxrule=0.8pt,
-  leftrule=4pt
+  left=12pt,
+  top=6pt,
+  bottom=6pt,
+  borderline west={2.5pt}{0pt}{warncolor},
+  fonttitle=\bfseries\color{warncolor},
+  title={Đánh Đổi Kỹ Thuật (Trade-offs): #1\vspace{2pt}},
+  before skip=10pt,
+  after skip=10pt
 }
 
-% 10. Hộp Câu Hỏi Phỏng Vấn Kỹ Thuật (Interview Box)
+% 10. Khối Câu Hỏi Phỏng Vấn Kỹ Thuật Chuyên Sâu
 \newtcolorbox{interviewbox}[1][]{
-  enhanced,
+  blanker,
   breakable,
-  colback=boxbg,
-  colframe=primarycolor,
-  coltitle=white,
-  fonttitle=\bfseries\small,
-  title={BỘ CÂU HỎI PHỎNG VẤN THỰC CHIẾN: #1},
-  arc=2pt,
-  left=10pt, right=10pt, top=8pt, bottom=8pt,
-  boxrule=0.8pt,
-  leftrule=4pt
+  left=12pt,
+  top=6pt,
+  bottom=6pt,
+  borderline west={2.5pt}{0pt}{primarycolor},
+  fonttitle=\bfseries\color{primarycolor},
+  title={Thử Thách Phỏng Vấn Chuyên Sâu: #1\vspace{2pt}},
+  before skip=10pt,
+  after skip=10pt
 }
 
-% 11. Hộp Kiểm Tra Năng Lực (Checkpoint Box)
+% 11. Khối Kiểm Tra Năng Lực Đầu Ra
 \newtcolorbox{checkpointbox}[1][]{
-  enhanced,
+  blanker,
   breakable,
-  colback=boxbg,
-  colframe=successcolor,
-  coltitle=white,
-  fonttitle=\bfseries\small,
-  title={KIỂM ĐỊNH NĂNG LỰC ĐẦU RA (CHECKPOINT): #1},
-  arc=2pt,
-  left=10pt, right=10pt, top=8pt, bottom=8pt,
-  boxrule=0.8pt,
-  leftrule=4pt
+  left=12pt,
+  top=6pt,
+  bottom=6pt,
+  borderline west={2.5pt}{0pt}{secondarycolor},
+  fonttitle=\bfseries\color{secondarycolor},
+  title={Bảng Kiểm Định Năng Lực (Checkpoint): #1\vspace{2pt}},
+  before skip=10pt,
+  after skip=10pt
 }

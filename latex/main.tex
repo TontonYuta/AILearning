@@ -1,0 +1,43 @@
+% ==============================================================================
+% MAIN.TEX — ĐIỀU PHỐI TỔNG THỂ TÀI LIỆU GIÁO TRÌNH AI ENGINEER
+% ==============================================================================
+% File này TUYỆT ĐỐI KHÔNG chứa nội dung chi tiết.
+% Mọi cấu hình và nội dung được module hóa qua các tệp thành phần.
+% ==============================================================================
+
+\documentclass[11pt,a4paper,oneside]{book}
+
+% Nạp siêu dữ liệu trước để preamble sử dụng trong hypersetup và fancyhdr
+\input{metadata}
+\input{preamble}
+\input{commands}
+\input{environments}
+
+\begin{document}
+
+% ------------------------------------------------------------------------------
+% FRONTMATTER: Trang bìa, Lời tựa, Mục lục
+% ------------------------------------------------------------------------------
+\frontmatter
+\input{frontmatter/title}
+\input{frontmatter/preface}
+
+\clearpage
+\pdfbookmark[0]{\contentsname}{toc}
+\tableofcontents
+\clearpage
+
+% ------------------------------------------------------------------------------
+% MAINMATTER: Nội dung chính thức theo từng giai đoạn
+% ------------------------------------------------------------------------------
+\mainmatter
+
+% Giai đoạn 0: Định hướng nghề nghiệp & Toàn cảnh hệ thống AI
+\input{chapters/phase0_overview}
+
+% ------------------------------------------------------------------------------
+% BACKMATTER & APPENDICES: Phụ lục tra cứu, Bảng thuật ngữ
+% ------------------------------------------------------------------------------
+\appendix
+
+\end{document}

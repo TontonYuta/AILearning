@@ -1,0 +1,168 @@
+% ==============================================================================
+% ENVIRONMENTS.TEX — HỆ THỐNG HỘP ĐỊNH DẠNG CHUYÊN BIỆT (TCOLORBOX)
+% ==============================================================================
+
+% 1. Hộp Định Nghĩa (Definition Box)
+\newtcolorbox{definitionbox}[1][]{
+  enhanced,
+  breakable,
+  colback=boxbg,
+  colframe=accentcolor,
+  coltitle=white,
+  fonttitle=\bfseries\small,
+  title={ĐỊNH NGHĨA KỸ THUẬT: #1},
+  arc=2pt,
+  left=10pt, right=10pt, top=8pt, bottom=8pt,
+  boxrule=0.8pt,
+  leftrule=4pt
+}
+
+% 2. Hộp Trực Giác & Mô Hình Tư Duy (Intuition Box)
+\newtcolorbox{intuitionbox}[1][]{
+  enhanced,
+  breakable,
+  colback=boxbg,
+  colframe=secondarycolor,
+  coltitle=white,
+  fonttitle=\bfseries\small,
+  title={TRỰC GIÁC \& MÔ HÌNH TƯ DUY: #1},
+  arc=2pt,
+  left=10pt, right=10pt, top=8pt, bottom=8pt,
+  boxrule=0.8pt,
+  leftrule=4pt
+}
+
+% 3. Hộp Ví Dụ Mẫu Giải Từng Bước (Worked Example Box)
+\newtcolorbox{workedexamplebox}[1][]{
+  enhanced,
+  breakable,
+  colback=boxbg,
+  colframe=primarycolor,
+  coltitle=white,
+  fonttitle=\bfseries\small,
+  title={VÍ DỤ GIẢI MẪU CHI TIẾT: #1},
+  arc=2pt,
+  left=10pt, right=10pt, top=8pt, bottom=8pt,
+  boxrule=0.8pt,
+  leftrule=4pt
+}
+
+% 4. Hộp Phòng Thực Hành Kỹ Sư (Hands-on Lab Box)
+\newtcolorbox{labbox}[1][]{
+  enhanced,
+  breakable,
+  colback=boxbg,
+  colframe=secondarycolor,
+  coltitle=white,
+  fonttitle=\bfseries\small,
+  title={PHÒNG THỰC HÀNH (HANDS-ON LAB): #1},
+  arc=2pt,
+  left=10pt, right=10pt, top=8pt, bottom=8pt,
+  boxrule=0.8pt,
+  leftrule=4pt
+}
+
+% 5. Hộp Bài Tập Phân Cấp (Exercise Box)
+\newtcolorbox{exercisebox}[1][]{
+  enhanced,
+  breakable,
+  colback=boxbg,
+  colframe=warncolor,
+  coltitle=white,
+  fonttitle=\bfseries\small,
+  title={BÀI TẬP THỬ THÁCH (CẤP ĐỘ 1 - 6): #1},
+  arc=2pt,
+  left=10pt, right=10pt, top=8pt, bottom=8pt,
+  boxrule=0.8pt,
+  leftrule=4pt
+}
+
+% 6. Hộp Lời Giải & Hướng Dẫn Chi Tiết (Solution Box)
+\newtcolorbox{solutionbox}[1][]{
+  enhanced,
+  breakable,
+  colback=boxbg,
+  colframe=successcolor,
+  coltitle=white,
+  fonttitle=\bfseries\small,
+  title={HƯỚNG DẪN GIẢI CHI TIẾT: #1},
+  arc=2pt,
+  left=10pt, right=10pt, top=8pt, bottom=8pt,
+  boxrule=0.8pt,
+  leftrule=4pt
+}
+
+% 7. Hộp Kỹ Năng Debug & Lỗi Phổ Biến (Debug Box)
+\newtcolorbox{debugbox}[1][]{
+  enhanced,
+  breakable,
+  colback=boxbg,
+  colframe=dangercolor,
+  coltitle=white,
+  fonttitle=\bfseries\small,
+  title={KỸ NĂNG DEBUGGING \& KHẮC PHỤC LỖI: #1},
+  arc=2pt,
+  left=10pt, right=10pt, top=8pt, bottom=8pt,
+  boxrule=0.8pt,
+  leftrule=4pt
+}
+
+% 8. Hộp An Ninh & Bảo Mật Hệ Thống AI (Security Box)
+\newtcolorbox{securitybox}[1][]{
+  enhanced,
+  breakable,
+  colback=boxbg,
+  colframe=dangercolor,
+  coltitle=white,
+  fonttitle=\bfseries\small,
+  title={GÓC NHÌN BẢO MẬT \& RỦI RO HỆ THỐNG: #1},
+  arc=2pt,
+  left=10pt, right=10pt, top=8pt, bottom=8pt,
+  boxrule=0.8pt,
+  leftrule=4pt
+}
+
+% 9. Hộp Đánh Đổi Kỹ Thuật (Trade-off Box)
+\newtcolorbox{tradeoffbox}[1][]{
+  enhanced,
+  breakable,
+  colback=boxbg,
+  colframe=warncolor,
+  coltitle=white,
+  fonttitle=\bfseries\small,
+  title={ĐÁNH ĐỔI KỸ THUẬT (ENGINEERING TRADE-OFFS): #1},
+  arc=2pt,
+  left=10pt, right=10pt, top=8pt, bottom=8pt,
+  boxrule=0.8pt,
+  leftrule=4pt
+}
+
+% 10. Hộp Câu Hỏi Phỏng Vấn Kỹ Thuật (Interview Box)
+\newtcolorbox{interviewbox}[1][]{
+  enhanced,
+  breakable,
+  colback=boxbg,
+  colframe=primarycolor,
+  coltitle=white,
+  fonttitle=\bfseries\small,
+  title={BỘ CÂU HỎI PHỎNG VẤN THỰC CHIẾN: #1},
+  arc=2pt,
+  left=10pt, right=10pt, top=8pt, bottom=8pt,
+  boxrule=0.8pt,
+  leftrule=4pt
+}
+
+% 11. Hộp Kiểm Tra Năng Lực (Checkpoint Box)
+\newtcolorbox{checkpointbox}[1][]{
+  enhanced,
+  breakable,
+  colback=boxbg,
+  colframe=successcolor,
+  coltitle=white,
+  fonttitle=\bfseries\small,
+  title={KIỂM ĐỊNH NĂNG LỰC ĐẦU RA (CHECKPOINT): #1},
+  arc=2pt,
+  left=10pt, right=10pt, top=8pt, bottom=8pt,
+  boxrule=0.8pt,
+  leftrule=4pt
+}

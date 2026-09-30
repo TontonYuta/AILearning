@@ -1,0 +1,26 @@
+% ==============================================================================
+% COMMANDS.TEX — CÁC LỆNH VẮT TẮT, MACROS VÀ KÝ HIỆU TOÁN HỌC CHUẨN
+% ==============================================================================
+
+% Định dạng mã nguồn nội dòng (Inline Code & Terminology)
+\newcommand{\code}[1]{\texttt{\small\color{accentcolor}\detokenize{#1}}}
+\newcommand{\term}[1]{\textbf{\textcolor{primarycolor}{#1}}}
+\newcommand{\file}[1]{\texttt{\small\color{secondarycolor}\detokenize{#1}}}
+\newcommand{\important}[1]{\textbf{\textcolor{dangercolor}{#1}}}
+
+% Ký hiệu Toán học Nâng cao cho AI Engineering
+\newcommand{\mat}[1]{\mathbf{#1}}                 % Ma trận in đậm: \mat{W}, \mat{X}
+\newcommand{\vct}[1]{\mathbf{#1}}                 % Vector in đậm: \vct{x}, \vct{y}
+\newcommand{\norm}[1]{\left\lVert#1\right\rVert}  % Chuẩn vector: \norm{\vct{x}}
+\newcommand{\inner}[2]{\left\langle#1, #2\right\rangle} % Tích vô hướng
+\newcommand{\loss}{\mathcal{L}}                   % Ký hiệu Loss function
+\newcommand{\expect}{\mathbb{E}}                  % Kỳ vọng toán học
+\newcommand{\R}{\mathbb{R}}                       % Tập số thực
+
+% Toán tử toán học
+\DeclareMathOperator*{\argmax}{arg\,max}
+\DeclareMathOperator*{\argmin}{arg\,min}
+\DeclareMathOperator{\softmax}{Softmax}
+\DeclareMathOperator{\attention}{Attention}
+\DeclareMathOperator{\relu}{ReLU}
+\DeclareMathOperator{\gelu}{GeLU}

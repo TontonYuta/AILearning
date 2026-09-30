@@ -1,0 +1,126 @@
+% ==============================================================================
+% PREAMBLE.TEX — CẤU HÌNH THƯ VIỆN, ĐỒ HỌA, PHÔNG CHỮ VÀ BỐ CỤC ẤN BẢN
+% ==============================================================================
+
+\usepackage[utf8]{vietnam}
+\usepackage{mathptmx} % Phông chữ chuẩn Times New Roman Serif cho văn bản & toán học
+
+\usepackage{geometry}
+\geometry{
+  a4paper,
+  top=2.5cm,
+  bottom=2.5cm,
+  left=2.4cm,
+  right=2.4cm,
+  headheight=16pt,
+  footskip=1.2cm
+}
+
+% Toán học & Công thức
+\usepackage{amsmath,amssymb,amsfonts,amsthm}
+
+% Màu sắc chuẩn kỹ thuật
+\usepackage{xcolor}
+\definecolor{primarycolor}{HTML}{1E3A8A}   % Navy Đậm (Tiêu đề, Chapter)
+\definecolor{secondarycolor}{HTML}{0F766E} % Teal Sâu (Mục con, Tips)
+\definecolor{accentcolor}{HTML}{6D28D9}    % Violet (Định nghĩa, Từ khóa)
+\definecolor{warncolor}{HTML}{B45309}      % Hổ phách (Cảnh báo, Trade-off)
+\definecolor{dangercolor}{HTML}{BE123C}    % Đỏ Rose (Bảo mật, Attack)
+\definecolor{successcolor}{HTML}{047857}   % Xanh Lá Emerald (Solution, Pass)
+\definecolor{boxbg}{HTML}{F8FAFC}          % Nền hộp sáng Slate 50
+\definecolor{boxborder}{HTML}{CBD5E1}      % Viền Slate 300
+\definecolor{darktext}{HTML}{0F172A}       % Màu chữ chính Slate 900
+\definecolor{codegray}{HTML}{64748B}       % Màu xám số dòng & header
+
+% Bảng biểu & Danh sách
+\usepackage{booktabs}
+\usepackage{longtable}
+\usepackage{array}
+\usepackage{enumitem}
+\setlist{nosep, leftmargin=1.8em, topsep=3pt, itemsep=3pt}
+
+% Header và Footer chuyên nghiệp
+\usepackage{fancyhdr}
+\pagestyle{fancy}
+\fancyhf{}
+\fancyhead[L]{\textcolor{primarycolor}{\footnotesize\textbf{\booktitle}}}
+\fancyhead[R]{\textcolor{codegray}{\footnotesize\nouppercase{\rightmark}}}
+\fancyfoot[C]{\textcolor{primarycolor}{\small\textbf{\thepage}}}
+\renewcommand{\headrulewidth}{0.4pt}
+\renewcommand{\footrulewidth}{0pt}
+
+\fancypagestyle{plain}{
+  \fancyhf{}
+  \fancyfoot[C]{\textcolor{primarycolor}{\small\textbf{\thepage}}}
+  \renewcommand{\headrulewidth}{0pt}
+}
+
+% Định dạng tiêu đề chương và các phân mục
+\usepackage{titlesec}
+\titleformat{\chapter}[display]
+  {\normalfont\bfseries\color{primarycolor}}
+  {\Large\textsc{Giai Đoạn \thechapter}}
+  {0.8ex}
+  {\titlerule[1.5pt]\vspace{1.2ex}\LARGE}
+  [\vspace{1.2ex}\titlerule]
+
+\titleformat{\section}
+  {\normalfont\Large\bfseries\color{primarycolor}}
+  {\thesection}{1em}{}
+
+\titleformat{\subsection}
+  {\normalfont\large\bfseries\color{secondarycolor}}
+  {\thesubsection}{1em}{}
+
+\titleformat{\subsubsection}
+  {\normalfont\normalsize\bfseries\color{accentcolor}}
+  {\thesubsubsection}{1em}{}
+
+% Cấu hình đoạn văn
+\linespread{1.18}
+\setlength{\parskip}{6pt plus 2pt minus 1pt}
+\setlength{\parindent}{0pt}
+
+% Hộp định dạng TColorBox
+\usepackage{tcolorbox}
+\tcbuselibrary{skins,breakable}
+
+% Code Block với Listings
+\usepackage{listings}
+\lstset{
+  basicstyle=\ttfamily\footnotesize\color{darktext},
+  backgroundcolor=\color{boxbg},
+  frame=single,
+  rulecolor=\color{boxborder},
+  breaklines=true,
+  breakatwhitespace=false,
+  postbreak=\mbox{\textcolor{codegray}{$\hookrightarrow$}\space},
+  keepspaces=true,
+  showstringspaces=false,
+  numbers=left,
+  numberstyle=\tiny\color{codegray},
+  numbersep=7pt,
+  xleftmargin=14pt,
+  framexleftmargin=14pt,
+  keywordstyle=\color{accentcolor}\bfseries,
+  commentstyle=\color{successcolor}\itshape,
+  stringstyle=\color{warncolor},
+  columns=flexible
+}
+
+% Vi điều chỉnh in ấn & Siêu liên kết
+\usepackage{microtype}
+\usepackage{hyperref}
+\hypersetup{
+  colorlinks=true,
+  linkcolor=primarycolor,
+  citecolor=secondarycolor,
+  urlcolor=primarycolor,
+  pdftitle={\booktitle},
+  pdfauthor={\bookauthor},
+  pdfsubject={AI Engineering Complete Textbook},
+  bookmarksnumbered=true,
+  pdfborder={0 0 0},
+  plainpages=false,
+  pdfpagelabels=true
+}

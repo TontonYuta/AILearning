@@ -1,0 +1,600 @@
+% ==============================================================================
+% CHƯƠNG 13: THIẾT KẾ KIẾN TRÚC HỆ THỐNG AI QUY MÔ LỚN (AI SYSTEM DESIGN)
+% ==============================================================================
+
+\chapter{Thiết Kế Kiến Trúc Hệ Thống AI Quy Mô Lớn}
+\label{ch:ai-system-design}
+
+Trong quá trình phỏng vấn kỹ thuật cấp cao (Staff / Principal AI Engineer) cũng như khi thiết kế hạ tầng thực tế cho doanh nghiệp, năng lực phân biệt một lập trình viên bình thường với một kiến trúc sư hệ thống AI (\textit{AI System Architect}) nằm ở khả năng: \textbf{Thiết kế một hệ thống AI phục vụ hàng triệu người dùng đồng thời, đảm bảo độ trễ P99 dưới 1 giây, tính sẵn sàng 99.99\%, và tối ưu hóa hàng trăm ngàn USD chi phí phần cứng GPU mỗi tháng.}
+
+Thiết kế hệ thống AI (\textit{AI System Design}) không đơn thuần là thiết kế web backend truyền thống (CRUD, SQL, Load Balancer). Các hệ thống AI sở hữu những đặc thù phần cứng và tính toán hoàn toàn khác biệt:
+\begin{itemize}
+  \item \textbf{Cực kỳ ngốn tài nguyên tính toán (Compute-Bound) \& Bộ nhớ (Memory-Bound)}: Mỗi lượt sinh token đòi hỏi nạp hàng chục Gigabyte trọng số qua băng thông VRAM.
+  \item \textbf{Độ trễ không tất định (Non-Deterministic Latency)}: Một truy vấn trả về 10 token chỉ mất 200ms, nhưng một truy vấn sinh 2000 token có thể kéo dài tới 30 giây.
+  \item \textbf{Phân mảnh bộ nhớ động (KV Cache Allocation)}: Cần quản lý hàng ngàn block bộ nhớ trên GPU tương tự cơ chế bộ nhớ ảo của hệ điều hành.
+\end{itemize}
+
+Chương này trang bị cho bạn khung phương pháp chuẩn mực (\textit{System Design Framework}), kỹ năng ước tính dung lượng thô (\textit{Back-of-the-Envelope Estimation}), kiến trúc bộ nhớ đệm ngữ nghĩa hai tầng (\textit{Two-Tier Semantic Caching}), cơ chế định tuyến phân cấp (\textit{Hierarchical Model Routing}), và giải thuật cân bằng tải tối ưu cho cụm máy chủ vLLM.
+
+---
+
+\section{Khung Phương Pháp Thiết Kế Hệ Thống AI Chuẩn Mực}
+\label{sec:ch13-framework}
+
+Để giải quyết một bài toán thiết kế hệ thống mở mà không bị sa đà vào các chi tiết vụn vặt, kỹ sư AI luôn áp dụng quy trình 4 bước có cấu trúc:
+
+\begin{figure}[htbp]
+\centering
+\begin{tikzpicture}[node distance=1.1cm, auto,
+    stepbox/.style={rectangle, draw=primarycolor, thick, fill=boxbg, text width=12.5cm, rounded corners=2pt, minimum height=0.9cm, font=\small},
+    arrow/.style={draw=primarycolor, -Stealth, thick}
+]
+    \node[stepbox] (s1) {\textbf{Bước 1: Làm Rõ Yêu Cầu (Requirements Clarification)}\\
+    \footnotesize $\bullet$ Chức năng (Functional): Hỏi đáp, Sinh code, Tìm kiếm nội bộ $\bullet$ Phi chức năng: QPS, TTFT, TPOT, P99 Latency, SLA, Ngân sách};
+    
+    \node[stepbox, below=0.6cm of s1] (s2) {\textbf{Bước 2: Ước Tính Dung Lượng Thô (Back-of-the-Envelope Estimation)}\\
+    \footnotesize $\bullet$ QPS trung bình / đỉnh $\bullet$ Băng thông mạng (Tokens/sec) $\bullet$ Dung lượng lưu trữ Vector/SQL $\bullet$ Số lượng GPU cần thiết};
+    
+    \node[stepbox, below=0.6cm of s2] (s3) {\textbf{Bước 3: Thiết Kế Kiến Trúc Tổng Thể (High-Level Architecture)}\\
+    \footnotesize $\bullet$ API Gateway $\bullet$ Two-Tier Caching $\bullet$ Semantic Router $\bullet$ Model Serving Cluster (vLLM) $\bullet$ Storage \& RAG};
+    
+    \node[stepbox, below=0.6cm of s3] (s4) {\textbf{Bước 4: Đi Sâu Vào Điểm Nghẽn \& Tối Ưu Hóa (Deep-Dive \& Bottlenecks)}\\
+    \footnotesize $\bullet$ Prefix Caching $\bullet$ Least-KV-Cache Load Balancing $\bullet$ Fallback sang Cloud API $\bullet$ Circuit Breakers};
+    
+    \path[arrow] (s1) -- (s2);
+    \path[arrow] (s2) -- (s3);
+    \path[arrow] (s3) -- (s4);
+\end{tikzpicture}
+\caption{Quy trình 4 bước chuẩn mực trong Thiết kế Hệ thống AI Doanh nghiệp}
+\label{fig:ai-sys-design-framework}
+\end{figure}
+
+\subsection{Các Chỉ Số Hiệu Năng Cốt Lõi (SLA / SLI Metrics)}
+Khi bàn về hiệu năng hệ thống AI, tuyệt đối không dùng từ ``nhanh'' hay ``chậm'' chung chung. Bắt buộc phải sử dụng các đại lượng kỹ thuật chuẩn xác:
+\begin{itemize}
+  \item \textbf{TTFT (Time To First Token)}: Thời gian từ khi Gateway nhận được request của người dùng cho đến khi token đầu tiên được sinh ra và gửi về client. Phản ánh thời gian thực thi giai đoạn \textit{Prefill} của mô hình cộng với độ trễ hàng đợi mạng. Tiêu chuẩn vàng: $\text{TTFT} \le 500\text{ms}$.
+  \item \textbf{TPOT (Time Per Output Token)}: Thời gian để mô hình sinh ra một token tiếp theo trong giai đoạn \textit{Decode}. Quyết định tốc độ đọc của người dùng. Tốc độ đọc tự nhiên của mắt người là khoảng $15 - 20\text{ tokens/giây}$ (tương ứng $\text{TPOT} \approx 50 - 65\text{ms/token}$).
+  \item \textbf{P99 Latency (Percentile 99)}: Thời gian phản hồi mà $99\%$ người dùng trải nghiệm thấp hơn con số này. Đo lường mức độ ổn định của hệ thống trước hiện tượng nghẽn hàng đợi (Head-of-Line Blocking).
+  \item \textbf{Throughput (Tokens per Second)}: Tổng số lượng token mà toàn bộ cụm máy chủ GPU có thể xử lý và sinh ra trong một giây.
+\end{itemize}
+
+---
+
+\section{Ước Tính Dung Lượng Thô: Bài Toán 10 Triệu Người Dùng}
+\label{sec:ch13-estimation}
+
+Hãy cùng thực hiện một bài toán ước tính dung lượng kinh điển trong phỏng vấn: \textbf{Thiết kế hệ thống Trợ lý Hỏi Đáp Doanh nghiệp phục vụ 10 triệu người dùng hoạt động hàng ngày (10M DAU).}
+
+\subsection{1. Ước Tính Số Lượng Truy Vấn \& QPS Đỉnh}
+\begin{itemize}
+  \item Số người dùng hoạt động hàng ngày: $\text{DAU} = 10.000.000$ users.
+  \item Mỗi người dùng thực hiện trung bình $10$ truy vấn mỗi ngày.
+  \item Tổng số truy vấn mỗi ngày:
+  \begin{equation}
+  N_{\text{queries}} = 10.000.000 \times 10 = 100.000.000 \text{ requests/ngày}
+  \end{equation}
+  \item QPS trung bình trong một ngày ($86.400$ giây):
+  \begin{equation}
+  \text{QPS}_{\text{avg}} = \frac{100.000.000}{86.400} \approx 1157 \text{ queries/giây}
+  \end{equation}
+  \item Lưu lượng thực tế không phân bổ đều mà có các khung giờ cao điểm (Peak Hours). Áp dụng hệ số tải đỉnh (\textit{Peak Factor}) $k_{\text{peak}} = 3$:
+  \begin{equation}
+  \text{QPS}_{\text{peak}} = 1157 \times 3 \approx \mathbf{3500 \text{ queries/giây}}
+  \end{equation}
+\end{itemize}
+
+\subsection{2. Ước Tính Băng Thông Mạng (Network Bandwidth)}
+Giả định thông số độ dài văn bản:
+\begin{itemize}
+  \item Prompt đầu vào (bao gồm câu hỏi người dùng + tài liệu ngữ cảnh RAG): Trung bình $L_{\text{in}} = 1000$ tokens.
+  \item Phản hồi đầu ra do mô hình sinh: Trung bình $L_{\text{out}} = 200$ tokens.
+  \item Mỗi token tương đương trung bình $4$ byte văn bản UTF-8.
+\end{itemize}
+Tổng lượng token mà cụm hệ thống cần luân chuyển mỗi giây vào giờ cao điểm:
+\begin{equation}
+\text{Tokens/s}_{\text{total}} = 3500 \times (1000 + 200) = 4.200.000 \text{ tokens/giây}
+\end{equation}
+Băng thông mạng tại tầng Gateway:
+\begin{equation}
+\text{Bandwidth} = 4.200.000 \times 4 \text{ bytes} \approx 16.8 \text{ MB/s} = \mathbf{134.4 \text{ Mbps}}
+\end{equation}
+$\implies$ Băng thông mạng ở tầng Gateway hoàn toàn nằm trong khả năng xử lý của các card mạng 1Gbps / 10Gbps thông thường. Điểm nghẽn không nằm ở mạng ngoài!
+
+\subsection{3. Ước Tính Nhu Cầu Phần Cứng GPU \& Khủng Hoảng Chi Phí}
+Điểm nghẽn thực sự nằm ở năng lực sinh token của cụm máy chủ GPU.
+Tổng số lượng token cần \textbf{decode} mỗi giây vào giờ cao điểm:
+\begin{equation}
+\text{Decode Tokens/s} = 3500 \text{ QPS} \times 200 \text{ tokens} = \mathbf{700.000 \text{ tokens/giây}}
+\end{equation}
+
+Giả sử doanh nghiệp triển khai mô hình mã nguồn mở Llama-3-70B ở định dạng FP8 trên máy chủ trang bị GPU NVIDIA H100 SXM5 (80GB HBM3).
+Một nút máy chủ 4xH100 chạy vLLM với Tensor Parallelism ($TP=4$) và Continuous Batching có khả năng sinh thông lượng trung bình khoảng $2500$ output tokens/giây.
+Số lượng GPU H100 tối thiểu cần để gánh tải đỉnh mà không bị sập:
+\begin{equation}
+N_{\text{GPU}} = \frac{700.000 \text{ tokens/s}}{2500 \text{ tokens/s/node}} \times 4 \text{ GPUs/node} = \mathbf{1120 \text{ GPUs H100}}!
+\end{equation}
+\begin{tradeoffbox}[Khủng Hoảng Chi Phí Phần Cứng Nếu Không Có Kiến Trúc Tối Ưu]
+Chi phí thuê một GPU NVIDIA H100 trên hạ tầng đám mây (AWS, CoreWeave, Lambda Labs) hiện nay rơi vào khoảng $\$2.50\text{/GPU-giờ}$.
+Chi phí vận hành hàng tháng cho cụm $1120$ GPU:
+\begin{equation*}
+\text{Cost}_{\text{month}} = 1120 \times \$2.50 \times 24 \text{ giờ} \times 30 \text{ ngày} = \mathbf{\$2.016.000\text{/tháng}} \quad (\text{Hơn 2 triệu USD!})
+\end{equation*}
+Một doanh nghiệp không thể tồn tại với chi phí này nếu không có chiến lược tối ưu hóa kiến trúc! Là kiến trúc sư hệ thống, nhiệm vụ của bạn là kéo giảm con số này xuống \textbf{dưới $\$200.000\text{/tháng}$ (tiết kiệm $90\%$)} thông qua hai trụ cột:
+\begin{enumerate}
+  \item \textbf{Semantic Caching}: Giảm $35 - 50\%$ lưu lượng truy vấn phải chạm tới GPU.
+  \item \textbf{Hierarchical Model Routing}: Chuyển $70\%$ câu hỏi đơn giản sang các mô hình nhỏ (Llama-3-8B) chạy trên GPU L4/A10G rẻ hơn gấp 5 lần!
+\end{enumerate}
+\end{tradeoffbox}
+
+---
+
+\section{Kiến Trúc Bộ Nhớ Đệm Ngữ Nghĩa Hai Tầng (Two-Tier Semantic Caching)}
+\label{sec:ch13-semantic-caching}
+
+Trong các hệ thống web truyền thống, caching dựa trên sự trùng khớp chính xác của khóa (\textit{Exact Key Matching}): Ví dụ mã băm $\text{MD5}(\text{URL})$ hoặc truy vấn SQL.
+Tuy nhiên, trong ngôn ngữ tự nhiên:
+\begin{center}
+\textit{``Thủ đô của nước Pháp là gì?''} \quad và \quad \textit{``Cho tôi biết tên thủ đô nước Pháp?''}
+\end{center}
+về mặt ký tự hoàn toàn khác nhau ($\text{Hash}_1 \neq \text{Hash}_2$), nhưng về mặt ngữ nghĩa là đồng nhất $100\%$ và có cùng câu trả lời: ``Paris''.
+Nếu dùng Exact Cache, cả hai câu hỏi đều phải gọi tới mô hình LLM. Bộ nhớ đệm ngữ nghĩa (\term{Semantic Cache}) giải quyết bài toán này.
+
+\begin{figure}[htbp]
+\centering
+\begin{tikzpicture}[node distance=1.4cm, auto,
+    client/.style={rectangle, draw=primarycolor, thick, fill=boxbg, text centered, rounded corners=2pt, minimum height=0.8cm, font=\small\bfseries},
+    tier1/.style={rectangle, draw=secondarycolor, thick, fill=accentcolor!20, text centered, rounded corners=2pt, minimum height=0.8cm, font=\small},
+    tier2/.style={rectangle, draw=warncolor, thick, fill=warncolor!15, text centered, rounded corners=2pt, minimum height=0.8cm, font=\small},
+    llm/.style={rectangle, draw=dangercolor, thick, fill=dangercolor!15, text centered, rounded corners=2pt, minimum height=0.8cm, font=\small\bfseries},
+    arrow/.style={draw=primarycolor, -Stealth, thick},
+    hit/.style={draw=secondarycolor, -Stealth, thick, dashed}
+]
+    \node[client] (gw) {API Gateway};
+    \node[tier1, right=1.6cm of gw] (t1) {Tier 1: Exact Hash Cache (Redis)};
+    \node[tier2, right=1.6cm of t1] (t2) {Tier 2: Semantic Cache (Vector DB)};
+    \node[llm, below=1.2cm of t2] (vllm) {vLLM Inference Cluster};
+
+    \path[arrow] (gw) -- node[above, font=\scriptsize] {Query $\mathbf{q}$} (t1);
+    \path[hit] (t1) -- node[above, font=\scriptsize\color{secondarycolor}] {Hit ($<2$ms)} (gw);
+    \path[arrow] (t1) -- node[above, font=\scriptsize] {Miss} (t2);
+    \path[hit] (t2.north) -- ++(0,0.5) -| node[near start, above, font=\scriptsize\color{warncolor}] {Semantic Hit ($<20$ms)} (gw.north);
+    \path[arrow] (t2) -- node[right, font=\scriptsize] {Miss} (vllm);
+    \path[arrow] (vllm) -| node[near start, left, font=\scriptsize] {Update Cache} (t1);
+\end{tikzpicture}
+\caption{Kiến trúc bộ nhớ đệm hai tầng kết hợp Exact Hash Cache và Vector Semantic Cache}
+\label{fig:two-tier-cache}
+\end{figure}
+
+\subsection{Cơ Chế Hoạt Động Toán Học Của Semantic Cache}
+\begin{enumerate}
+  \item \textbf{Tầng 1: Exact Hash Cache (Redis)}:
+  Tính mã băm chuẩn hóa của câu truy vấn sau khi chuyển thành chữ thường và loại bỏ khoảng trắng thừa:
+  \begin{equation}
+  k = \text{SHA256}(\text{normalize}(\mathbf{q}))
+  \end{equation}
+  Truy vấn Redis bằng thao tác $O(1)$. Nếu trúng cache (\textit{Hit}), trả lời ngay lập tức trong vòng $1 - 2\text{ms}$. Tầng này xử lý khoảng $15 - 20\%$ lưu lượng (các câu hỏi lặp lại hoàn toàn do cùng một nhóm người dùng hỏi).
+
+  \item \textbf{Tầng 2: Vector Semantic Cache (Qdrant / Milvus)}:
+  Nếu Tầng 1 trượt (\textit{Miss}), ta tính vector nhúng ngữ nghĩa của truy vấn bằng mô hình embedding nhỏ và nhanh (như \code{text-embedding-3-small} hoặc \code{bge-small-en-v1.5}):
+  \begin{equation}
+  \mathbf{e}_q = f_{\text{embed}}(\mathbf{q}) \in \mathbb{R}^d
+  \end{equation}
+  Thực hiện tìm kiếm k-hàng xóm gần nhất (k-NN) trong kho lưu trữ các truy vấn đã được giải đáp trước đó $\mathcal{C} = \{(\mathbf{e}_i, \mathbf{a}_i)\}_{i=1}^M$:
+  \begin{equation}
+  \mathbf{e}^* = \arg\max_{\mathbf{e}_i \in \mathcal{C}} \cos(\mathbf{e}_q, \mathbf{e}_i) = \arg\max_{\mathbf{e}_i \in \mathcal{C}} \frac{\mathbf{e}_q \cdot \mathbf{e}_i}{\|\mathbf{e}_q\| \|\mathbf{e}_i\|}
+  \end{equation}
+  Gọi độ tương đồng lớn nhất tìm được là $S_{\max} = \cos(\mathbf{e}_q, \mathbf{e}^*)$.
+  Ta đặt một ngưỡng tương đồng khắt khe $\tau_{\text{threshold}}$:
+  \begin{equation}
+  \text{Trạng thái Cache} = \begin{cases}
+  \text{\textbf{HIT}} \implies \text{Trả về câu trả lời } \mathbf{a}^* & \text{nếu } S_{\max} \ge \tau_{\text{threshold}} \\
+  \text{\textbf{MISS}} \implies \text{Chuyển tiếp tới LLM} & \text{nếu } S_{\max} < \tau_{\text{threshold}}
+  \end{cases}
+  \end{equation}
+\end{enumerate}
+
+\begin{intuitionbox}[Đánh Đổi Của Ngưỡng Tương Đồng $\tau_{\text{threshold}}$]
+\begin{itemize}
+  \item Nếu chọn $\tau = 0.80$ (quá thấp): Hệ thống đạt tỷ lệ Hit Rate rất cao ($60\%$), nhưng sinh ra hiện tượng \textbf{Cache Pollution}: Người dùng hỏi ``Làm thế nào để nạp tiền vào tài khoản?'' có thể nhận nhầm câu trả lời của ``Làm thế nào để hủy tài khoản?''. Đây là lỗi nghiệm trọng!
+  \item Nếu chọn $\tau = 0.98$ (quá cao): Câu hỏi phải gần như giống hệt nhau mới kích hoạt được cache, tỷ lệ Hit Rate giảm về dưới $5\%$, mất tác dụng tiết kiệm tài nguyên.
+  \item \textbf{Thực tế kỹ nghệ}: Ngưỡng tối ưu thường nằm trong khoảng $\mathbf{\tau \in [0.88, 0.92]}$. Đồng thời, ta áp dụng thêm một bộ kiểm định thực thể (Entity Extractor): Chỉ chấp nhận Hit nếu hai câu hỏi có cùng tập thực thể chính (cùng mã cổ phiếu, cùng tên sản phẩm).
+\end{itemize}
+\end{intuitionbox}
+
+---
+
+\section{Định Tuyến Phân Cấp: Mô Hình Nhỏ (SLM) Kết Hợp Mô Hình Lớn (LLM)}
+\label{sec:ch13-hierarchical-routing}
+
+Không phải mọi truy vấn của người dùng đều cần đến một mô hình khổng lồ 70B hoặc 405B tham số.
+Trong thực tế doanh nghiệp:
+\begin{itemize}
+  \item Khoảng $60 - 70\%$ truy vấn là các tác vụ đơn giản: Phân loại ý định, trích xuất thực thể, kiểm tra chính tả, hoặc tóm tắt một đoạn văn ngắn.
+  \item Chỉ có $30 - 40\%$ truy vấn thực sự đòi hỏi khả năng lập luận phức tạp: Giải bài toán đại số, thiết kế kiến trúc phần mềm, phân tích hợp đồng kinh tế nhiều trang.
+\end{itemize}
+
+Chiến lược \term{Hierarchical Model Routing} sử dụng một bộ phân loại siêu nhẹ (Router Classifier) đặt tại Gateway:
+
+\begin{figure}[htbp]
+\centering
+\begin{tikzpicture}[node distance=1.4cm, auto,
+    client/.style={rectangle, draw=primarycolor, thick, fill=boxbg, text centered, rounded corners=2pt, minimum height=0.8cm, font=\small\bfseries},
+    router/.style={diamond, draw=secondarycolor, thick, fill=accentcolor!20, text centered, aspect=2, font=\small},
+    slm/.style={rectangle, draw=successcolor, thick, fill=successcolor!15, text centered, rounded corners=2pt, minimum height=0.8cm, font=\small},
+    llm/.style={rectangle, draw=dangercolor, thick, fill=dangercolor!15, text centered, rounded corners=2pt, minimum height=0.8cm, font=\small}
+]
+    \node[client] (gw) {User Request};
+    \node[router, right=1.6cm of gw] (rt) {Complexity?};
+    \node[slm, above right=0.8cm and 1.8cm of rt] (m1) {Tier 1: SLM (Llama-3-8B / Mistral-7B)};
+    \node[llm, below right=0.8cm and 1.8cm of rt] (m2) {Tier 2: LLM (Llama-3-70B / Claude 3.5)};
+
+    \path[draw=primarycolor, -Stealth, thick] (gw) -- (rt);
+    \path[draw=successcolor, -Stealth, thick] (rt) |- node[above, near start, font=\scriptsize\color{successcolor}] {Simple ($\le 3$)} (m1);
+    \path[draw=dangercolor, -Stealth, thick] (rt) |- node[below, near start, font=\scriptsize\color{dangercolor}] {Complex ($> 3$)} (m2);
+\end{tikzpicture}
+\caption{Cơ chế định tuyến phân cấp theo độ phức tạp truy vấn}
+\label{fig:model-routing}
+\end{figure}
+
+Bộ phân loại Router có thể được huấn luyện bằng mô hình phân loại văn bản nhỏ (như DeBERTa-v3 hoặc Logistic Regression trên vector embedding) với độ trễ suy luận chỉ $2 - 5\text{ms}$. Thang điểm độ phức tạp được chấm từ 1 đến 5 dựa trên các đặc trưng:
+\begin{itemize}
+  \item Độ dài câu hỏi và độ dài ngữ cảnh cần xử lý.
+  \item Sự xuất hiện của các từ khóa lập luận (``chứng minh'', ``so sánh đa chiều'', ``tối ưu hóa mã nguồn'').
+  \item Số lượng bước suy luận dự kiến cần thực hiện.
+\end{itemize}
+
+Việc chuyển hướng $70\%$ lưu lượng sang mô hình 8B giúp giảm $80\%$ chi phí phần cứng và giảm độ trễ trung bình của hệ thống từ $1.5$ giây xuống còn $300\text{ms}$!
+
+---
+
+\section{Cân Bằng Tải \& Khả Năng Chống Chịu Sự Cố Cho Cụm vLLM}
+\label{sec:ch13-load-balancing}
+
+\subsection{Tại Sao Cân Bằng Tải Round-Robin Truyền Thống Thất Bại?}
+Trong kiến trúc Web truyền thống, thuật toán \textit{Round-Robin} phân phối đều tuần tự các request tới các máy chủ backend: Request 1 đến Server A, Request 2 đến Server B.
+Tuy nhiên, khi áp dụng Round-Robin vào cụm máy chủ LLM (vLLM / Triton), hệ thống sẽ nhanh chóng rơi vào thảm họa:
+\begin{itemize}
+  \item Giả sử Server A nhận phải 5 request liên tiếp đều yêu cầu sinh văn bản dài 2048 tokens $\implies$ VRAM của Server A bị đầy, KV Cache bị phân mảnh, độ trễ tăng vọt lên 20 giây!
+  \item Trong khi đó, Server B nhận được các request chỉ cần phân loại 5 tokens $\implies$ GPU của Server B rảnh rỗi $90\%$ thời gian!
+\end{itemize}
+
+\subsection{Thuật Toán Least-KV-Cache-Tokens Có Tính Ngữ Cảnh (Prefix Affinity)}
+Để tối ưu hóa cụm vLLM, kỹ sư hệ thống sử dụng thuật toán \term{Context-Aware Least-Loaded Load Balancer}:
+Bộ cân bằng tải duy trì liên tục thông tin trạng thái từ API giám sát của các nút vLLM:
+\begin{equation}
+\text{Tải của nút } i: \quad \mathcal{T}_i = \alpha \cdot \text{ActiveRequests}_i + \beta \cdot \text{KVCacheUsagePercentage}_i
+\end{equation}
+Đặc biệt, hệ thống áp dụng kỹ thuật \textbf{Prefix Caching Affinity}:
+Nếu một nhóm request cùng sử dụng chung một System Prompt dài (ví dụ một tài liệu cẩm nang nội bộ công ty dài 8000 tokens), Gateway sẽ ưu tiên định tuyến tất cả các request này về cùng một máy chủ vLLM nơi ma trận KV Cache của System Prompt đó đã nằm sẵn trên VRAM! Máy chủ này không cần tính toán lại giai đoạn Prefill 8000 tokens, giúp giảm TTFT từ $1200\text{ms}$ xuống còn vỏn vẹn \textbf{40ms}!
+
+---
+
+\section{Cài Đặt Bộ Cổng Định Tuyến \& Semantic Cache Hoàn Chỉnh}
+\label{sec:ch13-implementation}
+
+Dưới đây là mã nguồn Python chuẩn mực cài đặt lớp \code{ProductionSemanticCacheGateway}, kết hợp Exact Hash Cache (Redis giả lập), Semantic Vector Cache (tính toán Cosine Similarity), và bộ định tuyến phân cấp mô hình.
+
+\begin{workedexamplebox}[Module Semantic Cache Gateway Cho Hệ Thống AI Quy Mô Lớn]
+\begin{lstlisting}[language=Python]
+import hashlib
+import math
+from typing import Dict, Any, List, Optional, Tuple
+
+class ProductionSemanticCacheGateway:
+    """Gateway dieu phoi cache hai tang va dinh tuyen mo hinh."""
+    
+    def __init__(self, similarity_threshold: float = 0.88):
+        self.similarity_threshold = similarity_threshold
+        # Tang 1: Exact Hash Cache (SHA256 -> Answer)
+        self.exact_cache: Dict[str, str] = {}
+        # Tang 2: Vector Semantic Cache [(Vector, Question, Answer)]
+        self.vector_cache: List[Tuple[List[float], str, str]] = []
+
+    @staticmethod
+    def _normalize_and_hash(text: str) -> str:
+        """Chuan hoa chuoi va tinh ma bam SHA-256."""
+        cleaned = " ".join(text.strip().lower().split())
+        return hashlib.sha256(cleaned.encode("utf-8")).hexdigest()
+
+    @staticmethod
+    def _cosine_similarity(v1: List[float], v2: List[float]) -> float:
+        """Tinh do tuong dong Cosine giua 2 vector nhung."""
+        dot = sum(a * b for a, b in zip(v1, v2))
+        norm1 = math.sqrt(sum(a * a for a in v1))
+        norm2 = math.sqrt(sum(b * b for b in v2))
+        if norm1 == 0.0 or norm2 == 0.0:
+            return 0.0
+        return dot / (norm1 * norm2)
+
+    def query(
+        self, 
+        prompt: str, 
+        embedding: Optional[List[float]] = None
+    ) -> Tuple[str, str, Dict[str, Any]]:
+        """
+        Xu ly truy van qua quy trinh 2 tang cache.
+        Tra ve: (response_text, hit_source, metadata)
+        """
+        # 1. Kiem tra Tang 1: Exact Hash Cache
+        hash_key = self._normalize_and_hash(prompt)
+        if hash_key in self.exact_cache:
+            return self.exact_cache[hash_key], "EXACT_CACHE_HIT", {"latency_ms": 1.5}
+
+        # 2. Kiem tra Tang 2: Vector Semantic Cache (neu co vector embedding)
+        if embedding is not None and len(self.vector_cache) > 0:
+            best_sim = -1.0
+            best_answer = ""
+            matched_q = ""
+            for cached_emb, cached_q, cached_a in self.vector_cache:
+                sim = self._cosine_similarity(embedding, cached_emb)
+                if sim > best_sim:
+                    best_sim = sim
+                    best_answer = cached_a
+                    matched_q = cached_q
+
+            if best_sim >= self.similarity_threshold:
+                return best_answer, "SEMANTIC_CACHE_HIT", {
+                    "similarity": best_sim,
+                    "matched_question": matched_q,
+                    "latency_ms": 15.0
+                }
+
+        # 3. Cache Miss: Can goi LLM thuc te
+        return "", "CACHE_MISS", {"hash_key": hash_key}
+
+    def update_cache(self, prompt: str, embedding: List[float], response: str):
+        """Cap nhat ca hai tang cache khi co phan hoi moi tu LLM."""
+        hash_key = self._normalize_and_hash(prompt)
+        self.exact_cache[hash_key] = response
+        self.vector_cache.append((embedding, prompt, response))
+
+    @staticmethod
+    def route_model(prompt: str) -> str:
+        """Dinh tuyen phan cap: Chon mo hinh phu hop theo do phuc tap."""
+        tokens = prompt.lower().split()
+        complex_keywords = {"chung minh", "toan hoc", "kien truc", "debug", "refactor"}
+        # Tinh diem phuc tap dua tren do dai va tu khoa
+        has_complex_keyword = any(kw in prompt.lower() for kw in complex_keywords)
+        is_long = len(tokens) > 100
+        
+        if has_complex_keyword or is_long:
+            return "TIER2_LARGE_MODEL_70B"
+        return "TIER1_SMALL_MODEL_8B"
+\end{lstlisting}
+\end{workedexamplebox}
+
+---
+
+\section{Hệ Thống Bài Tập Kỹ Nghệ \& Đánh Giá Năng Lực}
+\label{sec:ch13-exercises}
+
+\subsection{Nhóm A: Câu Hỏi Tư Duy Bản Chất (Deep Intuition)}
+\begin{enumerate}
+  \item \textbf{Câu A.1}: Tại sao việc triển khai bộ nhớ đệm ngữ nghĩa (Semantic Caching) có thể gây ra rủi ro vi phạm quyền riêng tư và phân tách dữ liệu đa khách hàng (Multi-Tenant Data Isolation) trong hệ thống SaaS? Nêu giải pháp kiến trúc để khắc phục.
+  \item \textbf{Câu A.2}: Phân tích sự đánh đổi khi lựa chọn kích thước mô hình embedding cho Semantic Cache: Nếu ta dùng một mô hình embedding lớn (như 1536 chiều, độ trễ 40ms) so với một mô hình nhỏ (384 chiều, độ trễ 4ms), tổng độ trễ của hệ thống trong trường hợp Cache Miss bị ảnh hưởng ra sao?
+  \item \textbf{Câu A.3}: Tại sao trong cụm máy chủ LLM phục vụ đa người dùng, ta lại ưu tiên chỉ số TPOT (Time Per Output Token) hơn là chỉ số tổng thời gian phản hồi (Total Latency) khi đánh giá trải nghiệm người dùng cuối?
+\end{enumerate}
+
+\subsection{Nhóm B: Tính Toán Giải Tích \& Số Học Bằng Tay}
+\begin{enumerate}
+  \item \textbf{Bài B.1 (Tính Toán ROI \& Chi Phí Tiết Kiệm Khi Có Semantic Caching)}: \\
+  Một công ty công nghệ vận hành hệ thống AI tiếp nhận $5.000.000$ truy vấn mỗi ngày.
+  Chi phí trung bình khi gọi mô hình LLM chính là $\$0.01$ cho mỗi truy vấn.
+  Hệ thống triển khai bộ nhớ đệm hai tầng với các thông số đo đạc thực tế:
+  \begin{itemize}
+    \item Tỷ lệ Exact Hash Cache Hit: $15\%$
+    \item Tỷ lệ Semantic Vector Cache Hit: $25\%$
+    \item Chi phí vận hành hạ tầng Cache (Redis + Qdrant cluster): $\$1.500\text{/tháng}$
+  \end{itemize}
+  Hãy tính toán bằng tay:
+  \begin{enumerate}
+    \item Tổng số tiền công ty phải trả cho việc gọi LLM mỗi tháng (30 ngày) khi \textbf{chưa có cache}.
+    \item Tổng số tiền tiết kiệm ròng (\textit{Net Savings}) mỗi tháng sau khi trừ chi phí vận hành hạ tầng cache.
+    \item Tỷ suất hoàn vốn đầu tư (\textit{Return on Investment - ROI}) của hạ tầng cache theo công thức:
+    \begin{equation*}
+    \text{ROI} = \frac{\text{Số tiền tiết kiệm được} - \text{Chi phí hạ tầng cache}}{\text{Chi phí hạ tầng cache}} \times 100\%
+    \end{equation*}
+  \end{enumerate}
+
+  \item \textbf{Bài B.2 (Ước Tính Số Lượng GPU vLLM Cho Hệ Thống Đọc Tài Liệu)}: \\
+  Hệ thống tiếp nhận tải đỉnh 500 QPS. Mỗi yêu cầu có độ dài prompt là 2000 tokens và độ dài output là 100 tokens.
+  Một máy chủ trang bị 8 GPU L40S có năng lực phục vụ tối đa $800$ decode tokens/giây và có bộ nhớ VRAM đủ duy trì tối đa 64 requests đồng thời.
+  Hãy tính toán số lượng máy chủ GPU tối thiểu cần chuẩn bị để không vượt quá $80\%$ công suất tải đỉnh.
+\end{enumerate}
+
+\subsection{Nhóm C: Thực Hành Kỹ Nghệ \& Lập Trình (Implementation Labs)}
+\begin{enumerate}
+  \item \textbf{Bài C.1 (Bộ Cân Bằng Tải Least-Active-Connections Có Hỗ Trợ Prefix Affinity)}: \\
+  Xây dựng lớp Python \code{ContextAwareLoadBalancer} quản lý danh sách $K$ máy chủ vLLM.
+  Mỗi máy chủ ghi nhận số lượng kết nối đang mở (\code{active_conns}) và danh sách các \code{system_prompt_hashes} đang được lưu trong cache VRAM của nó.
+  Khi nhận một request mới có \code{system_prompt_hash}:
+  \begin{itemize}
+    \item Nếu có máy chủ đang chứa sẵn hash này và số kết nối của nó chưa vượt ngưỡng trần (\code{active_conns < max_conns}), ưu tiên gửi tới máy chủ đó.
+    \item Nếu không, chọn máy chủ có \code{active_conns} thấp nhất trong toàn cụm.
+  \end{itemize}
+\end{enumerate}
+
+\subsection{Nhóm D: Phân Tích Thất Bại \& Debugging Thực Tế (Post-Mortem Analysis)}
+\begin{enumerate}
+  \item \textbf{Tình huống sự cố}: Một ngân hàng số triển khai Semantic Cache cho chatbot tư vấn tài chính.
+  Một khách hàng VIP hỏi: ``Số dư tài khoản tiết kiệm của tôi là bao nhiêu?''. Chatbot gọi LLM và trả lời: ``Số dư của bạn là 500 triệu VNĐ''. Câu hỏi và câu trả lời này được lưu vào Semantic Cache.
+  Năm phút sau, một khách hàng phổ thông khác hỏi: ``Tôi muốn kiểm tra số dư tiết kiệm của mình''.
+  Do độ tương đồng Cosine giữa hai câu hỏi đạt $0.94 > \tau = 0.88$, Semantic Cache lập tức trả về: ``Số dư của bạn là 500 triệu VNĐ''!
+  Sự cố làm lộ thông tin tài chính nghiêm trọng và gây hoang mang cho khách hàng.
+  Hãy viết báo cáo phân tích sự cố (Post-Mortem): Phân tích sai lầm cốt tử trong thiết kế Cache Key, và xây dựng lại kiến trúc \textbf{Tenant/User-Scoped Cache Key} an toàn tuyệt đối.
+\end{enumerate}
+
+---
+
+\section{Hướng Dẫn Lời Giải \& Bình Luận Kỹ Thuật Chi Tiết}
+\label{sec:ch13-solutions}
+
+\subsection{Lời Giải Nhóm A: Câu Hỏi Tư Duy Bản Chất}
+\begin{itemize}
+  \item \textbf{Lời giải Câu A.1}:
+  Semantic Caching tìm kiếm sự tương đồng thuần túy dựa trên ngữ nghĩa của câu chữ mà mặc định không nhận biết được ngữ cảnh bảo mật của người hỏi.
+  Nếu hai người dùng thuộc hai công ty khác nhau (Tenant A và Tenant B) hoặc hai cá nhân khác nhau hỏi cùng một câu hỏi chung, việc dùng chung một kho vector cache toàn cục sẽ dẫn đến nguy cơ rò rỉ dữ liệu chéo nghiêm trọng.
+  \textbf{Giải pháp}: Bắt buộc phải áp dụng kiến trúc \term{Partitioned Cache Keys}:
+  Khóa tìm kiếm trong cache không chỉ là vector ngữ nghĩa mà phải đi kèm bộ lọc metadata bắt buộc:
+  \begin{align*}
+  \text{Filter} = (\text{tenant\_id} == \text{current\_tenant}) \;\land\; \Big( &\text{data\_classification} == \text{"PUBLIC"} \\
+  &\lor\; \text{user\_id} == \text{current\_user} \Big)
+  \end{align*}
+  Chỉ những câu hỏi thuộc dữ liệu công khai dùng chung (như chính sách, tài liệu hướng dẫn) mới được chia sẻ giữa các người dùng.
+
+  \item \textbf{Lời giải Câu A.2}:
+  Trong trường hợp Cache Miss, người dùng phải chịu một hình phạt kép về độ trễ (\textit{Cache Miss Penalty}):
+  \begin{equation*}
+  \text{Total Latency}_{\text{miss}} = \text{Embedding Time} + \text{Vector Search Time} + \text{LLM Generation Time}
+  \end{equation*}
+  Nếu dùng mô hình embedding lớn mất 40ms, mỗi lần trượt cache, hệ thống sẽ lãng phí thêm 40ms vô ích trước khi gọi được LLM.
+  Do đó, trong kiến trúc Semantic Cache, người ta luôn ưu tiên các mô hình embedding cực nhẹ (dưới 50MB, kích thước 384 chiều, chạy trên CPU/ONNX Runtime mất dưới 5ms) để giảm thiểu tối đa hình phạt độ trễ khi Miss.
+
+  \item \textbf{Lời giải Câu A.3}:
+  Khi sử dụng giao thức Streaming (Server-Sent Events), người dùng nhìn thấy các từ xuất hiện liên tục ngay khi chúng được sinh ra.
+  Nếu TPOT đạt mức $40 - 50\text{ms/token}$ (tốc độ $20 - 25\text{ tokens/s}$), người dùng có cảm giác hệ thống phản hồi tức thì và đọc theo dòng văn bản một cách tự nhiên.
+  Dù toàn bộ câu trả lời 1000 tokens mất tổng cộng 40 giây (Total Latency lớn), người dùng không cảm thấy phải chờ đợi. Ngược lại, nếu không stream mà chờ đủ 40 giây mới hiển thị toàn bộ văn bản một lần, người dùng sẽ cho rằng hệ thống đã bị treo hoặc lỗi mạng!
+\end{itemize}
+
+\subsection{Lời Giải Nhóm B: Tính Toán Giải Tích \& Số Học Bằng Tay}
+\begin{itemize}
+  \item \textbf{Lời giải Bài B.1}:
+  \begin{enumerate}
+    \item Tổng số truy vấn mỗi tháng:
+    \begin{equation*}
+    N_{\text{month}} = 5.000.000 \text{ req/ngày} \times 30 \text{ ngày} = 150.000.000 \text{ requests}
+    \end{equation*}
+    Chi phí khi chưa có cache:
+    \begin{equation*}
+    \text{Cost}_{\text{no\_cache}} = 150.000.000 \times \$0.01 = \mathbf{\$1.500.000\text{/tháng}}
+    \end{equation*}
+
+    \item Hiệu quả giảm tải của bộ nhớ đệm hai tầng:
+    Tổng tỷ lệ Hit Rate kết hợp:
+    \begin{equation*}
+    \text{HitRate}_{\text{total}} = 15\% (\text{Exact}) + 25\% (\text{Semantic}) = 40\%
+    \end{equation*}
+    Số lượng truy vấn được giải đáp trực tiếp từ cache mà không cần gọi LLM:
+    \begin{equation*}
+    N_{\text{saved}} = 150.000.000 \times 40\% = 60.000.000 \text{ requests}
+    \end{equation*}
+    Số tiền tiết kiệm thô từ việc không gọi LLM:
+    \begin{equation*}
+    \text{Gross Savings} = 60.000.000 \times \$0.01 = \$600.000\text{/tháng}
+    \end{equation*}
+    Số tiền tiết kiệm ròng sau khi trừ chi phí hạ tầng cache:
+    \begin{equation*}
+    \text{Net Savings} = \$600.000 - \$1.500 = \mathbf{\$598.500\text{/tháng}}
+    \end{equation*}
+
+    \item Tỷ suất hoàn vốn đầu tư (ROI):
+    \begin{equation*}
+    \text{ROI} = \frac{\$598.500}{\$1.500} \times 100\% = \mathbf{39.900\%}!
+    \end{equation*}
+    Khoản đầu tư vào Semantic Cache mang lại lợi nhuận gấp gần 400 lần chi phí bỏ ra!
+  \end{enumerate}
+
+  \item \textbf{Lời giải Bài B.2}:
+  Tải đỉnh yêu cầu sinh token:
+  \begin{equation*}
+  \text{Decode Rate} = 500 \text{ QPS} \times 100 \text{ tokens} = 50.000 \text{ tokens/giây}
+  \end{equation*}
+  Mỗi máy chủ xử lý tối đa 800 tokens/giây. Để giữ tải ở mức an toàn $\le 80\%$ công suất:
+  \begin{equation*}
+  \text{Capacity per server (80\%)} = 800 \times 0.8 = 640 \text{ tokens/giây}
+  \end{equation*}
+  Số lượng máy chủ cần thiết theo thông lượng sinh token:
+  \begin{equation*}
+  N_{\text{servers, throughput}} = \frac{50.000}{640} = 78.125 \implies 79 \text{ máy chủ}
+  \end{equation*}
+  Kiểm tra ràng buộc về số lượng kết nối đồng thời:
+  Giả sử thời gian trung bình của mỗi request là $T = \text{TTFT} + \text{DecodeTime} = 0.5\text{s} + \frac{100}{30}\text{s} \approx 3.83\text{s}$.
+  Theo định luật Little ($L = \lambda W$), số request đồng thời vào giờ cao điểm:
+  \begin{equation*}
+  L = 500 \times 3.83 \approx 1915 \text{ requests}
+  \end{equation*}
+  Số máy chủ cần thiết theo dung lượng kết nối (mỗi máy tối đa $64 \times 0.8 = 51.2$ requests):
+  \begin{equation*}
+  N_{\text{servers, concurrency}} = \frac{1915}{51.2} \approx 37.4 \implies 38 \text{ máy chủ}
+  \end{equation*}
+  Lấy giá trị lớn nhất giữa hai ràng buộc: Hệ thống cần tối thiểu \textbf{79 máy chủ GPU L40S} (tương đương $79 \times 8 = 632$ GPU) để đảm bảo an toàn tuyệt đối ở tải đỉnh!
+\end{itemize}
+
+\subsection{Lời Giải Nhóm C: Thực Hành Kỹ Nghệ \& Lập Trình}
+\begin{lstlisting}[language=Python]
+from typing import List, Dict, Optional
+
+class BackendServer:
+    def __init__(self, server_id: str, max_conns: int = 50):
+        self.server_id = server_id
+        self.max_conns = max_conns
+        self.active_conns = 0
+        self.cached_prompt_hashes: set = set()
+
+class ContextAwareLoadBalancer:
+    """Bo can bang tai uu tien Prefix Affinity va han che ket noi."""
+    def __init__(self, servers: List[BackendServer]):
+        self.servers = servers
+
+    def route_request(self, system_prompt_hash: Optional[str] = None) -> Optional[BackendServer]:
+        # 1. Loc ra cac may chu chua bi qua tai
+        available_servers = [s for s in self.servers if s.active_conns < s.max_conns]
+        if not available_servers:
+            return None # Toan bo he thong bi qua tai (Trigger Circuit Breaker)
+
+        # 2. Uu tien may chu co Prefix Cache Hit
+        if system_prompt_hash:
+            cached_candidates = [
+                s for s in available_servers 
+                if system_prompt_hash in s.cached_prompt_hashes
+            ]
+            if cached_candidates:
+                # Chon may chu co active_conns thap nhat trong nhom da cache
+                selected = min(cached_candidates, key=lambda s: s.active_conns)
+                selected.active_conns += 1
+                return selected
+
+        # 3. Fallback: Thuat toan Least Connections thong thuong
+        selected = min(available_servers, key=lambda s: s.active_conns)
+        if system_prompt_hash:
+            selected.cached_prompt_hashes.add(system_prompt_hash)
+        selected.active_conns += 1
+        return selected
+
+    def release_connection(self, server_id: str):
+        for s in self.servers:
+            if s.server_id == server_id and s.active_conns > 0:
+                s.active_conns -= 1
+                break
+\end{lstlisting}
+
+\subsection{Lời Giải Nhóm D: Phân Tích Thất Bại Thực Tế (Post-Mortem Analysis)}
+\begin{debugbox}[Báo Cáo Sự Cố: Lộ Thông Tin Số Dư Tài Khoản Qua Semantic Cache]
+\textbf{1. Tóm tắt sự cố}: Chatbot ngân hàng đã trả về thông tin số dư tài khoản của Khách hàng A cho Khách hàng B do Semantic Cache lưu trữ câu hỏi mở không có khóa định danh người dùng.
+
+\textbf{2. Phân tích nguyên nhân gốc rễ (Root Cause Analysis)}:
+\begin{itemize}
+  \item \textbf{Lỗi thiết kế Cache Scope (Global Scope Trap)}: Toàn bộ các câu hỏi đều được đưa vào cùng một không gian vector chung mà không phân loại xem truy vấn đó có chứa dữ liệu cá nhân (Personalized Data) hay không.
+  \item \textbf{Thiếu cơ chế phân loại truy vấn (Intent Classification)}: Các câu hỏi thuộc nhóm ``Tài khoản cá nhân / Giao dịch'' có tính chất động theo thời gian thực và phụ thuộc vào phiên làm việc, không bao giờ được phép lưu vào Cache tĩnh!
+\end{itemize}
+
+\textbf{3. Kiến trúc sửa đổi chuẩn kỹ nghệ (Remediation Architecture)}:
+\begin{enumerate}
+  \item \textbf{Gắn nhãn Cacheability}: Chỉ cho phép ghi vào Cache những truy vấn được gắn nhãn \code{CACHEABLE=TRUE} (các câu hỏi về lãi suất chung, thủ tục vay, địa chỉ chi nhánh). Tất cả các intent về số dư, thông tin cá nhân bắt buộc gắn cờ \code{CACHE_CONTROL: NO-STORE}.
+  \item \textbf{Cấu trúc Khóa Đa Tầng (Compound Cache Key)}: Nếu bắt buộc cache dữ liệu cá nhân (ví dụ sao kê trong phiên), khóa cache bắt buộc phải được băm kết hợp:
+  \begin{equation*}
+  \text{Key} = \text{Hash}(\text{user\_id} + \text{account\_id} + \text{prompt})
+  \end{equation*}
+  Tuyệt đối không một người dùng nào có thể đọc dữ liệu cache của người khác!
+\end{enumerate}
+\end{debugbox}
+
+\begin{checkpointbox}[Tiêu Chuẩn Đạt Yêu Cầu Về Thiết Kế Kiến Trúc Hệ Thống AI]
+Một kỹ sư AI được công nhận hoàn thành xuất sắc Chương 13 khi:
+\begin{itemize}
+  \item Nắm vững quy trình 4 bước thiết kế hệ thống AI và phân biệt rõ ràng giữa thiết kế backend CRUD và hạ tầng LLM serving.
+  \item Tự thực hiện thành thạo các bài toán ước tính dung lượng thô (Back-of-the-Envelope) tính toán QPS, băng thông mạng, và số lượng GPU cần thiết.
+  \item Hiểu cặn kẽ nguyên lý toán học của Semantic Caching, đánh đổi của ngưỡng $\tau$, và rủi ro rò rỉ dữ liệu đa khách hàng.
+  \item Có khả năng thiết kế và cài đặt bộ cân bằng tải phân tán có nhận thức về Prefix Caching và mạch ngắt (Circuit Breaker).
+\end{itemize}
+\end{checkpointbox}

@@ -1,0 +1,460 @@
+% ==============================================================================
+% CH03_SYSTEMS_NETWORKING.TEX — CHƯƠNG 3: CS, LINUX, MẠNG & HẠ TẦNG BACKEND
+% ==============================================================================
+% Định dạng: Sách chuyên khảo kinh điển (Classic Engineering Monograph)
+% Chuẩn mực: Không dùng hộp đóng khung 4 phía, toán học 5 bước, bài tập đa tầng
+% ==============================================================================
+
+\chapter{Khoa Học Máy Tính, Linux, Mạng \& Hạ Tầng Backend}
+\label{ch:systems-networking}
+
+Một hệ thống AI trong thế giới thực không vận hành trong chân không. Nó tồn tại trên các máy chủ phần cứng vật lý, được điều phối bởi nhân hệ điều hành Linux, giao tiếp với người dùng qua hàng chục nghìn kết nối mạng TCP/IP và được che chắn bởi các cổng API Gateway chịu tải cao. Một kỹ sư AI nếu thiếu nền tảng vững chắc về hệ thống và mạng máy tính sẽ bất lực khi đối mặt với các sự cố phân mảnh bộ nhớ ảo, tắc nghẽn socket kết nối, hoặc suy giảm thông lượng do cấu hình sai máy chủ web.
+
+---
+
+\section{Khoa Học Máy Tính Nội Vi: Phân Cấp Bộ Nhớ \& Bộ Nhớ Ảo}
+\label{sec:memory-hierarchy-paging}
+
+\subsection{Kim Tự Tháp Phân Cấp Bộ Nhớ \& Các Con Số Độ Trễ Cốt Lõi}
+
+Trong thiết kế phần cứng máy tính, có một sự đánh đổi vật lý bất biến: **Bộ nhớ càng nhanh thì càng đắt đỏ và có dung lượng càng nhỏ**. Ngược lại, bộ nhớ càng rẻ và dung lượng càng lớn thì tốc độ truy xuất càng chậm.
+
+\begin{table}[htbp]
+\centering
+\small
+\setlength{\tabcolsep}{6pt}
+\begin{tabular}{p{0.25\textwidth}p{0.22\textwidth}p{0.22\textwidth}p{0.22\textwidth}}
+\toprule
+\textbf{Tầng Bộ Nhớ} & \textbf{Dung Lượng Điển Hình} & \textbf{Độ Trễ Truy Xuất} & \textbf{Băng Thông Dữ Liệu} \\
+\midrule
+\textbf{Thanh Ghi (Registers)} & $\approx 1\text{ KiB}$ & $\approx 0.5\text{ ns}$ & Hàng chục $\text{TB/s}$ \\
+\textbf{Bộ Nhớ Đệm L1 Cache} & $32\text{ -- }64\text{ KiB}$ & $\approx 1\text{ ns}$ & $\approx 5\text{ TB/s}$ \\
+\textbf{Bộ Nhớ Đệm L2 Cache} & $512\text{ KiB -- }2\text{ MiB}$ & $\approx 3\text{ -- }5\text{ ns}$ & $\approx 1\text{ -- }2\text{ TB/s}$ \\
+\textbf{Bộ Nhớ Đệm L3 Cache} & $32\text{ -- }128\text{ MiB}$ & $\approx 10\text{ -- }20\text{ ns}$ & $\approx 300\text{ -- }800\text{ GB/s}$ \\
+\textbf{Bộ Nhớ Chính (DRAM)} & $64\text{ -- }512\text{ GiB}$ & $\approx 60\text{ -- }100\text{ ns}$ & $\approx 50\text{ -- }100\text{ GB/s}$ \\
+\textbf{VRAM GPU (HBM3)} & $80\text{ -- }96\text{ GiB}$ & $\approx 20\text{ -- }40\text{ ns}$ & $\approx 2.000\text{ -- }3.350\text{ GB/s}$ \\
+\textbf{Ổ Cứng NVMe SSD} & $1\text{ -- }8\text{ TiB}$ & $\approx 10\text{ -- }50\text{ }\mu\text{s}$ & $\approx 5\text{ -- }14\text{ GB/s}$ \\
+\textbf{Truy Vấn Mạng Nội Bộ (LAN)} & Không giới hạn & $\approx 100\text{ -- }500\text{ }\mu\text{s}$ & $\approx 1\text{ -- }10\text{ GB/s}$ \\
+\textbf{Truy Vấn Internet (WAN)} & Không giới hạn & $\approx 20\text{ -- }200\text{ ms}$ & $\approx 10\text{ -- }100\text{ MB/s}$ \\
+\bottomrule
+\end{tabular}
+\caption{Bảng phân cấp độ trễ và băng thông truy xuất tài nguyên máy tính}
+\label{tbl:latency-numbers}
+\end{table}
+
+Để có trực giác sâu sắc, nếu chuẩn hóa thời gian truy xuất thanh ghi CPU ($0.5\text{ns}$) tương đương $1\text{ giây}$ của đời người:
+\begin{itemize}
+  \item Truy xuất bộ nhớ L1 Cache tương đương $2\text{ giây}$.
+  \item Truy xuất RAM hệ thống tương đương hơn $3\text{ phút}$.
+  \item Đọc một sector từ ổ cứng NVMe tương đương gần $1\text{ ngày}$.
+  \item Gửi một gói tin mạng Internet xuyên quốc gia tương đương hơn $1\text{ năm}$!
+\end{itemize}
+
+Quy luật vật lý này giải thích tại sao mọi kỹ thuật tối ưu hóa trong AI Engineering (từ Caching hai tầng trong RAG đến PagedAttention trong vLLM) đều xoay quanh một mục tiêu duy nhất: **Đưa dữ liệu cần tính toán lên tầng bộ nhớ cao nhất có thể và hạn chế tối đa việc di chuyển dữ liệu qua các đường bus băng thông thấp**.
+
+\subsection{Cơ Chế Bộ Nhớ Ảo (Virtual Memory) \& Phân Trang (Paging)}
+
+Trong hệ điều hành hiện đại, các tiến trình không bao giờ tương tác trực tiếp với địa chỉ vật lý của thanh RAM. Thay vào đó, mỗi tiến trình sở hữu một **Không Gian Địa Chỉ Ảo (Virtual Address Space)** liên tục từ $0$ đến $2^{64}-1$.
+
+Bộ xử lý trung tâm (CPU) thông qua đơn vị quản lý bộ nhớ phần cứng (\textit{Memory Management Unit -- MMU}) phối hợp với nhân hệ điều hành Linux để ánh xạ các địa chỉ ảo này thành các địa chỉ vật lý rời rạc thông qua **Bảng Phân Trang (Page Table)**:
+\begin{itemize}
+  \item Bộ nhớ được chia thành các khối cố định gọi là **Trang Ảo (Pages)** và **Khung Trang Vật Lý (Page Frames)**, thường có kích thước $4\text{ KiB}$ (hoặc Huge Pages $2\text{ MiB}$ đến $1\text{ GiB}$).
+  \item Khi tiến trình truy xuất một địa chỉ ảo, MMU tra cứu bảng trang. Nếu trang dữ liệu đang nằm trên RAM, việc truy xuất diễn ra bình thường nhờ bộ đệm dịch địa chỉ phần cứng (\textit{Translation Lookaside Buffer -- TLB}).
+  \item Nếu trang đó chưa được cấp phát vật lý hoặc đã bị đẩy xuống ổ cứng hoán đổi (Swap), hiện tượng **Lỗi Trang (Page Fault)** xảy ra. Hệ điều hành phải dừng tiến trình, nạp dữ liệu từ đĩa vào RAM rồi mới cho tiến trình tiếp tục.
+\end{itemize}
+
+\begin{definition}[Mối Liên Hệ Giữa Phân Trang Hệ Điều Hành \& PagedAttention Trong vLLM]
+Trong các hệ thống suy luận LLM truyền thống, bộ nhớ đệm KV Cache của mỗi người dùng bắt buộc phải được cấp phát liên tục trong VRAM. Vì không thể biết trước người dùng sẽ nói bao nhiêu từ, hệ thống phải dự phòng trước cho kích thước tối đa ($4.096$ tokens), khiến hơn $70\%$ VRAM bị lãng phí do phân mảnh nội vi (\textit{Internal Fragmentation}). 
+
+Thuật toán **PagedAttention** (Kwon et al., 2023) đã áp dụng chính xác nguyên lý phân trang bộ nhớ ảo của hệ điều hành vào VRAM của GPU: chia nhỏ KV Cache thành các khối trang bộ nhớ $16$ hoặc $32$ tokens không cần liên tục về mặt vật lý, loại bỏ $100\%$ sự lãng phí phân mảnh và cho phép phục vụ số lượng request đồng thời tăng vọt gấp 4 đến 8 lần.
+\end{definition}
+
+---
+
+\section{Quản Trị Linux Nâng Cao: Cgroups, Namespaces \& Daemons}
+\label{sec:linux-advanced}
+
+\subsection{Bản Chất Cốt Lõi Của Container: Cgroups \& Namespaces}
+
+Nhiều người lầm tưởng Docker là một chiếc máy ảo chạy một hệ điều hành thu nhỏ. Trong thực tế, **không có cái gì gọi là ``Docker Container'' trong nhân Linux**. Container thực chất chỉ là một tiến trình Linux thông thường được cách ly bởi hai cơ chế cốt lõi của Linux Kernel:
+
+\paragraph{1. Linux Namespaces (Cô lập tầm nhìn)}
+Namespaces giới hạn những gì một tiến trình có thể **nhìn thấy**:
+\begin{itemize}
+  \item \textbf{PID Namespace}: Tiến trình trong container nhìn thấy nó là PID 1, hoàn toàn không thấy các tiến trình khác của máy chủ mẹ.
+  \item \textbf{NET Namespace}: Cung cấp giao diện mạng ảo, bảng định tuyến và danh sách cổng riêng biệt.
+  \item \textbf{MNT Namespace}: Cô lập cây thư mục hệ thống tệp tin (kết hợp với \code{chroot} và \code{overlayfs}).
+  \item \textbf{IPC / UTS / User Namespaces}: Cách ly hàng đợi thông điệp, tên máy chủ (\textit{hostname}) và ánh xạ định danh người dùng.
+\end{itemize}
+
+\paragraph{2. Control Groups -- cgroups v2 (Giới hạn tài nguyên)}
+Nếu Namespaces cô lập những gì tiến trình nhìn thấy, thì Cgroups giới hạn lượng tài nguyên mà tiến trình đó được phép **sử dụng**:
+\begin{itemize}
+  \item \textbf{Memory Cgroup}: Giới hạn dung lượng RAM tối đa (vd: \code{memory.max = 16G}). Nếu tiến trình AI xử lý một tệp PDF quá lớn và tiêu tốn vượt quá $16\text{ GB}$, nhân Linux sẽ kích hoạt cơ chế \textbf{OOM-Killer (Out of Memory Killer)} để bắn hạ tiến trình đó ngay lập tức nhằm bảo vệ an toàn cho toàn bộ máy chủ mẹ.
+  \item \textbf{CPU Cgroup}: Giới hạn tỷ lệ phần trăm chu kỳ CPU mà tiến trình được phép sử dụng (\code{cpu.max = 200000 100000} tương đương tối đa 2 lõi CPU).
+\end{itemize}
+
+\subsection{Vận Hành Dịch Vụ Nền Tảng Với Systemd Chuẩn Doanh Nghiệp}
+
+Trong môi trường sản xuất không dùng Kubernetes, các thành phần như máy chủ vLLM, API Gateway hoặc Worker xử lý hàng đợi bắt buộc phải được quản trị bằng hệ thống khởi động và dịch vụ chuẩn của Linux: **systemd**.
+
+Dưới đây là một tệp cấu hình dịch vụ mẫu (\code{/etc/systemd/system/vllm-serving.service}) đạt chuẩn vận hành:
+
+\begin{lstlisting}[language=bash]
+[Unit]
+Description=vLLM High-Performance Model Serving Engine
+After=network.target nvidia-persistenced.service
+
+[Service]
+Type=simple
+User=ai-deployer
+Group=ai-deployer
+WorkingDirectory=/opt/ai-infrastructure/serving
+Environment="CUDA_VISIBLE_DEVICES=0,1"
+Environment="VLLM_LOGGING_LEVEL=INFO"
+ExecStart=/opt/ai-infrastructure/venv/bin/python3 -m vllm.entrypoints.openai.api_server \
+    --model /models/meta-llama-3-70b-instruct \
+    --tensor-parallel-size 2 \
+    --gpu-memory-utilization 0.90 \
+    --port 8000 \
+    --max-model-len 8192
+
+# Co che tu dong khoi phuc khi bi crash
+Restart=always
+RestartSec=5s
+
+# Tang gioi han File Descriptors de phuc vu hang chuc nghin socket
+LimitNOFILE=65536
+LimitNPROC=32768
+LimitMEMLOCK=infinity
+
+# Ghi nhat ky he thong qua journald
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target
+\end{lstlisting}
+
+Để kích hoạt và theo dõi nhật ký dịch vụ trong thời gian thực:
+\begin{lstlisting}[language=bash]
+sudo systemctl daemon-reload
+sudo systemctl enable --now vllm-serving.service
+# Theo doi 100 dong log moi nhat va stream lien tuc
+journalctl -u vllm-serving.service -f -n 100
+\end{lstlisting}
+
+---
+
+\section{Mạng Máy Tính Chuyên Sâu Cho Hạ Tầng AI: TCP, TLS \& Streaming}
+\label{sec:networking-deepdive}
+
+\subsection{Bản Chất Bắt Tay TCP \& TLS 1.3: Độ Trễ Mạng Tích Lũy}
+
+Một yêu cầu API gọi LLM không thể truyền đi nếu không thiết lập kênh truyền tin cậy qua mạng. Quá trình thiết lập kết nối trải qua ba giai đoạn độc lập:
+
+\begin{figure}[htbp]
+\centering
+\begin{tcolorbox}[blanker,left=12pt,top=6pt,bottom=6pt,borderline west={2.5pt}{0pt}{primarycolor}]
+\small
+\textbf{Chu Trình Bắt Tay Mạng Hoàn Chỉnh (Network Handshake Flow)}:\\[0.1cm]
+\textbf{1. Phân giải DNS}: Client $\longleftrightarrow$ DNS Server (Tốn 1 Round-Trip Time -- RTT nếu không có cache).\\
+$\downarrow$\\
+\textbf{2. Bắt tay 3 bước TCP (Three-Way Handshake)}:
+\begin{itemize}
+  \item Client $\longrightarrow$ Server: \texttt{SYN}
+  \item Server $\longrightarrow$ Client: \texttt{SYN-ACK}
+  \item Client $\longrightarrow$ Server: \texttt{ACK} (Hoàn tất 1 RTT).
+\end{itemize}
+$\downarrow$\\
+\textbf{3. Bắt tay mã hóa bảo mật TLS 1.3}:
+\begin{itemize}
+  \item Client $\longrightarrow$ Server: \texttt{ClientHello + KeyShare}
+  \item Server $\longrightarrow$ Client: \texttt{ServerHello + KeyShare + Encrypted Certificate} (Hoàn tất thêm 1 RTT).
+\end{itemize}
+$\downarrow$\\
+\textbf{4. Gửi yêu cầu HTTP Request đầu tiên}: Client $\longrightarrow$ Server: \texttt{POST /v1/chat/completions} (Tốn thêm 1/2 RTT để tới nơi).
+\end{tcolorbox}
+\caption{Luồng thiết lập kết nối mạng an toàn từ Client tới máy chủ AI}
+\label{fig:tcp-tls-handshake}
+\end{figure}
+
+Tổng thời gian chỉ để máy chủ bắt đầu nhận được byte đầu tiên của yêu cầu nếu tạo kết nối mới hoàn toàn là:
+\begin{equation}
+T_{\text{Connect}} = \text{RTT}_{\text{DNS}} + \text{RTT}_{\text{TCP}} + \text{RTT}_{\text{TLS}} \approx 3 \times \text{RTT}
+\label{eq:handshake-latency}
+\end{equation}
+
+Nếu máy chủ đặt tại Mỹ ($\text{RTT} \approx 180\text{ms}$ từ Việt Nam), người dùng phải chờ **hơn $540\text{ms}$** trước khi mô hình AI thậm chí bắt đầu đọc prompt! 
+
+\begin{definition}[Quy Tắc Vàng Về Tái Sử Dụng Kết Nối (Connection Pooling)]
+Trong hạ tầng AI, các ứng dụng Backend tuyệt đối không bao giờ được khởi tạo phiên HTTP mới cho mỗi câu hỏi. Hệ thống bắt buộc phải duy trì một **Hồ bơi kết nối (HTTP Connection Pool)** với cơ chế \code{TCP Keep-Alive}. Nhờ đó, các yêu cầu tiếp theo sẽ tái sử dụng kênh truyền đã được xác thực mã hóa sẵn, triệt tiêu $100\%$ thời gian bắt tay và gửi request đi trong đúng $0\text{ ms}$ phụ trội!
+\end{definition}
+
+\subsection{So Sánh Toàn Diện Các Giao Thức Streaming Token}
+
+Khi xây dựng giao diện tương tác với mô hình ngôn ngữ lớn, việc chọn sai giao thức truyền tải sẽ làm tăng độ phức tạp kiến trúc và tiêu tốn tài nguyên máy chủ. Bảng~\ref{tbl:streaming-protocols} so sánh 4 giao thức phổ biến nhất.
+
+\begin{table}[htbp]
+\centering
+\small
+\setlength{\tabcolsep}{5pt}
+\begin{tabular}{p{0.22\textwidth}p{0.24\textwidth}p{0.24\textwidth}p{0.22\textwidth}}
+\toprule
+\textbf{Giao Thức} & \textbf{Cơ Chế Truyền Dẫn} & \textbf{Ưu Điểm Nổi Bật} & \textbf{Hạn Chế \& Vùng Sử Dụng} \\
+\midrule
+\textbf{HTTP/1.1 Chunked} & Đơn công (Server $\to$ Client), truyền từng đoạn dữ liệu nhị phân. & Đơn giản, tương thích mọi proxy và tường lửa cổ điển. & Thiếu cơ chế phân định sự kiện có cấu trúc, khó phân biệt metadata và token. \\
+\addlinespace
+\textbf{Server-Sent Events (SSE)} & Đơn công (Server $\to$ Client) trên nền HTTP chuẩn, định dạng text \code{data: \{...\}}. & Nhẹ, tự động kết nối lại khi mất mạng, tương thích hoàn hảo với HTTP/2, chuẩn của OpenAI API. & Chỉ truyền một chiều (Client không gửi được tin nhắn mới trên cùng kết nối). Tối ưu nhất cho Chatbot LLM. \\
+\addlinespace
+\textbf{WebSocket} & Song công toàn phần (Full-Duplex), nâng cấp từ kết nối HTTP ban đầu. & Giao tiếp hai chiều tức thời, độ trễ cực thấp. & Cần quản lý trạng thái kết nối phức tạp, dễ bị ngắt bởi proxy timeout, không tận dụng được HTTP Caching. Thích hợp cho Voice AI / Audio Stream. \\
+\addlinespace
+\textbf{gRPC (HTTP/2 + Protobuf)} & Đa luồng nhị phân, hỗ trợ cả Unary và Bi-directional Streaming. & Hiệu năng cao nhất, mã hóa nhị phân nhỏ gọn, tự động sinh mã client đa ngôn ngữ. & Trình duyệt không hỗ trợ trực tiếp (cần gRPC-Web proxy). Chuẩn mực số một cho giao tiếp giữa các microservices nội bộ (Backend $\leftrightarrow$ vLLM). \\
+\bottomrule
+\end{tabular}
+\caption{Ma trận so sánh các giao thức truyền luồng dữ liệu thời gian thực trong hệ thống AI}
+\label{tbl:streaming-protocols}
+\end{table}
+
+---
+
+\section{Thiết Kế Cổng API Gateway \& Giới Hạn Tốc Độ (Rate Limiting)}
+\label{sec:fastapi-ratelimiting}
+
+\subsection{Thuật Toán Cửa Sổ Trượt Nguyên Tử (Atomic Sliding Window Counter)}
+
+Để bảo vệ các dịch vụ AI đắt đỏ trước các cuộc tấn công từ chối dịch vụ (DDoS) hoặc việc một khách hàng vô tình gửi hàng nghìn truy vấn cùng lúc làm kiệt quệ tài nguyên GPU, API Gateway bắt buộc phải triển khai cơ chế **Giới hạn Tốc độ (Rate Limiter)**.
+
+Thuật toán cửa sổ cố định (\textit{Fixed Window}) truyền thống có một lỗ hổng bảo mật nghiêm trọng: Nếu người dùng gửi toàn bộ hạn mức vào giây cuối cùng của phút thứ nhất, và gửi tiếp toàn bộ hạn mức vào giây đầu tiên của phút thứ hai, hệ thống sẽ phải chịu tải gấp đôi hạn mức an toàn trong vòng 2 giây!
+
+Thuật toán chuẩn mực nhất là **Cửa sổ trượt dùng Sorted Set của Redis (Redis Sliding Window Counter)**:
+\begin{enumerate}
+  \item Lưu trữ các mốc thời gian truy vấn dưới dạng điểm số (\textit{Score}) trong cấu trúc Sorted Set (\code{ZSET}) của Redis với khóa là mã người dùng hoặc IP.
+  \item Khi có request mới tại thời điểm $t$:
+    \begin{itemize}
+      \item Xóa toàn bộ các bản ghi cũ hơn $t - W$ (trong đó $W$ là độ dài cửa sổ, ví dụ 60 giây) bằng lệnh \code{ZREMRANGEBYSCORE}.
+      \item Đếm số lượng phần tử còn lại bằng lệnh \code{ZCARD}.
+      \item Nếu số lượng $< \text{Limit}$: Chèn mốc thời gian hiện tại vào bằng \code{ZADD} và cho phép request đi tiếp.
+      \item Nếu số lượng $\ge \text{Limit}$: Từ chối request và trả về mã lỗi \code{HTTP 429 Too Many Requests}.
+    \end{itemize}
+\end{enumerate}
+
+Để đảm bảo toàn bộ chuỗi thao tác trên diễn ra **nguyên tử (Atomic)** mà không bị tranh chấp dữ liệu giữa hàng trăm worker phân tán, mã logic phải được đóng gói bên trong một kịch bản **Redis Lua Script**:
+
+\begin{lstlisting}[language=Python]
+# Kich ban Lua chay truc tiep trong nhan Redis de dam bao tinh nguyen tu
+LUA_SLIDING_WINDOW_SCRIPT = """
+local key = KEYS[1]
+local now = tonumber(ARGV[1])
+local window = tonumber(ARGV[2])
+local limit = tonumber(ARGV[3])
+local clear_before = now - window
+
+-- 1. Loai bo cac yeu cau cu nam ngoai cua so thoi gian
+redis.call('ZREMRANGEBYSCORE', key, '-inf', clear_before)
+
+-- 2. Dem so luong yeu cau con lai trong cua so
+local current_requests = redis.call('ZCARD', key)
+
+-- 3. Kiem tra han muc
+if current_requests < limit then
+    redis.call('ZADD', key, now, now)
+    redis.call('EXPIRE', key, math.ceil(window))
+    return 1 -- Duoc phep tiep tuc
+else
+    return 0 -- Bi tu choi (Rate Limited)
+end
+"""
+\end{lstlisting}
+
+---
+
+\section{Ví Dụ Giải Mẫu Tính Toán Số Học Bằng Tay}
+\label{sec:ch03-numerical-walkthrough}
+
+\begin{example}[Tính Toán Chi Phí Độ Trễ Mạng Handshake Từ Hà Nội Tới Singapore]
+Một kỹ sư AI tại Hà Nội xây dựng một ứng dụng phân tích tài liệu gọi tới cụm máy chủ GPU đặt tại trung tâm dữ liệu AWS Singapore. 
+Thời gian truyền tín hiệu mạng hai chiều (\textit{Round-Trip Time -- RTT}) đo được qua lệnh ping là $\text{RTT} = 36\text{ ms}$.
+
+\begin{enumerate}
+  \item \textbf{Trường hợp 1: Không dùng Connection Pool (Tạo kết nối TLS mới cho mỗi request)}:
+  \begin{itemize}
+    \item Bắt tay TCP (3-way handshake): Cần 1 RTT:
+    \begin{equation*}
+    T_{\text{TCP}} = 1 \times 36\text{ ms} = 36\text{ ms}
+    \end{equation*}
+    \item Bắt tay TLS 1.3: Cần thêm 1 RTT:
+    \begin{equation*}
+    T_{\text{TLS}} = 1 \times 36\text{ ms} = 36\text{ ms}
+    \end{equation*}
+    \item Gửi HTTP Request và chờ byte đầu tiên phản hồi từ máy chủ (Network transit): Cần 1 RTT:
+    \begin{equation*}
+    T_{\text{Transit}} = 1 \times 36\text{ ms} = 36\text{ ms}
+    \end{equation*}
+    \item Giả sử thời gian suy luận thực tế của GPU sinh token đầu tiên là $\text{TTFT}_{\text{GPU}} = 80\text{ ms}$.
+    \item Tổng độ trễ Time-to-First-Token mà người dùng tại Hà Nội phải chờ là:
+    \begin{equation*}
+    \text{TTFT}_{\text{User, No-Pool}} = T_{\text{TCP}} + T_{\text{TLS}} + T_{\text{Transit}} + \text{TTFT}_{\text{GPU}} = 36 + 36 + 36 + 80 = 188\text{ ms}
+    \end{equation*}
+    Trong đó, **mạng chiếm tới hơn $57\%$ tổng thời gian chờ đợi** ($108\text{ms} / 188\text{ms}$).
+  \end{itemize}
+
+  \item \textbf{Trường hợp 2: Có sử dụng Connection Pool (Tái sử dụng kết nối TCP/TLS)}:
+  \begin{itemize}
+    \item Kênh truyền đã được duy trì sẵn sàng, $T_{\text{TCP}} = 0\text{ ms}$ và $T_{\text{TLS}} = 0\text{ ms}$.
+    \item Độ trễ người dùng cảm nhận lúc này chỉ còn:
+    \begin{equation*}
+    \text{TTFT}_{\text{User, With-Pool}} = T_{\text{Transit}} + \text{TTFT}_{\text{GPU}} = 36 + 80 = 116\text{ ms}
+    \end{equation*}
+  \end{itemize}
+  \item \textbf{Kết luận}: Chỉ bằng việc bật cơ chế Connection Pooling ở tầng ứng dụng Backend, độ trễ phản hồi của hệ thống đã được cắt giảm tới **$38.3\%$** mà không cần bỏ ra một đồng nào để nâng cấp phần cứng GPU!
+\end{enumerate}
+\end{example}
+
+---
+
+\section{Hiện Thực Hóa: Bộ Phân Tích Độ Trễ Mạng \& Rate Limiter}
+\label{sec:ch03-implementation}
+
+Dưới đây là một mô đun Python hoàn chỉnh triển khai thuật toán Cửa sổ trượt kiểm soát tốc độ truy vấn kết hợp bộ đo độ trễ mạng có kiểm định chặt chẽ:
+
+\begin{lstlisting}[language=Python]
+import time
+from typing import Dict, Any, List
+
+class InMemorySlidingWindowRateLimiter:
+    """Mo phong Rate Limiter cua so truot nguyen tu su dung bo nho cuc bo."""
+    
+    def __init__(self, limit: int = 10, window_seconds: float = 60.0):
+        self.limit = limit
+        self.window = window_seconds
+        # Luu tru danh sach timestamp theo user_id
+        self.storage: Dict[str, List[float]] = {}
+
+    def is_allowed(self, user_id: str, current_time: Optional[float] = None) -> bool:
+        now = current_time if current_time is not None else time.time()
+        clear_before = now - self.window
+        
+        if user_id not in self.storage:
+            self.storage[user_id] = []
+            
+        # 1. Loai bo cac timestamp cu nam ngoai cua so truot
+        timestamps = self.storage[user_id]
+        self.storage[user_id] = [t for t in timestamps if t > clear_before]
+        
+        # 2. Kiem tra han muc
+        if len(self.storage[user_id]) < self.limit:
+            self.storage[user_id].append(now)
+            return True
+        return False
+
+class NetworkLatencyBreakdownCalculator:
+    """Tinh toan phan ra do tre mang cho ung dung AI streaming."""
+    
+    @staticmethod
+    def calculate_total_ttft(
+        rtt_ms: float,
+        gpu_ttft_ms: float,
+        is_connection_reused: bool = True
+    ) -> Dict[str, Any]:
+        if rtt_ms < 0 or gpu_ttft_ms < 0:
+            raise ValueError("Do tre khong the la so am")
+            
+        handshake_overhead = 0.0 if is_connection_reused else (2.0 * rtt_ms)
+        transit_latency = rtt_ms
+        total_ttft = handshake_overhead + transit_latency + gpu_ttft_ms
+        
+        network_percentage = ((handshake_overhead + transit_latency) / total_ttft) * 100.0
+        
+        return {
+            "rtt_ms": rtt_ms,
+            "gpu_ttft_ms": gpu_ttft_ms,
+            "handshake_overhead_ms": handshake_overhead,
+            "transit_ms": transit_latency,
+            "total_ttft_ms": round(total_ttft, 2),
+            "network_percentage": round(network_percentage, 1),
+            "connection_reused": is_connection_reused
+        }
+\end{lstlisting}
+
+---
+
+\section{Hệ Thống Bài Tập \& Câu Hỏi Tư Duy Đa Tầng}
+\label{sec:ch03-exercises}
+
+\subsection{Nhóm A: Câu Hỏi Tư Duy Bản Chất (Conceptual Reasoning)}
+
+\begin{enumerate}[label=\textbf{A\arabic*.}]
+  \item \textbf{SSE vs WebSocket cho Chatbot AI}: Phân tích lý do tại sao các nền tảng hàng đầu thế giới như ChatGPT, Claude và Gemini đều lựa chọn Server-Sent Events (SSE) trên nền HTTP/2 thay vì WebSockets để truyền luồng token văn bản tới trình duyệt? Những lợi thế kiến trúc nào về Caching, Load Balancing và tự động kết nối lại đã quyết định sự lựa chọn này?
+  \item \textbf{Cơ chế OOM-Killer của Linux}: Khi bộ nhớ RAM của máy chủ bị cạn kiệt, nhân Linux sẽ dựa vào thuật toán nào để quyết định tiến trình nào sẽ bị tiêu diệt (\textit{Killed}) trước? Làm thế nào một kỹ sư hệ thống có thể cấu hình thông số \code{oom_score_adj} để bảo vệ tiến trình phục vụ mô hình AI không bị hệ điều hành bắn hạ nhầm khi xảy ra khủng hoảng bộ nhớ?
+  \item \textbf{Ý nghĩa của File Descriptors (NOFILE)}: Trong Linux, tại sao câu lệnh cấu hình \code{LimitNOFILE=65536} trong tệp systemd lại là yêu cầu sống còn cho các máy chủ API Gateway phục vụ mô hình ngôn ngữ lớn? Điều gì sẽ xảy ra ở tầng mạng nếu giữ nguyên giá trị mặc định (\code{1024}) khi có $2.000$ người dùng đồng thời mở kết nối streaming SSE?
+\end{enumerate}
+
+\subsection{Nhóm B: Bài Toán Tính Toán Giải Tích Bằng Tay (Analytical Problems)}
+
+\begin{enumerate}[label=\textbf{B\arabic*.}]
+  \item \textbf{Tính toán Băng thông Socket Máy chủ}: Một máy chủ AI Gateway phục vụ đồng thời $N = 5.000$ kết nối người dùng đang streaming câu trả lời. Giả sử tốc độ sinh token của mô hình là $R = 25\text{ tokens/giây}$ cho mỗi người dùng, và mỗi token được đóng gói trong một gói tin SSE tiêu tốn trung bình $60\text{ bytes}$ (bao gồm cả overhead tiêu đề \code{data: \{...\}}\textbackslash n\textbackslash n và TCP/IP header).
+  \begin{itemize}
+    \item[a)] Tính tổng băng thông mạng xuất ra (\textit{Egress Network Bandwidth}) mà cổng mạng của máy chủ phải đáp ứng (tính bằng Megabits per second -- Mbps).
+    \item[b)] Nếu card mạng của máy chủ chỉ có băng thông $1\text{ Gbps}$ ($1.000\text{ Mbps}$), hỏi máy chủ có thể phục vụ tối đa bao nhiêu người dùng đồng thời trước khi đường truyền mạng bị bão hòa?
+  \end{itemize}
+\end{enumerate}
+
+\subsection{Nhóm C: Thực Hành Kỹ Nghệ \& Lập Trình (Implementation Labs)}
+
+\begin{enumerate}[label=\textbf{C\arabic*.}]
+  \item \textbf{Viết Kịch Bản Bash Phân Tích Độ Trễ Bằng \code{curl}}: Viết một đoạn mã shell script sử dụng tiện ích \code{curl} kết hợp tệp định dạng \code{--write-out} để đo lường chi tiết 5 mốc thời gian của một yêu cầu HTTP POST gửi tới máy chủ AI: \code{time_namelookup}, \code{time_connect}, \code{time_appconnect} (TLS), \code{time_starttransfer} (TTFT), và \code{time_total}.
+\end{enumerate}
+
+\subsection{Nhóm D: Phân Tích Thất Bại \& Debugging Thực Tế (Post-Mortem Analysis)}
+
+\begin{enumerate}[label=\textbf{D\arabic*.}]
+  \item \textbf{Sự Cố Cạn Kiệt Cổng Ephemeral Sockets \& Trạng Thái TIME\_WAIT}: Một dịch vụ Agent tự hành thực hiện hàng trăm nghìn truy vấn HTTP kiểm tra thông tin nội bộ trong thời gian ngắn. Sau 15 phút vận hành, toàn bộ hệ thống sụp đổ với lỗi \code{Cannot assign requested address}. Khi chạy lệnh \code{ss -s}, kỹ sư phát hiện có hơn $60.000$ socket đang nằm ở trạng thái \code{TIME_WAIT}. Giải thích bản chất của trạng thái \code{TIME_WAIT} trong giao thức TCP và đưa ra 2 giải pháp kỹ thuật ở tầng hệ điều hành và tầng ứng dụng để khắc phục triệt để sự cố.
+\end{enumerate}
+
+---
+
+\section{Hướng Dẫn Lời Giải \& Bình Luận Kỹ Thuật Chi Tiết}
+\label{sec:ch03-solutions}
+
+\paragraph{Lời giải Bài A1 (Tại sao chọn SSE thay vì WebSocket)}:
+\begin{enumerate}
+  \item \textbf{Tương thích hoàn hảo với hạ tầng HTTP có sẵn}: SSE là giao thức chạy trực tiếp trên nền HTTP chuẩn. Do đó, các bộ cân bằng tải (Nginx, AWS ALB, Cloudflare), cổng WAF và tường lửa doanh nghiệp đều hỗ trợ nguyên bản mà không cần cấu hình đặc biệt hay gặp lỗi ngắt kết nối như WebSocket.
+  \item \textbf{Hỗ trợ HTTP/2 Multiplexing}: Trên nền HTTP/2, nhiều luồng SSE có thể được ghép kênh trên một kết nối TCP duy nhất, tiết kiệm tài nguyên mạng vượt trội.
+  \item \textbf{Cơ chế tự động kết nối lại (Native Reconnection)}: Giao thức SSE có sẵn trường \code{Last-Event-ID}. Khi kết nối mạng bị gián đoạn, trình duyệt tự động kết nối lại và gửi kèm ID của token cuối cùng đã nhận, cho phép máy chủ tiếp tục stream mà không làm gián đoạn trải nghiệm người dùng.
+  \item \textbf{Bản chất luồng dữ liệu một chiều}: Quá trình suy luận LLM chỉ cần luồng dữ liệu 1 chiều (Client gửi 1 câu hỏi, Server sinh ra hàng nghìn token liên tục). Việc dùng WebSocket (giao tiếp 2 chiều toàn phần) là dư thừa và làm tăng độ phức tạp quản lý kết nối.
+\end{enumerate}
+
+\paragraph{Lời giải Bài B1 (Tính toán Băng thông Mạng Egress)}:
+\begin{itemize}
+  \item[a)] Số lượng token sinh ra mỗi giây trên toàn hệ thống:
+  \begin{equation*}
+  \text{Total Tokens/s} = 5.000\text{ users} \times 25\text{ tokens/s} = 125.000\text{ tokens/giây}
+  \end{equation*}
+  Lưu lượng dữ liệu thô xuất ra mỗi giây:
+  \begin{equation*}
+  \text{Bytes/s} = 125.000 \times 60\text{ bytes} = 7.500.000\text{ bytes/s} = 7.5\text{ MB/s}
+  \end{equation*}
+  Chuyển đổi sang băng thông mạng Megabits per second (Mbps):
+  \begin{equation*}
+  \text{Bandwidth}_{\text{Mbps}} = \frac{7.5 \times 10^6 \times 8\text{ bits}}{10^6} = 60.0\text{ Mbps}
+  \end{equation*}
+  \item[b)] Nếu card mạng có băng thông $1\text{ Gbps} = 1.000\text{ Mbps}$, giả sử hiệu suất sử dụng mạng an toàn là $80\%$ ($800\text{ Mbps}$), số lượng người dùng tối đa có thể phục vụ là:
+  \begin{equation*}
+  N_{\max} = \frac{800\text{ Mbps}}{\frac{25 \times 60 \times 8}{10^6}\text{ Mbps/user}} = \frac{800}{0.012} \approx 66.666\text{ concurrent users!}
+  \end{equation*}
+\end{itemize}
+
+\paragraph{Lời giải Bài D1 (Giải mã sự cố TIME\_WAIT)}:
+Khi một kết nối TCP đóng lại, đầu mối chủ động đóng kết nối bắt buộc phải duy trì socket ở trạng thái \code{TIME_WAIT} trong khoảng thời gian bằng $2 \times \text{MSL}$ (Maximum Segment Lifetime, thường là 60 giây). Mục đích là đảm bảo gói tin \code{ACK} cuối cùng đã tới đích an toàn và các gói tin lạc đường không làm nhiễu kết nối mới. 
+
+Tuy nhiên, dải cổng kết nối tạm thời (\textit{Ephemeral Ports}) của Linux chỉ có khoảng $28.000$ đến $60.000$ cổng (\code{/proc/sys/net/ipv4/ip_local_port_range}). Nếu ứng dụng Agent tạo kết nối mới cho mỗi request rồi đóng ngay lập tức, toàn bộ cổng mạng khả dụng sẽ bị kẹt trong trạng thái \code{TIME_WAIT}, khiến hệ điều hành không thể cấp phát cổng mới $\rightarrow$ Báo lỗi \code{Cannot assign requested address}.
+
+\textbf{Hai giải pháp khắc phục}:
+\begin{enumerate}
+  \item \textbf{Giải pháp tầng Ứng dụng (Cốt lõi)}: Sử dụng Connection Pool trong HTTP Client (\code{httpx.AsyncClient} hoặc \code{aiohttp.ClientSession}) để tái sử dụng kết nối TCP, triệt tiêu hoàn toàn việc đóng/mở kết nối liên tục.
+  \item \textbf{Giải pháp tầng Hệ điều hành (Kernel Tuning)}: Kích hoạt tính năng tái sử dụng socket \code{TIME_WAIT} an toàn trong Linux:
+  \begin{lstlisting}[language=bash]
+  sudo sysctl -w net.ipv4.tcp_tw_reuse=1
+  \end{lstlisting}
+\end{enumerate}

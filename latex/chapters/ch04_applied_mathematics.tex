@@ -1,0 +1,434 @@
+% ==============================================================================
+% CH04_APPLIED_MATHEMATICS.TEX — CHƯƠNG 4: TOÁN HỌC ỨNG DỤNG CHO KỸ SƯ AI
+% ==============================================================================
+% Định dạng: Sách chuyên khảo kinh điển (Classic Engineering Monograph)
+% Chuẩn mực: Không dùng hộp đóng khung 4 phía, toán học 5 bước, bài tập đa tầng
+% ==============================================================================
+
+\chapter{Toán Học Ứng Dụng: Đại Số Tuyến Tính, Giải Tích \& Xác Suất}
+\label{ch:applied-mathematics}
+
+Một trong những sai lầm phổ biến nhất của người học AI là tiếp cận toán học như một tập hợp các công thức trừu tượng để giải bài thi trên giảng đường, hoặc ngược lại, bỏ qua hoàn toàn toán học và xem các mô hình như những hàm đen (\textit{Black-box functions}). Đối với một Kỹ sư AI chuyên nghiệp, toán học không phải là lý thuyết suông; **toán học là ngôn ngữ biểu diễn của dữ liệu, là quy luật vận hành của bộ nhớ, và là công cụ tối thượng để giải thích tại sao một hệ thống hoạt động hoặc sụp đổ**.
+
+Chương này trang bị nền tảng toán học ứng dụng thực chiến qua phương pháp 5 bước: đi từ trực giác vật lý, động cơ thúc đẩy, định nghĩa chặt chẽ, chứng minh nguồn gốc giải tích, giải mẫu số học bằng tay, đến cài đặt mã nguồn thuần túy.
+
+---
+
+\section{Đại Số Tuyến Tính Thực Chiến \& Hình Học Của Không Gian Véc-Tơ}
+\label{sec:linear-algebra-deepdive}
+
+\subsection{Không Gian Véc-Tơ \& Bản Chất Của Véc-Tơ Embedding}
+
+Trong thế giới thực, máy tính không thể hiểu trực tiếp các thực thể như một từ ngữ, một đoạn văn bản, một hình ảnh hay một gói tin mạng. Để xử lý, chúng ta ánh xạ các thực thể này thành một véc-tơ gồm $d$ số thực trong không gian Euclid $\mathbb{R}^d$:
+\begin{equation}
+\mathbf{x} = \begin{bmatrix} x_1, x_2, \dots, x_d \end{bmatrix}^T \in \mathbb{R}^d
+\end{equation}
+
+Mỗi chiều $x_i$ đại diện cho một thuộc tính tiềm ẩn (\textit{Latent Feature}) của thực thể đó. Trong các mô hình ngôn ngữ lớn hiện đại, số chiều $d$ thường rất lớn: $d = 1.536$ (OpenAI text-embedding-3-small), $d = 4.096$ (Llama-3-8B), hoặc $d = 8.192$ (Llama-3-70B).
+
+\subsection{Tích Vô Hướng (Dot Product) \& Độ Tương Đồng Cosine (Cosine Similarity)}
+
+Để so sánh mức độ tương đồng ngữ nghĩa giữa hai văn bản $\mathbf{u}$ và $\mathbf{v}$, phép toán nền tảng nhất là **Tích vô hướng (Inner Product / Dot Product)**:
+\begin{equation}
+\langle \mathbf{u}, \mathbf{v} \rangle = \mathbf{u} \cdot \mathbf{v} = \sum_{i=1}^d u_i v_i = \|\mathbf{u}\|_2 \|\mathbf{v}\|_2 \cos \theta
+\label{eq:dot-product-def}
+\end{equation}
+
+\paragraph{Động cơ thúc đẩy: Tại sao tích vô hướng đo được ngữ nghĩa?}
+Nếu hai véc-tơ cùng chỉ về một hướng trong không gian ($\theta \approx 0^\circ$), giá trị $\cos \theta \approx 1$, tích vô hướng đạt cực đại. Nếu hai véc-tơ trực giao vuông góc ($\theta = 90^\circ$), $\cos \theta = 0$, biểu thị hai khái niệm hoàn toàn độc lập không liên quan. Nếu hai véc-tơ chỉ về hai hướng đối nghịch ($\theta = 180^\circ$), $\cos \theta = -1$.
+
+Tuy nhiên, tích vô hướng $\mathbf{u} \cdot \mathbf{v}$ bị phụ thuộc vào độ dài vật lý (độ lớn chuẩn $L_2$) của véc-tơ: một văn bản dài có thể có độ lớn véc-tơ lớn hơn một văn bản ngắn dù nội dung tương đồng. Để triệt tiêu yếu tố độ dài và chỉ tập trung vào góc định hướng ngữ nghĩa, chúng ta chuẩn hóa bằng **Độ tương đồng Cosine (Cosine Similarity)**:
+\begin{equation}
+S_{\text{Cosine}}(\mathbf{u}, \mathbf{v}) = \frac{\mathbf{u} \cdot \mathbf{v}}{\|\mathbf{u}\|_2 \|\mathbf{v}\|_2} = \frac{\sum_{i=1}^d u_i v_i}{\sqrt{\sum_{i=1}^d u_i^2} \sqrt{\sum_{i=1}^d v_i^2}}
+\label{eq:cosine-similarity-def}
+\end{equation}
+
+\begin{theorem}[Khoảng Cách Cosine vs Khoảng Cách Euclid Chuẩn Hóa]
+Nếu hai véc-tơ $\mathbf{u}$ và $\mathbf{v}$ đã được chuẩn hóa trước về độ dài đơn vị ($\|\mathbf{u}\|_2 = \|\mathbf{v}\|_2 = 1$), thì bình phương khoảng cách Euclid $d_E^2(\mathbf{u}, \mathbf{v})$ tỷ lệ nghịch trực tiếp với Độ tương đồng Cosine:
+\begin{equation}
+d_E^2(\mathbf{u}, \mathbf{v}) = \|\mathbf{u} - \mathbf{v}\|_2^2 = \|\mathbf{u}\|_2^2 + \|\mathbf{v}\|_2^2 - 2(\mathbf{u} \cdot \mathbf{v}) = 2 - 2 S_{\text{Cosine}}(\mathbf{u}, \mathbf{v})
+\label{eq:euclidean-cosine-relation}
+\end{equation}
+\end{theorem}
+
+\paragraph{Ý nghĩa kỹ nghệ tối thượng}:
+Trong các cơ sở dữ liệu vector như Qdrant hay Milvus, việc tính toán khoảng cách Euclid đòi hỏi phép trừ và bình phương từng phần tử ($O(3d)$ phép tính). Nhưng nếu chúng ta **chuẩn hóa véc-tơ về độ dài đơn vị ngay tại thời điểm Ingestion**, việc tìm kiếm vector láng giềng gần nhất (ANN) quy về **đúng một phép nhân ma trận (GEMM)** trên GPU!
+
+\subsection{Phân Rã Ma Trận Hạng Thấp (Low-Rank Approximation) \& Cơ Sở Của LoRA}
+
+Một ma trận trọng số $\mathbf{W} \in \mathbb{R}^{d_{\text{out}} \times d_{\text{in}}}$ trong mạng nơ-ron có thể chứa hàng triệu tham số. Theo Định lý Phân rã Giá trị Suy biến (Singular Value Decomposition -- SVD):
+\begin{equation}
+\mathbf{W} = \mathbf{U} \mathbf{\Sigma} \mathbf{V}^T = \sum_{i=1}^{\min(d_{\text{out}}, d_{\text{in}})} \sigma_i \mathbf{u}_i \mathbf{v}_i^T
+\label{eq:svd-theorem}
+\end{equation}
+Trong đó các giá trị suy biến $\sigma_1 \ge \sigma_2 \ge \dots \ge 0$ suy giảm rất nhanh theo hàm mũ. Phần lớn thông tin của ma trận tập trung ở $r$ giá trị suy biến đầu tiên ($r \ll \min(d_{\text{out}}, d_{\text{in}})$).
+
+\paragraph{Bản chất toán học của LoRA (Low-Rank Adaptation)}:
+Khi tinh chỉnh một mô hình nền tảng cho một tác vụ cụ thể, ma trận biến thiên trọng số $\Delta \mathbf{W}$ có **hạng nội tại (Intrinsic Rank) cực kỳ nhỏ**. Thay vì cập nhật toàn bộ ma trận $d_{\text{out}} \times d_{\text{in}}$, LoRA phân rã ma trận cập nhật thành tích của hai ma trận hạng thấp:
+\begin{equation}
+\Delta \mathbf{W} = \frac{\alpha}{r} \left( \mathbf{B} \times \mathbf{A} \right)
+\label{eq:lora-decomposition}
+\end{equation}
+Trong đó $\mathbf{B} \in \mathbb{R}^{d_{\text{out}} \times r}$, $\mathbf{A} \in \mathbb{R}^{r \times d_{\text{in}}}$, với $r \in \{4, 8, 16, 32, 64\}$. Số lượng tham số cần huấn luyện giảm từ $d_{\text{out}} \times d_{\text{in}}$ xuống còn $r \times (d_{\text{out}} + d_{\text{in}})$, tiết kiệm hơn $99\%$ tham số huấn luyện!
+
+---
+
+\section{Giải Tích Đa Biến, Lan Truyền Ngược \& Các Hàm Mục Tiêu}
+\label{sec:calculus-optimization}
+
+\subsection{Véc-Tơ Gradient \& Quy Tắc Dây Chuyền Ma Trận (Matrix Chain Rule)}
+
+Xét một hàm mục tiêu mất mát $L(\mathbf{w}): \mathbb{R}^d \to \mathbb{R}$. Véc-tơ Gradient $\nabla_\mathbf{w} L$ là véc-tơ chứa tất cả các đạo hàm riêng theo từng tham số:
+\begin{equation}
+\nabla_\mathbf{w} L = \begin{bmatrix} \frac{\partial L}{\partial w_1}, \frac{\partial L}{\partial w_2}, \dots, \frac{\partial L}{\partial w_d} \end{bmatrix}^T
+\end{equation}
+Về mặt hình học, véc-tơ gradient luôn chỉ theo **hướng hàm số tăng nhanh nhất**. Do đó, để cực tiểu hóa hàm mất mát, chúng ta cập nhật trọng số theo hướng ngược lại với gradient thông qua thuật toán Hạ Gradient (Gradient Descent):
+\begin{equation}
+\mathbf{w}^{(t+1)} = \mathbf{w}^{(t)} - \eta \nabla_\mathbf{w} L(\mathbf{w}^{(t)})
+\label{eq:gradient-descent}
+\end{equation}
+Trong đó $\eta > 0$ là tốc độ học (\textit{Learning Rate}).
+
+Trong một mạng nơ-ron nhiều tầng: $\mathbf{x} \to \mathbf{z}_1 \to \mathbf{a}_1 \to \mathbf{z}_2 \to \dots \to \hat{\mathbf{y}} \to L$, thuật toán Lan truyền ngược (\textbf{Backpropagation}) bản chất là việc áp dụng có hệ thống **Quy tắc Dây chuyền (Chain Rule)** từ tầng cuối cùng ngược về tầng đầu tiên:
+\begin{equation}
+\frac{\partial L}{\partial \mathbf{W}_l} = \frac{\partial L}{\partial \mathbf{z}_l} \times \frac{\partial \mathbf{z}_l}{\partial \mathbf{W}_l} = \boldsymbol{\delta}_l \mathbf{a}_{l-1}^T
+\label{eq:backprop-matrix-rule}
+\end{equation}
+Trong đó $\boldsymbol{\delta}_l = \frac{\partial L}{\partial \mathbf{z}_l}$ được gọi là véc-tơ sai số tầng $l$.
+
+\subsection{Chứng Minh Toán Học: Tại Sao Dùng Cross-Entropy Thay Vì MSE Cho Phân Loại?}
+
+Xét bài toán phân loại nhị phân với nhãn thực tế $y \in \{0, 1\}$ và xác suất dự đoán $\hat{y} = \sigma(z) = \frac{1}{1 + e^{-z}}$, trong đó $z = \mathbf{w}^T \mathbf{x} + b$ là giá trị logit.
+
+\paragraph{Trường hợp 1: Dùng Hàm Mất Mát Bình Phương Tối Thiểu (Mean Squared Error -- MSE)}:
+\begin{equation}
+L_{\text{MSE}} = \frac{1}{2}(y - \hat{y})^2 = \frac{1}{2}(y - \sigma(z))^2
+\end{equation}
+Đạo hàm của hàm Sigmoid có tính chất: $\sigma'(z) = \sigma(z)(1 - \sigma(z)) = \hat{y}(1 - \hat{y})$.
+Áp dụng quy tắc dây chuyền để tính đạo hàm của $L_{\text{MSE}}$ theo tham số $w_j$:
+\begin{equation}
+\frac{\partial L_{\text{MSE}}}{\partial w_j} = \frac{\partial L}{\partial \hat{y}} \cdot \frac{\partial \hat{y}}{\partial z} \cdot \frac{\partial z}{\partial w_j} = - (y - \hat{y}) \cdot \left[ \hat{y}(1 - \hat{y}) \right] \cdot x_j
+\label{eq:mse-derivative-collapse}
+\end{equation}
+
+\paragraph{Điểm gãy toán học}:
+Giả sử nhãn thực tế là $y = 1$, nhưng mô hình dự đoán hoàn toàn sai lầm với xác suất cực thấp: $\hat{y} = 0.0001$.
+Lúc này, đại lượng sai số $|y - \hat{y}| = 0.9999$ rất lớn (hệ thống cần học gấp!). Tuy nhiên, thành phần đạo hàm Sigmoid lại là:
+\begin{equation*}
+\hat{y}(1 - \hat{y}) = 0.0001 \times 0.9999 \approx 0.00009999 \approx 10^{-4}
+\end{equation*}
+Đạo hàm $\frac{\partial L_{\text{MSE}}}{\partial w_j} \approx 0$ bị triệt tiêu hoàn toàn (\textbf{Vanishing Gradient})! Mô hình bị đóng băng và không thể học được cách sửa sai mặc dù kết quả dự đoán sai lệch nghiêm trọng.
+
+\paragraph{Trường hợp 2: Dùng Hàm Mất Mát Entropy Chéo (Cross-Entropy Loss)}:
+\begin{equation}
+L_{\text{CE}} = - \left[ y \ln \hat{y} + (1 - y) \ln (1 - \hat{y}) \right]
+\label{eq:cross-entropy-def}
+\end{equation}
+Tính đạo hàm của $L_{\text{CE}}$ theo logit $z$:
+\begin{align}
+\frac{\partial L_{\text{CE}}}{\partial z} &= - \left[ \frac{y}{\hat{y}} \cdot \sigma'(z) - \frac{1 - y}{1 - \hat{y}} \cdot \sigma'(z) \right] \nonumber \\
+&= - \left[ \frac{y}{\hat{y}} \cdot \hat{y}(1 - \hat{y}) - \frac{1 - y}{1 - \hat{y}} \cdot \hat{y}(1 - \hat{y}) \right] \nonumber \\
+&= - \left[ y(1 - \hat{y}) - (1 - y)\hat{y} \right] \nonumber \\
+&= - [y - y\hat{y} - \hat{y} + y\hat{y}] = \hat{y} - y
+\label{eq:cross-entropy-clean-gradient}
+\end{align}
+Đạo hàm theo tham số $w_j$ là:
+\begin{equation}
+\frac{\partial L_{\text{CE}}}{\partial w_j} = (\hat{y} - y) x_j
+\end{equation}
+
+\paragraph{Vẻ đẹp của kết quả}:
+Thành phần bão hòa $\hat{y}(1 - \hat{y})$ đã bị triệt tiêu hoàn hảo bởi mẫu số của logarit! 
+Độ lớn của gradient tỷ lệ thuận trực tiếp với độ sai lệch dự đoán $(\hat{y} - y)$:
+\begin{itemize}
+  \item Nếu dự đoán hoàn toàn sai ($y = 1, \hat{y} \approx 0$): Gradient đạt cực đại $\approx -1 \cdot x_j$, đẩy mô hình học và cập nhật trọng số cực nhanh.
+  \item Nếu dự đoán đúng ($y = 1, \hat{y} \approx 1$): Gradient triệt tiêu về $0$, mô hình giữ nguyên trạng thái tối ưu.
+\end{itemize}
+
+Đây là lý do toán học tối thượng tại sao $100\%$ các mô hình phân loại và mô hình ngôn ngữ lớn (dự đoán token tiếp theo) đều bắt buộc phải sử dụng hàm mất mát Cross-Entropy.
+
+\subsection{Hàm Softmax \& Ổn Định Số Học (Numerically Stable Softmax)}
+
+Với bài toán phân loại đa lớp hoặc sinh token có kích thước từ vựng $V$, véc-tơ logit đầu ra $\mathbf{z} \in \mathbb{R}^V$ được chuẩn hóa thành phân phối xác suất $\mathbf{p} \in \mathbb{R}^V$ bằng hàm Softmax:
+\begin{equation}
+p_i = \text{Softmax}(\mathbf{z})_i = \frac{e^{z_i}}{\sum_{j=1}^V e^{z_j}}, \quad \forall i \in \{1, \dots, V\}
+\label{eq:softmax-def}
+\end{equation}
+
+\paragraph{Bẫy tràn số học máy tính (Floating-Point Overflow)}:
+Trong tiêu chuẩn số thực IEEE 754 float32, giá trị số thực lớn nhất có thể biểu diễn là xấp xỉ $\approx 3.4 \times 10^{38}$. Khi giá trị logit $z_i > 88.7$, hàm mũ $e^{z_i}$ vượt ngưỡng này và lập tức trả về giá trị vô cực \code{+inf} (\textbf{Overflow}). Phép chia $\frac{\text{inf}}{\text{inf}}$ tạo ra giá trị không xác định \code{NaN} (\textit{Not a Number}), làm sụp đổ toàn bộ quá trình huấn luyện và suy luận.
+
+\begin{theorem}[Bất Biến Tịnh Tiến Của Softmax -- Shift Invariance]
+Hàm Softmax bất biến đối với bất kỳ phép tịnh tiến cộng một hằng số $c \in \mathbb{R}$ vào toàn bộ các phần tử của véc-tơ logit:
+\begin{equation}
+\text{Softmax}(\mathbf{z} + c)_i = \frac{e^{z_i + c}}{\sum_{j=1}^V e^{z_j + c}} = \frac{e^c \cdot e^{z_i}}{e^c \sum_{j=1}^V e^{z_j}} = \frac{e^{z_i}}{\sum_{j=1}^V e^{z_j}} = \text{Softmax}(\mathbf{z})_i
+\label{eq:softmax-shift-invariance}
+\end{equation}
+\end{theorem}
+
+\paragraph{Thuật toán Numerically Stable Softmax}:
+Chọn hằng số tịnh tiến $c = -\max_{k}(z_k)$. Lúc này, phần tử lớn nhất trong véc-tơ mới $\mathbf{z}' = \mathbf{z} - \max(z)$ sẽ bằng đúng $0$, và tất cả các phần tử khác đều nhỏ hơn hoặc bằng $0$:
+\begin{equation*}
+z'_i \le 0 \implies 0 < e^{z'_i} \le 1, \quad \forall i
+\end{equation*}
+Phép tính $e^{z'_i}$ triệt tiêu hoàn toàn khả năng tràn số dương (\code{overflow}), bảo đảm tính toán luôn ổn định trên cả phần cứng định dạng FP16 và BF16.
+
+---
+
+\section{Xác Suất, Thống Kê \& Khoảng Cách Phân Phối (KL Divergence)}
+\label{sec:probability-kl-divergence}
+
+\subsection{Kỳ Vọng, Phương Sai \& Chuẩn Hóa Lớp (LayerNorm)}
+
+Cho một biến ngẫu nhiên rời rạc $X$ với phân phối xác suất $P(X = x_i) = p_i$. Kỳ vọng toán học (giá trị trung bình) và Phương sai được xác định bởi:
+\begin{equation}
+\mu = \mathbb{E}[X] = \sum_{i=1}^n p_i x_i, \qquad \sigma^2 = \text{Var}(X) = \mathbb{E}[(X - \mu)^2] = \sum_{i=1}^n p_i (x_i - \mu)^2
+\end{equation}
+
+Trong kiến trúc Transformer, lớp chuẩn hóa **Layer Normalization (LayerNorm)** áp dụng công thức chuẩn hóa thống kê trực tiếp trên từng token để giữ cho phân phối kích hoạt có giá trị trung bình bằng 0 và phương sai bằng 1:
+\begin{equation}
+\text{LayerNorm}(\mathbf{x}) = \frac{\mathbf{x} - \mu}{\sqrt{\sigma^2 + \epsilon}} \odot \boldsymbol{\gamma} + \boldsymbol{\beta}
+\label{eq:layernorm-formula}
+\end{equation}
+Trong đó $\epsilon \approx 10^{-5}$ là số cực nhỏ để tránh lỗi chia cho $0$, và $\boldsymbol{\gamma}, \boldsymbol{\beta}$ là các tham số học được để khôi phục năng lực biểu diễn.
+
+\subsection{Khoảng Cách Kullback-Leibler (KL Divergence)}
+
+Khi làm việc với các hệ thống căn chỉnh mô hình (Alignment), chưng cất mô hình (Distillation), hoặc học tăng cường từ phản hồi của con người (RLHF / PPO / DPO), chúng ta liên tục cần đo lường mức độ sai lệch giữa hai phân phối xác suất: Phân phối dự đoán của mô hình sinh viên $Q(x)$ so với phân phối mục tiêu của mô hình giáo viên $P(x)$.
+
+Thước đo chuẩn mực toán học là **Độ phân kỳ Kullback-Leibler (KL Divergence)**:
+\begin{equation}
+D_{\text{KL}}(P \parallel Q) = \sum_{x \in \mathcal{X}} P(x) \ln \left( \frac{P(x)}{Q(x)} \right) = \sum_{x \in \mathcal{X}} P(x) \ln P(x) - \sum_{x \in \mathcal{X}} P(x) \ln Q(x)
+\label{eq:kl-divergence-def}
+\end{equation}
+
+\paragraph{Tính chất quan trọng}:
+\begin{enumerate}
+  \item $D_{\text{KL}}(P \parallel Q) \ge 0$ với mọi phân phối $P, Q$ (theo Bất đẳng thức Jensen). Dấu bằng xảy ra khi và chỉ khi $P(x) = Q(x)$ hầu khắp nơi.
+  \item $D_{\text{KL}}(P \parallel Q) \ne D_{\text{KL}}(Q \parallel P)$: Độ phân kỳ KL **không phải là một khoảng cách đối xứng** (Không phải metric).
+\end{enumerate}
+
+Trong RLHF, thành phần phạt $D_{\text{KL}}(\pi_\theta \parallel \pi_{\text{ref}})$ được bổ sung trực tiếp vào hàm thưởng để ngăn chặn chính sách mô hình mới $\pi_\theta$ đi quá xa khỏi mô hình gốc ban đầu $\pi_{\text{ref}}$, tránh hiện tượng mô hình sinh ra những câu vô nghĩa để đánh lừa bộ chấm điểm thưởng (\textit{Reward Hacking}).
+
+---
+
+\section{Ví Dụ Giải Mẫu Tính Toán Số Học Bằng Tay}
+\label{sec:ch04-numerical-walkthrough}
+
+\begin{example}[Tính Toán Lan Truyền Tiến \& Lan Truyền Ngược Bằng Tay Cho 1 Bước Học]
+Xét một mạng nơ-ron phân loại đơn giản gồm một tầng tuyến tính không có bias với đầu vào 2 chiều và đầu ra 3 lớp:
+\begin{itemize}
+  \item Vector đầu vào: $\mathbf{x} = \begin{bmatrix} 2.0, & 1.0 \end{bmatrix}^T$.
+  \item Nhãn thực tế (One-hot): Lớp thứ 2, tức $\mathbf{y} = \begin{bmatrix} 0.0, & 1.0, & 0.0 \end{bmatrix}^T$.
+  \item Ma trận trọng số ban đầu $\mathbf{W} \in \mathbb{R}^{3 \times 2}$:
+  \begin{equation*}
+  \mathbf{W} = \begin{bmatrix} 0.5 & 0.2 \\ 1.0 & 0.5 \\ 0.2 & 0.8 \end{bmatrix}
+  \end{equation*}
+  \item Tốc độ học: $\eta = 0.1$.
+\end{itemize}
+
+\paragraph{Bước 1: Tính toán Lan truyền tiến (Forward Pass)}
+1. Tính véc-tơ logit $\mathbf{z} = \mathbf{W} \mathbf{x}$:
+\begin{align*}
+z_1 &= (0.5 \times 2.0) + (0.2 \times 1.0) = 1.0 + 0.2 = 1.2 \\
+z_2 &= (1.0 \times 2.0) + (0.5 \times 1.0) = 2.0 + 0.5 = 2.5 \\
+z_3 &= (0.2 \times 2.0) + (0.8 \times 1.0) = 0.4 + 0.8 = 1.2
+\end{align*}
+Vậy véc-tơ logit là: $\mathbf{z} = \begin{bmatrix} 1.2, & 2.5, & 1.2 \end{bmatrix}^T$.
+
+2. Áp dụng Numerically Stable Softmax (với $c = -\max(\mathbf{z}) = -2.5$):
+\begin{align*}
+z'_1 &= 1.2 - 2.5 = -1.3 \implies e^{-1.3} \approx 0.2725 \\
+z'_2 &= 2.5 - 2.5 = 0.0 \implies e^{0.0} = 1.0000 \\
+z'_3 &= 1.2 - 2.5 = -1.3 \implies e^{-1.3} \approx 0.2725 \\
+\text{Tổng} &= 0.2725 + 1.0000 + 0.2725 = 1.5450
+\end{align*}
+Tính xác suất dự đoán $\mathbf{p}$:
+\begin{equation*}
+p_1 = \frac{0.2725}{1.5450} \approx 0.1764, \quad p_2 = \frac{1.0000}{1.5450} \approx 0.6472, \quad p_3 = \frac{0.2725}{1.5450} \approx 0.1764
+\end{equation*}
+
+3. Tính hàm mất mát Cross-Entropy Loss:
+\begin{equation*}
+L = - \sum_{k=1}^3 y_k \ln p_k = - [0 + 1.0 \times \ln(0.6472) + 0] = - (-0.4351) \approx 0.4351
+\end{equation*}
+
+\paragraph{Bước 2: Tính toán Lan truyền ngược (Backward Pass)}
+1. Tính gradient sai số tại tầng đầu ra: $\boldsymbol{\delta} = \mathbf{p} - \mathbf{y}$:
+\begin{align*}
+\delta_1 &= 0.1764 - 0.0 = +0.1764 \\
+\delta_2 &= 0.6472 - 1.0 = -0.3528 \\
+\delta_3 &= 0.1764 - 0.0 = +0.1764
+\end{align*}
+
+2. Tính gradient của hàm mất mát đối với ma trận trọng số $\frac{\partial L}{\partial \mathbf{W}} = \boldsymbol{\delta} \mathbf{x}^T$:
+\begin{equation*}
+\nabla_\mathbf{W} L = \begin{bmatrix} +0.1764 \\ -0.3528 \\ +0.1764 \end{bmatrix} \begin{bmatrix} 2.0 & 1.0 \end{bmatrix} = \begin{bmatrix} 0.3528 & 0.1764 \\ -0.7056 & -0.3528 \\ 0.3528 & 0.1764 \end{bmatrix}
+\end{equation*}
+
+\paragraph{Bước 3: Cập nhật trọng số bằng Gradient Descent}
+Với $\eta = 0.1$, ma trận trọng số mới $\mathbf{W}_{\text{new}} = \mathbf{W} - \eta \nabla_\mathbf{W} L$:
+\begin{align*}
+\mathbf{W}_{\text{new}} &= \begin{bmatrix} 0.5 & 0.2 \\ 1.0 & 0.5 \\ 0.2 & 0.8 \end{bmatrix} - 0.1 \times \begin{bmatrix} 0.3528 & 0.1764 \\ -0.7056 & -0.3528 \\ 0.3528 & 0.1764 \end{bmatrix} \\
+&= \begin{bmatrix} 0.5 - 0.0353 & 0.2 - 0.0176 \\ 1.0 + 0.0706 & 0.5 + 0.0353 \\ 0.2 - 0.0353 & 0.8 - 0.0176 \end{bmatrix} = \begin{bmatrix} 0.4647 & 0.1824 \\ 1.0706 & 0.5353 \\ 0.1647 & 0.7824 \end{bmatrix}
+\end{align*}
+
+\paragraph{Phân tích kết quả}: Trọng số của lớp đúng (hàng 2) đã được tăng lên (từ $1.0 \to 1.0706$ và $0.5 \to 0.5353$), trong khi trọng số của các lớp sai (hàng 1 và 3) đều bị giảm đi. Ở lượt chạy tiếp theo, xác suất $p_2$ chắc chắn sẽ tăng lên gần $1.0$ hơn và hàm mất mát $L$ sẽ giảm xuống!
+\end{example}
+
+---
+
+\section{Hiện Thực Hóa: Mini Autograd Engine \& Vectorized Math}
+\label{sec:ch04-implementation}
+
+Dưới đây là một mô đun toán học thuần túy cài đặt các thuật toán Numerically Stable Softmax, Cross-Entropy Loss, Cosine Similarity và một mạng nơ-ron lan truyền ngược hoàn chỉnh bằng Python và NumPy có type-hinting:
+
+\begin{lstlisting}[language=Python]
+import numpy as np
+from typing import Tuple
+
+class AppliedMathAI:
+    """Thu vien toan hoc ung dung cho he thong AI."""
+    
+    @staticmethod
+    def cosine_similarity(u: np.ndarray, v: np.ndarray) -> float:
+        """Tinh do tuong dong Cosine on dinh so hoc giua hai vector."""
+        norm_u = np.linalg.norm(u)
+        norm_v = np.linalg.norm(v)
+        if norm_u == 0.0 or norm_v == 0.0:
+            return 0.0
+        return float(np.dot(u, v) / (norm_u * norm_v))
+
+    @staticmethod
+    def numerically_stable_softmax(logits: np.ndarray) -> np.ndarray:
+        """Thuat toan Softmax on dinh so hoc chong tran so (Shift Invariant)."""
+        # Tru di gia tri cuc dai tren truc cuoi cung de chong Overflow
+        shifted_logits = logits - np.max(logits, axis=-1, keepdims=True)
+        exp_logits = np.exp(shifted_logits)
+        probabilities = exp_logits / np.sum(exp_logits, axis=-1, keepdims=True)
+        return probabilities
+
+    @staticmethod
+    def cross_entropy_loss(y_true: np.ndarray, y_pred_probs: np.ndarray, eps: float = 1e-15) -> float:
+        """Tinh ham mat mat Cross-Entropy Loss kem clipping tranh log(0)."""
+        # Clip xac suat vao khoang [eps, 1 - eps]
+        clipped_probs = np.clip(y_pred_probs, eps, 1.0 - eps)
+        loss = -np.sum(y_true * np.log(clipped_probs)) / y_true.shape[0]
+        return float(loss)
+
+class SimpleLinearClassifier:
+    """Mang no-ron 1 tang tuyen tinh hoan chinh voi Forward va Backward pass."""
+    
+    def __init__(self, in_features: int, out_classes: int):
+        self.W = np.random.randn(out_classes, in_features) * 0.01
+
+    def forward(self, x: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
+        """Lan truyen tien: Tra ve logits va xac suat Softmax."""
+        logits = np.dot(self.W, x)
+        probs = AppliedMathAI.numerically_stable_softmax(logits)
+        return logits, probs
+
+    def backward(self, x: np.ndarray, probs: np.ndarray, y_true: np.ndarray, lr: float = 0.1) -> float:
+        """Lan truyen nguoc: Tinh gradient va cap nhat trong so bang Gradient Descent."""
+        # Gradient theo logit: delta = p - y
+        delta = probs - y_true
+        # Gradient theo ma tran trong so: grad_W = delta * x^T
+        grad_W = np.outer(delta, x)
+        # Cap nhat trong so
+        self.W -= lr * grad_W
+        loss = AppliedMathAI.cross_entropy_loss(y_true[np.newaxis, :], probs[np.newaxis, :])
+        return loss
+\end{lstlisting}
+
+---
+
+\section{Hệ Thống Bài Tập \& Câu Hỏi Tư Duy Đa Tầng}
+\label{sec:ch04-exercises}
+
+\subsection{Nhóm A: Câu Hỏi Tư Duy Bản Chất (Conceptual Reasoning)}
+
+\begin{enumerate}[label=\textbf{A\arabic*.}]
+  \item \textbf{Tại sao chia cho $\sqrt{d_k}$ trong Self-Attention?}: Trong công thức Attention $\text{Softmax}\left(\frac{\mathbf{Q}\mathbf{K}^T}{\sqrt{d_k}}\right)\mathbf{V}$, chứng minh rằng nếu các phần tử của $\mathbf{q}$ và $\mathbf{k}$ là các biến ngẫu nhiên độc lập có trung bình bằng 0 và phương sai bằng 1, thì tích vô hướng $\mathbf{q} \cdot \mathbf{k}$ sẽ có phương sai bằng đúng $d_k$. Khi $d_k$ lớn ($d_k = 128$), điều gì sẽ xảy ra với các giá trị Softmax nếu không chia cho $\sqrt{d_k}$?
+  \item \textbf{Bản chất toán học của SwiGLU}: Hầu hết các LLM hiện đại như Llama-3 hay Mistral đều sử dụng hàm kích hoạt SwiGLU: $\text{SwiGLU}(\mathbf{x}) = (\mathbf{x} \mathbf{W} \cdot \text{Swish}(\mathbf{x} \mathbf{V})) \mathbf{W}_2$. Tại sao cơ chế Gating nhân đôi này lại vượt trội hơn hẳn so với hàm ReLU hay GeLU truyền thống?
+  \item \textbf{Ý nghĩa của L1 vs L2 Regularization}: Dưới góc độ hình học của không gian véc-tơ và đường mức đồng mức (\textit{Contour Lines}), giải thích tại sao phạt chuẩn $L_1$ ($\lambda \|\mathbf{w}\|_1$) lại tạo ra ma trận trọng số thưa (\textit{Sparse Weights} -- nhiều trọng số bằng chính xác 0), trong khi chuẩn $L_2$ ($\frac{1}{2}\lambda \|\mathbf{w}\|_2^2$) chỉ làm co nhỏ các trọng số mà không triệt tiêu chúng về 0?
+\end{enumerate}
+
+\subsection{Nhóm B: Bài Toán Tính Toán Giải Tích Bằng Tay (Analytical Problems)}
+
+\begin{enumerate}[label=\textbf{B\arabic*.}]
+  \item \textbf{Tính toán Tiết Kiệm Tham Số Của LoRA}: Cho một ma trận trọng số chiếu chú ý trong mô hình LLM có kích thước $d_{\text{in}} = 4.096$ và $d_{\text{out}} = 4.096$.
+  \begin{itemize}
+    \item[a)] Tính số lượng tham số gốc của ma trận này và dung lượng bộ nhớ tiêu thụ ở định dạng FP16.
+    \item[b)] Nếu áp dụng LoRA với hạng $r = 16$, số lượng tham số cần huấn luyện mới là bao nhiêu? Tỷ lệ phần trăm tham số được cắt giảm là bao nhiêu?
+  \end{itemize}
+\end{enumerate}
+
+\subsection{Nhóm C: Thực Hành Kỹ Nghệ \& Lập Trình (Implementation Labs)}
+
+\begin{enumerate}[label=\textbf{C\arabic*.}]
+  \item \textbf{Cài Đặt SwiGLU Vectorized Bằng NumPy}: Viết một hàm Python thuần túy bằng thư viện NumPy triển khai lớp kích hoạt SwiGLU với hỗ trợ tính toán theo lô (\textit{Batch processing}) và kiểm tra tính bất biến của kích thước đầu ra.
+\end{enumerate}
+
+\subsection{Nhóm D: Phân Tích Thất Bại \& Debugging Thực Tế (Post-Mortem Analysis)}
+
+\begin{enumerate}[label=\textbf{D\arabic*.}]
+  \item \textbf{Sự Cố Huấn Luyện Bị Phá Hủy Bởi NaN Loss}: Trong quá trình fine-tuning một mô hình LLM với định dạng dấu phẩy động 16-bit (FP16), sau 200 bước huấn luyện trơn tru, hàm mất mát đột ngột nhảy lên \code{loss: nan} và toàn bộ trọng số của mô hình bị hỏng hoàn toàn. Sau khi điều tra, kỹ sư phát hiện hàm Softmax tự chế không có bước trừ cực đại $\max(z)$. Hãy giải thích cơ chế lan truyền của giá trị \code{NaN} qua đồ thị tính toán Backpropagation khi xảy ra tràn số học ở một phép tính đơn lẻ.
+\end{enumerate}
+
+---
+
+\section{Hướng Dẫn Lời Giải \& Bình Luận Kỹ Thuật Chi Tiết}
+\label{sec:ch04-solutions}
+
+\paragraph{Lời giải Bài A1 (Chứng minh phương sai tích vô hướng trong Attention)}:
+Giả sử $\mathbf{q} = [q_1, \dots, q_d]$ và $\mathbf{k} = [k_1, \dots, k_d]$ với các biến $q_i, k_i$ độc lập, có $\mathbb{E}[q_i] = \mathbb{E}[k_i] = 0$ và $\text{Var}(q_i) = \text{Var}(k_i) = 1$.
+Tích vô hướng là $S = \sum_{i=1}^d q_i k_i$.
+Kỳ vọng của $S$: $\mathbb{E}[S] = \sum_{i=1}^d \mathbb{E}[q_i]\mathbb{E}[k_i] = 0$.
+Phương sai của từng số hạng:
+\begin{equation*}
+\text{Var}(q_i k_i) = \mathbb{E}[q_i^2 k_i^2] - (\mathbb{E}[q_i k_i])^2 = \mathbb{E}[q_i^2]\mathbb{E}[k_i^2] - 0 = 1 \times 1 = 1
+\end{equation*}
+Do các biến độc lập, phương sai của tổng bằng tổng các phương sai:
+\begin{equation*}
+\text{Var}(S) = \sum_{i=1}^d \text{Var}(q_i k_i) = \sum_{i=1}^d 1 = d
+\end{equation*}
+Độ lệch chuẩn là $\sigma = \sqrt{d}$.
+Khi $d = 128$, giá trị tích vô hướng có thể dễ dàng đạt tới $\pm 3\sigma \approx \pm 34$. Khi đưa các số lớn như $34$ vào hàm Softmax, xác suất sẽ tập trung toàn bộ vào một phần tử duy nhất ($p_{\max} \approx 1.0$, các phần tử khác $\approx 0$). Tại vùng này, đạo hàm của Softmax bằng $p(1 - p) \approx 1(1 - 1) = 0$, dẫn tới hiện tượng **triệt tiêu gradient (Vanishing Gradient)** khiến mô hình ngừng học hoàn toàn. 
+
+Bằng cách chia cho $\sqrt{d}$, phương sai của biến mới $S' = \frac{S}{\sqrt{d}}$ được chuẩn hóa về đúng $1$:
+\begin{equation*}
+\text{Var}(S') = \text{Var}\left(\frac{S}{\sqrt{d}}\right) = \frac{1}{d} \text{Var}(S) = \frac{d}{d} = 1
+\end{equation*}
+Gradient của Softmax luôn nằm trong vùng nhạy cảm nhất, giúp mô hình hội tụ ổn định.
+
+\paragraph{Lời giải Bài B1 (Tính toán tiết kiệm tham số của LoRA)}:
+\begin{itemize}
+  \item[a)] Số lượng tham số gốc:
+  \begin{equation*}
+  N_{\text{orig}} = 4.096 \times 4.096 = 16.777.216\text{ tham số} \approx 16.78\text{ triệu tham số}
+  \end{equation*}
+  Ở định dạng FP16 ($2\text{ bytes/tham số}$), ma trận này chiếm:
+  \begin{equation*}
+  M_{\text{orig}} = 16.777.216 \times 2\text{ bytes} = 33.554.432\text{ bytes} = 32.0\text{ MiB}
+  \end{equation*}
+  \item[b)] Với LoRA hạng $r = 16$:
+  Ma trận $\mathbf{A} \in \mathbb{R}^{16 \times 4.096}$ có $16 \times 4.096 = 65.536$ tham số.
+  Ma trận $\mathbf{B} \in \mathbb{R}^{4.096 \times 16}$ có $4.096 \times 16 = 65.536$ tham số.
+  Tổng số tham số cần huấn luyện là:
+  \begin{equation*}
+  N_{\text{LoRA}} = 65.536 + 65.536 = 131.072\text{ tham số} \approx 0.13\text{ triệu tham số}
+  \end{equation*}
+  Tỷ lệ tham số so với ban đầu:
+  \begin{equation*}
+  \text{Tỷ lệ} = \frac{131.072}{16.777.216} = \frac{2 \times 16}{4.096} = \frac{32}{4.096} \approx 0.0078125 = 0.78\%
+  \end{equation*}
+  Hệ thống đã **cắt giảm được $99.22\%$ số lượng tham số** cần tính toán gradient và lưu trữ optimizer state!
+\end{itemize}
+
+\paragraph{Lời giải Bài D1 (Hiệu ứng domino của giá trị NaN)}:
+Khi một phần tử logit $z_i > 88.7$, hàm mũ $e^{z_i}$ bị tràn số dương sinh ra \code{inf}. Khi tính mẫu số $\sum e^{z_j} = \text{inf}$, phép chia $p_i = \frac{\text{inf}}{\text{inf}}$ tạo ra \code{nan}. 
+Khi tính hàm mất mát $L = -\ln(\text{nan}) = \text{nan}$. Trong pha lan truyền ngược, theo quy tắc dây chuyền:
+\begin{equation*}
+\nabla_\mathbf{w} L = \frac{\partial L}{\partial \mathbf{z}} \times \frac{\partial \mathbf{z}}{\partial \mathbf{w}} = \text{nan} \times \mathbf{x} = \text{nan}
+\end{equation*}
+Khi thực hiện bước cập nhật trọng số: $\mathbf{w}_{\text{new}} = \mathbf{w} - \eta \cdot \text{nan} = \text{nan}$. Toàn bộ hàng triệu trọng số trong mạng nơ-ron bị biến thành \code{nan} chỉ sau đúng một bước lặp duy nhất. Vì \code{nan} có tính chất lan truyền tuyệt đối (bất kỳ phép tính nào có \code{nan} đều trả về \code{nan}), mô hình bị phá hủy hoàn toàn không thể phục hồi.

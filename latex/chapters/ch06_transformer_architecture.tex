@@ -1,0 +1,335 @@
+% ==============================================================================
+% CH06_TRANSFORMER_ARCHITECTURE.TEX — CHƯƠNG 6: GIẢI PHẪU KIẾN TRÚC TRANSFORMER
+% ==============================================================================
+% Định dạng: Sách chuyên khảo kinh điển (Classic Engineering Monograph)
+% Chuẩn mực: Không dùng hộp đóng khung 4 phía, toán học 5 bước, bài tập đa tầng
+% ==============================================================================
+
+\chapter{Giải Phẫu Toàn Diện Kiến Trúc Transformer \& Cơ Chế Attention}
+\label{ch:transformer-architecture}
+
+Năm 2017, bài báo lịch sử mang tựa đề đầy khiêu khích \textit{``Attention Is All You Need''} của nhóm nghiên cứu Google Brain và Google Research (Vaswani et al.) đã khai sinh ra kiến trúc \textbf{Transformer}. Sự xuất hiện của nó đã quét sạch các kiến trúc mạng hồi quy (RNN, LSTM, GRU) vốn thống trị xử lý ngôn ngữ tự nhiên suốt nhiều thập kỷ trước đó, đặt nền móng duy nhất cho toàn bộ cuộc cách mạng Mô hình Ngôn ngữ Lớn (LLMs) ngày nay.
+
+Đối với một Kỹ sư AI, việc hiểu Transformer không thể dừng lại ở việc đọc sơ đồ khối. Bạn phải thấu hiểu tại sao phép tính chú ý lại có chi phí bậc hai $O(L^2)$, tại sao mã hóa vị trí RoPE lại cho phép kéo dài ngữ cảnh, và tại sao Grouped-Query Attention (GQA) lại là chìa khóa sống còn giúp tiết kiệm VRAM trong các mô hình như Llama-3.
+
+---
+
+\section{Sự Sụp Đổ Của Mạng Hồi Quy (RNN/LSTM) \& Động Cơ Của Attention}
+\label{sec:rnn-failure-and-motivation}
+
+Trước khi Transformer ra đời, mạng nơ-ron hồi quy (Recurrent Neural Networks -- RNN) và các biến thể có cổng nhớ như LSTM (Long Short-Term Memory) là lựa chọn tiêu chuẩn cho dữ liệu chuỗi. Tuy nhiên, kiến trúc RNN mang trong mình hai điểm nghẽn vật lý không thể khắc phục:
+
+\paragraph{1. Điểm nghẽn Tuần tự Hóa (Sequential Computation Bottleneck)}:
+Trong RNN, trạng thái ẩn $\mathbf{h}_t$ tại bước thời gian $t$ bắt buộc phải đợi trạng thái ẩn $\mathbf{h}_{t-1}$ của bước trước đó hoàn tất:
+\begin{equation}
+\mathbf{h}_t = \tanh(\mathbf{W}_{hh} \mathbf{h}_{t-1} + \mathbf{W}_{xh} \mathbf{x}_t + \mathbf{b})
+\end{equation}
+Quy trình này biến việc tính toán thành một chuỗi tuần tự nghiêm ngặt. Hệ quả là: \textbf{Không thể tận dụng năng lực tính toán song song của hàng chục nghìn nhân GPU}. Cho dù bạn có cụm 8 GPU H100 hiện đại nhất, RNN vẫn phải duyệt qua từng từ một, khiến thời gian huấn luyện trên các tập dữ liệu nghìn tỷ token trở thành bất khả thi.
+
+\paragraph{2. Điểm nghẽn Cổ chai Thông tin (Information Bottleneck) \& Mất trí nhớ dài hạn}:
+Trong kiến trúc Encoder-Decoder của RNN, toàn bộ ý nghĩa của một văn bản dài $1.000$ từ bị ép phải nén vào đúng một véc-tơ trạng thái ẩn cuối cùng $\mathbf{h}_T$ có kích thước cố định (ví dụ $512$ chiều). Khi chuỗi văn bản dài ra, thông tin từ các từ đầu tiên bị pha loãng dần theo cấp số nhân qua chuỗi các phép nhân ma trận.
+
+\begin{definition}[Đột Phá Của Cơ Chế Tự Chú Ý -- Self-Attention]
+Cơ chế Tự chú ý loại bỏ hoàn toàn khái niệm thời gian tuần tự. Thay vì truyền thông tin qua một chuỗi các bước ẩn trung gian, nó cho phép \textbf{mọi từ trong câu kết nối trực tiếp với mọi từ khác trong câu sau đúng một bước tính toán duy nhất}, với khoảng cách đường truyền thông tin giữa hai vị trí bất kỳ luôn bằng $O(1)$.
+\end{definition}
+
+---
+
+\section{Bộ Ba Thần Thánh: Query, Key, Value \& Cơ Chế Tính Điểm Chú Ý}
+\label{sec:qkv-and-attention-math}
+
+\subsection{Ý Nghĩa Trực Giác Của Query, Key, Value}
+
+Để hiểu tại sao phép tính Self-Attention lại sử dụng ba ma trận $\mathbf{Q}, \mathbf{K}, \mathbf{V}$, hãy liên tưởng tới hệ thống tra cứu video trên YouTube hoặc cơ sở dữ liệu:
+\begin{itemize}
+  \item \textbf{Query ($\mathbf{Q}$ -- Câu hỏi tìm kiếm)}: Đại diện cho thứ mà token hiện tại đang tìm kiếm để bổ sung ý nghĩa cho chính nó.
+  \item \textbf{Key ($\mathbf{K}$ -- Nhãn từ khóa)}: Đại diện cho nội dung hoặc thuộc tính mà mỗi token khác sở hữu, đóng vai trò như nhãn chỉ mục để đối chiếu với Query.
+  \item \textbf{Value ($\mathbf{V}$ -- Giá trị nội dung)}: Đại diện cho thông tin thực sự sẽ được trích xuất và tổng hợp nếu Query và Key khớp nhau.
+\end{itemize}
+
+Từ một véc-tơ đầu vào $\mathbf{x}_i \in \mathbb{R}^{d_{\text{model}}}$ của token thứ $i$, mô hình chiếu nó qua 3 ma trận trọng số học được:
+\begin{equation}
+\mathbf{q}_i = \mathbf{W}_Q \mathbf{x}_i, \qquad \mathbf{k}_i = \mathbf{W}_K \mathbf{x}_i, \qquad \mathbf{v}_i = \mathbf{W}_V \mathbf{x}_i
+\end{equation}
+Trong đó $\mathbf{W}_Q, \mathbf{W}_K \in \mathbb{R}^{d_k \times d_{\text{model}}}$ và $\mathbf{W}_V \in \mathbb{R}^{d_v \times d_{\text{model}}}$.
+
+\subsection{Công Thức Toàn Diện Của Scaled Dot-Product Attention}
+
+Dưới dạng ma trận cho toàn bộ chuỗi có độ dài $L$, gom các véc-tơ thành ma trận $\mathbf{Q} \in \mathbb{R}^{L \times d_k}$, $\mathbf{K} \in \mathbb{R}^{L \times d_k}$, và $\mathbf{V} \in \mathbb{R}^{L \times d_v}$:
+\begin{equation}
+\text{Attention}(\mathbf{Q}, \mathbf{K}, \mathbf{V}) = \text{Softmax}\left( \frac{\mathbf{Q} \mathbf{K}^T}{\sqrt{d_k}} \right) \mathbf{V}
+\label{eq:scaled-dot-product-attention}
+\end{equation}
+
+Quy trình tính toán diễn ra qua 4 bước ma trận:
+\begin{enumerate}
+  \item \textbf{Tương tác cặp (Dot-Product Similarity)}: Tính ma trận điểm số thô $\mathbf{S} = \mathbf{Q} \mathbf{K}^T \in \mathbb{R}^{L \times L}$. Mỗi phần tử $S_{ij} = \mathbf{q}_i \cdot \mathbf{k}_j$ đo lường mức độ liên quan giữa token $i$ và token $j$.
+  \item \textbf{Chuẩn hóa tỷ lệ (Scaling)}: Chia ma trận điểm số cho $\sqrt{d_k}$ để giữ cho phương sai bằng $1$, ngăn ngừa gradient bị bão hòa triệt tiêu tại hàm Softmax (đã chứng minh tại Chương 4).
+  \item \textbf{Phân phối xác suất (Softmax Weights)}: Áp dụng Softmax trên từng hàng để tạo ma trận trọng số chú ý $\mathbf{A} = \text{Softmax}\left(\frac{\mathbf{S}}{\sqrt{d_k}}\right) \in \mathbb{R}^{L \times L}$. Mỗi hàng $i$ là một phân phối xác suất hợp lệ với tổng bằng $1$: $\sum_{j=1}^L A_{ij} = 1$.
+  \item \textbf{Tổng hợp thông tin (Weighted Sum)}: Nhân với ma trận $\mathbf{V}$: $\mathbf{O} = \mathbf{A} \mathbf{V} \in \mathbb{R}^{L \times d_v}$. Đầu ra tại mỗi vị trí $i$ là tổ hợp tuyến tính của tất cả các giá trị $\mathbf{v}_j$ được cân bằng bởi độ chú ý $A_{ij}$.
+\end{enumerate}
+
+\subsection{Bản Chất Chi Phí Bậc Hai $O(L^2)$ \& Điểm Nghẽn Ngữ Cảnh}
+
+Ma trận chú ý $\mathbf{A}$ có kích thước $L \times L$. Để tính toán và lưu trữ ma trận này:
+\begin{itemize}
+  \item Số phép tính FLOPs: $2 \times L^2 \times d_k$ phép nhân cộng.
+  \item Bộ nhớ VRAM để lưu Activation: $L^2 \times 2\text{ bytes}$ (định dạng FP16) cho mỗi Attention Head.
+\end{itemize}
+
+Khi ngữ cảnh tăng từ $L = 2.048$ lên $L = 128.000$ (gấp $62.5$ lần):
+Chi phí bộ nhớ và tính toán của phép tính chú ý không tăng $62.5$ lần, mà tăng gấp:
+\begin{equation}
+(62.5)^2 \approx 3.906\text{ lần}!
+\end{equation}
+Đây là lý do vật lý tại sao các mô hình Transformer nguyên bản bị giới hạn cửa sổ ngữ cảnh rất ngắn. Các công nghệ đột phá sau này như \textbf{FlashAttention} (Dao et al., 2022) đã giải quyết vấn đề này bằng cách tính toán Softmax theo từng khối nhỏ (\textit{Tiling}) trực tiếp trên bộ nhớ đệm nhanh SRAM của GPU mà không bao giờ ghi ma trận $L \times L$ khổng lồ ra VRAM HBM.
+
+---
+
+\section{Mã Hóa Vị Trí Hiện Đại: Từ Sinusoidal Đến RoPE (Rotary Position Embedding)}
+\label{sec:rope-deepdive}
+
+Vì phép tính Self-Attention hoàn toàn là phép nhân ma trận trên các tập hợp, nó có tính chất \textbf{Hoán vị Bất biến (Permutation Invariant)}: Nếu bạn xáo trộn thứ tự các từ trong câu, kết quả tính toán của Attention không thay đổi! Để mô hình nhận biết từ nào đứng trước, từ nào đứng sau, chúng ta bắt buộc phải tiêm thông tin vị trí vào véc-tơ biểu diễn.
+
+\subsection{Hạn Chế Của Sinusoidal Positional Encoding Cổ Điển}
+Trong Transformer 2017, Vaswani et al. sử dụng các hàm sóng $\sin$ và $\cos$ với các tần số khác nhau:
+\begin{equation}
+PE_{(pos, 2i)} = \sin\left(\frac{pos}{10000^{2i/d}}\right), \qquad PE_{(pos, 2i+1)} = \cos\left(\frac{pos}{10000^{2i/d}}\right)
+\end{equation}
+Véc-tơ vị trí này được cộng trực tiếp vào véc-tơ nhúng từ vựng: $\mathbf{x}_{\text{final}} = \mathbf{x}_{\text{embed}} + \mathbf{PE}$.
+Điểm yếu: Phép cộng này làm biến dạng không gian biểu diễn ngữ nghĩa của véc-tơ gốc và không khái quát tốt khi gặp độ dài ngữ cảnh vượt quá độ dài huấn luyện ban đầu.
+
+\subsection{Bản Chất Toán Học Của RoPE (Rotary Position Embedding)}
+
+Được đề xuất bởi Su et al. (2021) và được áp dụng trong $100\%$ các LLM hàng đầu hiện nay (Llama, Mistral, Qwen, Gemma), \textbf{RoPE} mã hóa vị trí bằng \textbf{phép quay hình học trong không gian phức}.
+
+Thay vì cộng véc-tơ, RoPE xoay véc-tơ Query và Key một góc tỷ lệ thuận với vị trí của nó. Chia không gian $d$-chiều thành $\frac{d}{2}$ cặp tọa độ 2D độc lập. Tại vị trí $m$, mỗi cặp tọa độ $(x_1, x_2)$ được nhân với ma trận quay 2D:
+\begin{equation}
+\mathbf{R}_{\theta_i, m} = \begin{bmatrix} \cos(m\theta_i) & -\sin(m\theta_i) \\ \sin(m\theta_i) & \cos(m\theta_i) \end{bmatrix}, \quad \text{với } \theta_i = 10000^{-2(i-1)/d}
+\label{eq:rope-2d-matrix}
+\end{equation}
+
+\begin{theorem}[Bản Chất Tương Đối Tuyệt Đối Của RoPE]
+Tích vô hướng giữa véc-tơ Query tại vị trí $m$ và véc-tơ Key tại vị trí $n$ sau khi áp dụng RoPE chỉ phụ thuộc vào \textbf{khoảng cách tương đối} $(m - n)$ giữa hai từ, hoàn toàn độc lập với vị trí tuyệt đối của chúng:
+\begin{equation}
+\langle \mathbf{R}_m \mathbf{q}, \mathbf{R}_n \mathbf{k} \rangle = (\mathbf{R}_m \mathbf{q})^T (\mathbf{R}_n \mathbf{k}) = \mathbf{q}^T \mathbf{R}_m^T \mathbf{R}_n \mathbf{k} = \mathbf{q}^T \mathbf{R}_{n-m} \mathbf{k} = g(\mathbf{q}, \mathbf{k}, m - n)
+\label{eq:rope-relative-distance-proof}
+\end{equation}
+\end{theorem}
+
+Nhờ tính chất hình học thanh lịch này, RoPE cho phép mô hình dễ dàng mở rộng cửa sổ ngữ cảnh từ $4\text{K}$ lên $128\text{K}$ tokens thông qua các kỹ thuật nội suy tần số góc như RoPE Scaling (YaRN / Dynamic NTK-aware interpolation).
+
+---
+
+\section{Các Biến Thể Attention Hiện Đại: MHA vs MQA vs GQA}
+\label{sec:mha-mqa-gqa}
+
+Trong giai đoạn suy luận tự hồi quy (Decode), dung lượng bộ nhớ VRAM bị chiếm dụng bởi \textbf{KV Cache} là rào cản lớn nhất ngăn cản việc phục vụ nhiều người dùng đồng thời. Sự tiến hóa của các kiến trúc Attention chủ yếu nhằm mục đích nén bộ nhớ KV Cache này:
+
+\begin{figure}[htbp]
+\centering
+\begin{tcolorbox}[blanker,left=12pt,top=6pt,bottom=6pt,borderline west={2.5pt}{0pt}{primarycolor}]
+\small
+\textbf{Ba Thế Hệ Kiến Trúc Attention Trọng Tâm}:\\[0.2cm]
+\textbf{1. Multi-Head Attention (MHA -- Chuẩn cổ điển)}:
+Mỗi Head Query sở hữu một Head Key và một Head Value riêng biệt ($H_Q = H_K = H_V = 32$).\\
+$\longrightarrow$ \textit{Nhược điểm}: Dung lượng KV Cache khổng lồ, làm cạn kiệt VRAM nhanh chóng.\\[0.15cm]
+\textbf{2. Multi-Query Attention (MQA -- Shazeer, 2019)}:
+Tất cả các Head Query chia sẻ chung đúng $1$ Head Key và $1$ Head Value ($H_Q = 32, H_K = H_V = 1$).\\
+$\longrightarrow$ \textit{Ưu điểm}: Giảm dung lượng KV Cache tới 32 lần!\\
+$\longrightarrow$ \textit{Nhược điểm}: Mô hình bị suy giảm năng lực biểu diễn đối với các bài toán lập luận phức tạp.\\[0.15cm]
+\textbf{3. Grouped-Query Attention (GQA -- Ainslie et al., 2023 -- Chuẩn hiện đại)}:
+Dung hòa hoàn hảo giữa MHA và MQA: Chia $H_Q$ thành $G$ nhóm, mỗi nhóm chia sẻ một cặp Key-Value.
+Ví dụ trong Llama-3-70B: $H_Q = 64$ Query heads được chia thành $8$ nhóm, mỗi nhóm có $8$ Query heads dùng chung $1$ cặp KV head ($H_{KV} = 8$).
+\end{tcolorbox}
+\caption{So sánh cấu trúc phân bổ Head giữa MHA, MQA và GQA}
+\label{fig:mha-mqa-gqa-comparison}
+\end{figure}
+
+Nhờ GQA, kích thước bộ nhớ KV Cache của Llama-3 giảm đúng \textbf{$8$ lần} so với MHA truyền thống, cho phép chạy mô hình $70\text{B}$ với ngữ cảnh $8.192$ tokens trên 2 GPU A100 thay vì cần tới 8 GPU!
+
+---
+
+\section{Ví Dụ Giải Mẫu Tính Toán Số Học Bằng Tay}
+\label{sec:ch06-numerical-walkthrough}
+
+\begin{example}[Tính Toán Toàn Bộ Ma Trận Self-Attention Bằng Tay Cho Chuỗi 3 Tokens]
+Xét một cơ chế Self-Attention đơn giản với $d_k = 2$ cho một chuỗi gồm 3 tokens ($L=3$).
+Giả sử sau bước chiếu tuyến tính, ma trận Query và Key có giá trị số học cụ thể như sau:
+\begin{equation*}
+\mathbf{Q} = \begin{bmatrix} 1.0 & 0.0 \\ 0.0 & 2.0 \\ 1.0 & 1.0 \end{bmatrix}, \quad
+\mathbf{K} = \begin{bmatrix} 1.0 & 1.0 \\ 2.0 & 0.0 \\ 0.0 & 1.0 \end{bmatrix}, \quad
+\mathbf{V} = \begin{bmatrix} 10.0 & 0.0 \\ 0.0 & 20.0 \\ 5.0 & 5.0 \end{bmatrix} \in \mathbb{R}^{3 \times 2}
+\end{equation*}
+
+\paragraph{Bước 1: Tính tích ma trận $\mathbf{S} = \mathbf{Q} \mathbf{K}^T$}
+Ma trận chuyển vị $\mathbf{K}^T \in \mathbb{R}^{2 \times 3}$:
+\begin{equation*}
+\mathbf{K}^T = \begin{bmatrix} 1.0 & 2.0 & 0.0 \\ 1.0 & 0.0 & 1.0 \end{bmatrix}
+\end{equation*}
+Thực hiện phép nhân ma trận $\mathbf{S} = \mathbf{Q} \mathbf{K}^T \in \mathbb{R}^{3 \times 3}$:
+\begin{align*}
+S_{11} &= 1.0(1.0) + 0.0(1.0) = 1.0, & S_{12} &= 1.0(2.0) + 0.0(0.0) = 2.0, \\
+S_{13} &= 1.0(0.0) + 0.0(1.0) = 0.0, & S_{21} &= 0.0(1.0) + 2.0(1.0) = 2.0, \\
+S_{22} &= 0.0(2.0) + 2.0(0.0) = 0.0, & S_{23} &= 0.0(0.0) + 2.0(1.0) = 2.0, \\
+S_{31} &= 1.0(1.0) + 1.0(1.0) = 2.0, & S_{32} &= 1.0(2.0) + 1.0(0.0) = 2.0, \\
+S_{33} &= 1.0(0.0) + 1.0(1.0) = 1.0
+\end{align*}
+Vậy ma trận điểm số thô là:
+\begin{equation*}
+\mathbf{S} = \begin{bmatrix} 1.0 & 2.0 & 0.0 \\ 2.0 & 0.0 & 2.0 \\ 2.0 & 2.0 & 1.0 \end{bmatrix}
+\end{equation*}
+
+\paragraph{Bước 2: Chuẩn hóa theo tỷ lệ $\sqrt{d_k} = \sqrt{2} \approx 1.4142$}
+\begin{equation*}
+\mathbf{S}_{\text{scaled}} = \frac{\mathbf{S}}{\sqrt{2}} \approx \begin{bmatrix} 0.7071 & 1.4142 & 0.0000 \\ 1.4142 & 0.0000 & 1.4142 \\ 1.4142 & 1.4142 & 0.7071 \end{bmatrix}
+\end{equation*}
+
+\paragraph{Bước 3: Tính ma trận trọng số Softmax $\mathbf{A}$}
+Xét hàng thứ nhất: $\mathbf{s}_1 = [0.7071, 1.4142, 0.0000]$.
+
+Áp dụng Numerically Stable Softmax với hằng số $c = -1.4142$:
+\begin{align*}
+e^{0.7071 - 1.4142} &= e^{-0.7071} \approx 0.4931 \\
+e^{1.4142 - 1.4142} &= e^{0.0} = 1.0000 \\
+e^{0.0000 - 1.4142} &= e^{-1.4142} \approx 0.2431 \\
+\text{Tổng hàng 1} &= 0.4931 + 1.0000 + 0.2431 = 1.7362
+\end{align*}
+Trọng số chú ý hàng 1:
+\begin{equation*}
+A_{11} = \frac{0.4931}{1.7362} \approx 0.2840, \quad A_{12} = \frac{1.0000}{1.7362} \approx 0.5760, \quad A_{13} = \frac{0.2431}{1.7362} \approx 0.1400
+\end{equation*}
+
+\paragraph{Bước 4: Tính véc-tơ đầu ra $\mathbf{o}_1$}
+Tổ hợp tuyến tính giá trị: $\mathbf{o}_1 = A_{11} \mathbf{v}_1 + A_{12} \mathbf{v}_2 + A_{13} \mathbf{v}_3$:
+\begin{align*}
+\mathbf{o}_1 &= 0.2840 \begin{bmatrix} 10.0 \\ 0.0 \end{bmatrix} + 0.5760 \begin{bmatrix} 0.0 \\ 20.0 \end{bmatrix} + 0.1400 \begin{bmatrix} 5.0 \\ 5.0 \end{bmatrix} \\
+&= \begin{bmatrix} 2.840 \\ 0.000 \end{bmatrix} + \begin{bmatrix} 0.000 \\ 11.520 \end{bmatrix} + \begin{bmatrix} 0.700 \\ 0.700 \end{bmatrix} = \begin{bmatrix} 3.540 \\ 12.220 \end{bmatrix}
+\end{align*}
+\textit{Ý nghĩa}: Token 1 chú ý $57.6\%$ vào token 2, $28.4\%$ vào chính nó, và $14.0\%$ vào token 3. Véc-tơ đầu ra $\mathbf{o}_1 = [3.54, 12.22]^T$ là sự kết hợp ngữ nghĩa hoàn hảo từ cả 3 vị trí trong câu!
+\end{example}
+
+---
+
+\section{Hiện Thực Hóa: Thuật Toán Scaled Dot-Product Attention}
+\label{sec:ch06-implementation}
+
+Dưới đây là một mô đun Python chuẩn mực triển khai thuật toán Scaled Dot-Product Attention hỗ trợ tùy chọn mặt nạ nhân quả (\textit{Causal Masking} dùng trong Decoder của LLM) bằng NumPy có type-hinting:
+
+\begin{lstlisting}[language=Python]
+import numpy as np
+from typing import Optional, Tuple
+
+class ScaledDotProductAttention:
+    """Cai dat thuan tuy thuat toan Attention kem Causal Masking."""
+    
+    @staticmethod
+    def forward(
+        Q: np.ndarray,
+        K: np.ndarray,
+        V: np.ndarray,
+        is_causal: bool = False
+    ) -> Tuple[np.ndarray, np.ndarray]:
+        """
+        Q: shape [Batch, Heads, SeqLen_Q, HeadDim]
+        K: shape [Batch, Heads, SeqLen_K, HeadDim]
+        V: shape [Batch, Heads, SeqLen_V, HeadDim]
+        """
+        d_k = Q.shape[-1]
+        
+        # 1. Tinh ma tran diem so: Scores = Q * K^T / sqrt(d_k)
+        # Nhan hai chieu cuoi cung: [..., SeqLen_Q, HeadDim] x [..., HeadDim, SeqLen_K]
+        scores = np.matmul(Q, np.swapaxes(K, -1, -2)) / np.sqrt(d_k)
+        
+        # 2. Ap dung Causal Mask neu la mo hinh Decoder tu hoi quy
+        if is_causal:
+            seq_len_q = Q.shape[-2]
+            seq_len_k = K.shape[-2]
+            # Mat na tam giac tren (khong cho phep token nhin thay tuong lai)
+            mask = np.triu(np.ones((seq_len_q, seq_len_k)), k=1).astype(bool)
+            scores = np.where(mask, -1e9, scores)
+            
+        # 3. Softmax on dinh so hoc tren chieu cuoi cung
+        shifted_scores = scores - np.max(scores, axis=-1, keepdims=True)
+        exp_scores = np.exp(shifted_scores)
+        attention_weights = exp_scores / np.sum(exp_scores, axis=-1, keepdims=True)
+        
+        # 4. Tinh dau ra: Output = Attention_Weights * V
+        output = np.matmul(attention_weights, V)
+        return output, attention_weights
+\end{lstlisting}
+
+---
+
+\section{Hệ Thống Bài Tập \& Câu Hỏi Tư Duy Đa Tầng}
+\label{sec:ch06-exercises}
+
+\subsection{Nhóm A: Câu Hỏi Tư Duy Bản Chất (Conceptual Reasoning)}
+
+\begin{enumerate}[label=\textbf{A\arabic*.}]
+  \item \textbf{Causal Masking trong Decoder}: Tại sao trong giai đoạn huấn luyện các mô hình Decoder-Only (như GPT hay Llama), chúng ta bắt buộc phải áp dụng ma trận mặt nạ nhân quả $\mathbf{M}$ với giá trị $-\infty$ ở tam giác phía trên đường chéo chính? Nếu bỏ quên mặt nạ này trong pha huấn luyện, điều gì sẽ xảy ra khi mô hình suy luận thực tế?
+  \item \textbf{Pre-LN vs Post-LN}: Trong kiến trúc Transformer nguyên bản 2017, lớp LayerNorm được đặt sau khối Attention (\textit{Post-LN}): $\mathbf{x}_{l+1} = \text{LayerNorm}(\mathbf{x}_l + \text{Attention}(\mathbf{x}_l))$. Tại sao tất cả các mô hình hiện đại đều chuyển sang kiến trúc \textit{Pre-LN}: $\mathbf{x}_{l+1} = \mathbf{x}_l + \text{Attention}(\text{LayerNorm}(\mathbf{x}_l))$? Hãy giải thích dưới góc nhìn ổn định dòng gradient.
+  \item \textbf{So sánh RoPE vs ALiBi}: Ngoài RoPE, kỹ thuật ALiBi (Attention with Linear Biases -- Press et al., 2021) không thêm bất kỳ véc-tơ vị trí nào mà trừ trực tiếp một giá trị phạt tuyến tính $m(i - j)$ vào ma trận điểm số Attention. Hãy phân tích ưu và nhược điểm của hai phương pháp này khi ngoại suy ngữ cảnh siêu dài ($> 100\text{K}$ tokens).
+\end{enumerate}
+
+\subsection{Nhóm B: Bài Toán Tính Toán Giải Tích Bằng Tay (Analytical Problems)}
+
+\begin{enumerate}[label=\textbf{B\arabic*.}]
+  \item \textbf{Tính toán Tiết kiệm VRAM của Grouped-Query Attention}: Xét một mô hình LLM với cấu hình: $d_{\text{model}} = 4.096$, số tầng $n_{\text{layers}} = 32$, số Query heads $H_Q = 32$. Kích thước mỗi Head là $d_k = 128$. Độ dài ngữ cảnh là $L = 8.192$ tokens, kích thước Batch $B = 4$, lưu trữ định dạng FP16 ($2\text{ bytes/element}$).
+  \begin{itemize}
+    \item[a)] Tính dung lượng VRAM tiêu tốn chỉ riêng cho bộ nhớ đệm KV Cache nếu mô hình sử dụng Multi-Head Attention truyền thống ($H_{KV} = 32$).
+    \item[b)] Tính dung lượng VRAM cho KV Cache nếu chuyển sang Grouped-Query Attention với $H_{KV} = 8$ (như Llama-3). Số GB VRAM tiết kiệm được là bao nhiêu?
+  \end{itemize}
+\end{enumerate}
+
+\subsection{Nhóm C: Thực Hành Kỹ Nghệ \& Lập Trình (Implementation Labs)}
+
+\begin{enumerate}[label=\textbf{C\arabic*.}]
+  \item \textbf{Cài Đặt Ma Trận Quay RoPE Bằng NumPy}: Viết một hàm Python thuần túy nhận vào một tensor Query kích thước $[B, L, H, D]$ và áp dụng phép quay RoPE theo công thức phương trình~\eqref{eq:rope-2d-matrix}, chứng minh bằng kiểm thử tự động rằng khoảng cách tương đối được bảo toàn nguyên vẹn.
+\end{enumerate}
+
+\subsection{Nhóm D: Phân Tích Thất Bại \& Debugging Thực Tế (Post-Mortem Analysis)}
+
+\begin{enumerate}[label=\textbf{D\arabic*.}]
+  \item \textbf{Sự Cố Lỗi Tràn Số Do Đặt Sai Giá Trị Mask}: Trong một dự án tự phát triển mô hình sinh văn bản, một kỹ sư sử dụng giá trị mặt nạ nhân quả \code{mask_value = -1e30} thay vì \code{-1e9} hoặc \code{-1e4} trên định dạng số thực 16-bit (\code{float16}). Khi chạy hàm Softmax, toàn bộ câu trả lời sinh ra chỉ chứa ký tự vô nghĩa \code{????????}. Hãy giải thích tại sao số $-10^{30}$ lại gây ra lỗi số học thảm họa trên định dạng FP16 trong khi trên FP32 nó hoạt động bình thường?
+\end{enumerate}
+
+---
+
+\section{Hướng Dẫn Lời Giải \& Bình Luận Kỹ Thuật Chi Tiết}
+\label{sec:ch06-solutions}
+
+\paragraph{Lời giải Bài A1 (Ý nghĩa của Causal Masking)}:
+Trong giai đoạn huấn luyện, mục tiêu của mô hình tự hồi quy là dự đoán token tiếp theo $x_{t+1}$ dựa trên các token quá khứ $x_1, \dots, x_t$. Nhờ kiến trúc Transformer, toàn bộ $L$ tokens được đưa vào song song cùng một lúc. 
+Nếu không có Causal Masking, tại vị trí $t$, token $x_t$ sẽ nhìn thấy được véc-tơ Key và Value của token tương lai $x_{t+1}$ ngay trong ma trận chú ý $\mathbf{Q} \mathbf{K}^T$. Mô hình sẽ ``gian lận'' bằng cách sao chép trực tiếp token tương lai sang đầu ra mà không cần học bất kỳ quy luật ngữ nghĩa nào! 
+Khi đưa vào môi trường suy luận thực tế (Inference), token tương lai chưa hề tồn tại, mô hình sẽ hoàn toàn tê liệt và không thể sinh được văn bản có nghĩa. Giá trị $-\infty$ (hoặc $-10^9$) ép xác suất Softmax tại các vị trí tương lai về đúng $e^{-\infty} = 0$, ngăn chặn tuyệt đối việc nhìn thấy trước tương lai.
+
+\paragraph{Lời giải Bài B1 (Tính toán dung lượng KV Cache MHA vs GQA)}:
+Công thức tính dung lượng KV Cache cho toàn bộ hệ thống:
+\begin{equation*}
+\text{Memory}_{\text{KV}} = 2 \times (\text{Layers}) \times (H_{KV}) \times (d_k) \times (\text{Context Length}) \times (\text{Batch}) \times (\text{Bytes/element})
+\end{equation*}
+Trong đó số $2$ đầu tiên là do lưu cả hai ma trận Key và Value.
+
+\begin{itemize}
+  \item[a)] Với Multi-Head Attention ($H_{KV} = 32$):
+  \begin{align*}
+  \text{Memory}_{\text{KV, MHA}} &= 2 \times 32 \times 32 \times 128 \times 8.192 \times 4 \times 2\text{ bytes} \\
+  &= 2 \times 32 \times 32 \times 128 \times 8.192 \times 8 = 17.179.869.184\text{ bytes} \\
+  &= \frac{17.179.869.184}{1024^3}\text{ GiB} = 16.0\text{ GiB}
+  \end{align*}
+  Chỉ riêng 4 người dùng hội thoại dài đã ngốn hết $16\text{ GB}$ VRAM của GPU!
+  
+  \item[b)] Với Grouped-Query Attention ($H_{KV} = 8$):
+  Vì số Head KV giảm 4 lần (từ $32 \to 8$), dung lượng KV Cache giảm chính xác 4 lần:
+  \begin{equation*}
+  \text{Memory}_{\text{KV, GQA}} = \frac{16.0\text{ GiB}}{4} = 4.0\text{ GiB}
+  \end{equation*}
+  Dung lượng VRAM tiết kiệm được là: $16.0 - 4.0 = 12.0\text{ GiB}$! Lượng VRAM dư thừa này cho phép máy chủ phục vụ đồng thời số người dùng gấp 4 lần ($B=16$ thay vì $B=4$).
+\end{itemize}
+
+\paragraph{Lời giải Bài D1 (Bẫy tràn số âm trên FP16)}:
+Trong chuẩn số thực dấu phẩy động 16-bit (IEEE 754 float16), giá trị âm nhỏ nhất có thể biểu diễn được là xấp xỉ $-65.504$. 
+Khi kỹ sư đặt giá trị mặt nạ là $-10^{30}$, giá trị này vượt xa giới hạn dưới của FP16, dẫn tới hiện tượng \textbf{Tràn số âm (Negative Overflow)} và bị chuyển thành \code{-inf}. 
+Khi tính Softmax trên một hàng mà toàn bộ các phần tử đều bị mask (hoặc xảy ra lỗi làm tròn khi trừ cực đại), phép toán sinh ra $\frac{0}{0} = \text{nan}$. Giá trị \code{NaN} này lan truyền ra toàn bộ ma trận trọng số và biến mọi token sinh ra thành mã rác. 
+Trên định dạng FP16, giá trị mask an toàn chuẩn mực được khuyến nghị trong mã nguồn PyTorch và vLLM là \code{-1e4} (tức $-10.000$, vì $e^{-10.000} = 0$ hoàn hảo và nằm an toàn trong dải của FP16).

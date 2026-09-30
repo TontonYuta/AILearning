@@ -1,0 +1,695 @@
+% ==============================================================================
+% CH07_LLM_RUNTIME_TOKENOMICS.TEX — CHƯƠNG 7: VẬN HÀNH SUY LUẬN LLM, TOKENOMICS & TỐI ƯU KV CACHE
+% ==============================================================================
+% Định dạng: Sách chuyên khảo kinh điển (Classic Engineering Monograph)
+% Chuẩn mực: Không dùng hộp đóng khung 4 phía, toán học 5 bước, bài tập đa tầng
+% ==============================================================================
+
+\chapter{Vận Hành Suy Luận LLM, Tokenomics \& Tối Ưu KV Cache}
+\label{ch:llm-runtime-tokenomics}
+
+Huấn luyện một Mô hình Ngôn ngữ Lớn (LLM) và phục vụ nó trong môi trường sản xuất (Production Serving) là hai bài toán kỹ thuật thuộc hai thế giới hoàn toàn khác biệt. Trong khi giai đoạn tiền huấn luyện (Pre-training) tập trung vào việc tối đa hóa thông lượng tính toán thô (FLOPS Utilization) trên các cụm siêu máy tính hàng nghìn GPU, thì giai đoạn suy luận (Inference Serving) lại bị chi phối bởi các ràng buộc khắt khe về độ trễ thời gian thực (Latency SLA) và chi phí tài chính hạ tầng (FinOps).
+
+Một Kỹ sư AI xuất sắc không chỉ biết gọi API của nhà cung cấp đóng gói sẵn. Bạn phải thấu hiểu tường tận cơ chế sinh tự hồi quy ở cấp độ phần cứng GPU, giải phẫu từng byte bộ nhớ của \textbf{KV Cache}, nắm vững thuật toán phân trang \textbf{PagedAttention}, và làm chủ các chiến lược giải mã xác suất để xây dựng những hệ thống phục vụ hàng triệu người dùng với chi phí tối ưu nhất.
+
+---
+
+\section{Giải Phẫu Quá Trình Suy Luận Tự Hồi Quy (Autoregressive Generation)}
+\label{sec:autoregressive-anatomy}
+
+Hầu hết các LLM tiên tiến hiện nay (như GPT-4, Llama-3, Mistral, Qwen) đều thuộc họ kiến trúc \textbf{Decoder-only Transformer}. Bản chất toán học của chúng là mô hình hóa phân phối xác suất có điều kiện của token tiếp theo dựa trên toàn bộ chuỗi token đã xuất hiện trước đó:
+\begin{equation}
+P(w_1, w_2, \dots, w_T) = \prod_{t=1}^T P(w_t \mid w_1, w_2, \dots, w_{t-1})
+\end{equation}
+
+Để sinh ra câu trả lời cho người dùng, hệ thống suy luận LLM bắt buộc phải trải qua hai giai đoạn vận hành có đặc tính phần cứng hoàn toàn trái ngược nhau:
+
+\subsection{Pha 1: Đánh Giá Câu Lệnh Đầu Vào (Prefill Phase / Prompt Evaluation)}
+Khi người dùng gửi một đoạn văn bản đầu vào (Prompt) gồm $L_{\text{prompt}}$ tokens:
+\begin{itemize}
+  \item \textbf{Cơ chế tính toán}: Mô hình xử lý toàn bộ $L_{\text{prompt}}$ tokens này \textbf{song song trong một lượt tính toán duy nhất} (Single Forward Pass). Nhờ cơ chế Causal Masking, tất cả các phép chiếu Query, Key, Value và phép nhân ma trận Attention được thực hiện đồng thời trên toàn bộ ma trận chuỗi.
+  \item \textbf{Đặc tính phần cứng}: Đây là giai đoạn \textbf{Compute-bound} (Nghẽn tại năng lực tính toán). Tỷ số cường độ số học (Arithmetic Intensity) rất cao vì các nhân ma trận lớn cho phép nhân Tensor Cores của GPU hoạt động ở mức hiệu suất đỉnh cao.
+  \item \textbf{Chỉ số đo lường}: Thời gian hoàn thành pha này quyết định trực tiếp chỉ số \textbf{TTFT (Time To First Token)} -- khoảng thời gian người dùng phải chờ đợi kể từ lúc bấm nút gửi đến khi ký tự đầu tiên xuất hiện trên màn hình.
+\end{itemize}
+
+\subsection{Pha 2: Sinh Token Tự Hồi Quy (Decode Phase / Token Generation)}
+Sau khi đã sinh ra token đầu tiên, mô hình bước vào vòng lặp sinh tuần tự:
+\begin{itemize}
+  \item \textbf{Cơ chế tính toán}: Mỗi bước thời gian $t$, mô hình chỉ nhận đúng \textbf{1 token mới nhất} làm đầu vào để dự đoán token tiếp theo $t+1$. Quá trình này lặp đi lặp lại một cách tuần tự cho đến khi mô hình phát ra token kết thúc (End-of-Sequence -- \code{EOS}) hoặc chạm giới hạn độ dài tối đa.
+  \item \textbf{Đặc tính phần cứng}: Đây là giai đoạn \textbf{Memory-bound} (Nghẽn tại băng thông bộ nhớ). Tại mỗi bước sinh một token duy nhất, toàn bộ hàng chục tỷ tham số của mô hình (Weights) bắt buộc phải được đọc tuần tự từ bộ nhớ VRAM HBM (High Bandwidth Memory) nạp vào bộ nhớ đệm SRAM của chip GPU chỉ để thực hiện một vài phép nhân ma trận với véc-tơ đơn lẻ.
+  \item \textbf{Cường độ số học cực thấp}: Với mỗi tham số 16-bit (2 bytes), chip GPU chỉ thực hiện đúng 2 phép tính FLOPs (một phép nhân và một phép cộng). Cường độ số học của pha Decode rơi xuống mức thảm hại:
+  \begin{equation}
+  \text{Arithmetic Intensity}_{\text{Decode}} = \frac{2\text{ FLOPs}}{2\text{ Bytes}} = 1\text{ FLOP/Byte}
+  \end{equation}
+  Trong khi đó, GPU Nvidia H100 SXM có năng lực tính toán FP16 lên tới $989\text{ TFLOPS}$ nhưng băng thông bộ nhớ chỉ đạt $3.350\text{ GB/s}$. Điểm cân bằng của H100 đòi hỏi cường độ số học phải đạt ít nhất:
+  \begin{equation}
+  \frac{989 \times 10^{12}\text{ FLOPs/s}}{3.35 \times 10^{12}\text{ Bytes/s}} \approx 295\text{ FLOPs/Byte}
+  \end{equation}
+  Vì $1 \ll 295$, trong suốt pha Decode, hơn $99\%$ năng lực tính toán của các nhân Tensor Cores trên GPU bị bỏ đói, hoàn toàn nằm chờ dữ liệu được kéo qua bus bộ nhớ!
+  \item \textbf{Chỉ số đo lường}: Tốc độ của pha này quyết định chỉ số \textbf{TPOT (Time Per Output Token)} -- độ trễ giữa các token liên tiếp, phản ánh tốc độ sinh chữ (Tokens/giây) mà người dùng cảm nhận được.
+\end{itemize}
+
+\begin{table}[ht]
+\centering
+\small
+\begin{tabular}{lll}
+\hline
+\textbf{Đặc tính Kỹ thuật} & \textbf{Pha Prefill (Prompt Phase)} & \textbf{Pha Decode (Generation Phase)} \\ \hline
+Số lượng token xử lý / bước & Toàn bộ prompt ($L_{\text{prompt}}$ tokens) & Đúng 1 token mới duy nhất \\
+Phương thức thực thi & Song song hóa ma trận ($L \times L$) & Tuần tự từng bước một ($1 \times L$) \\
+Điểm nghẽn phần cứng & \textbf{Compute-bound} (Tensor Cores) & \textbf{Memory-bound} (Băng thông VRAM) \\
+Cường độ số học & Rất cao ($>100\text{ FLOPs/Byte}$) & Cực kỳ thấp ($\approx 1\text{ FLOP/Byte}$) \\
+Độ phức tạp tính toán FLOPs & $O(L_{\text{prompt}}^2 \cdot d)$ & $O(L \cdot d)$ cho mỗi bước sinh \\
+Chỉ số dịch vụ SLA ảnh hưởng & \textbf{TTFT} (Time To First Token) & \textbf{TPOT} (Time Per Output Token) \\ \hline
+\end{tabular}
+\caption{So sánh bản chất kỹ thuật giữa Pha Prefill và Pha Decode trong suy luận LLM.}
+\label{tab:prefill-vs-decode}
+\end{table}
+
+---
+
+\section{Giải Phẫu Bộ Nhớ KV Cache \& Thách Thức Phân Mảnh}
+\label{sec:kv-cache-anatomy}
+
+\subsection{Tại Sao KV Cache Là Cứu Tinh Duy Nhất Của Pha Decode?}
+Hãy nhớ lại công thức Self-Attention tại bước thời gian $t$. Để tính toán véc-tơ đại diện cho token thứ $t$, mô hình cần thực hiện phép nhân giữa véc-tơ Query $\mathbf{q}_t$ của token hiện tại với ma trận Key $\mathbf{K}_{1:t}$ của tất cả các token từ vị trí $1$ đến $t$:
+\begin{equation}
+\mathbf{o}_t = \text{Softmax}\left(\frac{\mathbf{q}_t \mathbf{K}_{1:t}^T}{\sqrt{d_k}}\right) \mathbf{V}_{1:t}
+\end{equation}
+
+Nếu không lưu trữ lại dữ liệu:
+Tại mỗi bước sinh token mới, mô hình sẽ phải tính toán lại véc-tơ Key $\mathbf{k}_i$ và Value $\mathbf{v}_i$ cho toàn bộ các token quá khứ từ $1$ đến $t-1$.
+Để sinh một chuỗi dài $L$ tokens, tổng số phép tính Attention sẽ là:
+\begin{equation}
+\sum_{t=1}^L O(t) = O(L^2) \text{ phép tính trên mỗi token} \implies \text{Tổng chi phí: } O(L^3)
+\end{equation}
+Độ phức tạp bậc ba $O(L^3)$ sẽ biến việc sinh một đoạn văn bản vài nghìn token thành thảm họa độ trễ kéo dài hàng giờ đồng hồ!
+
+\begin{definition}[KV Cache]
+\textbf{KV Cache} là kỹ thuật lưu trữ cố định các véc-tơ Key ($\mathbf{k}$) và Value ($\mathbf{v}$) của tất cả các token đã xử lý trong các tầng Transformer vào bộ nhớ VRAM của GPU. Tại mỗi bước Decode tiếp theo, mô hình chỉ cần tính toán đúng một cặp $\mathbf{k}_t, \mathbf{v}_t$ cho token hiện tại, nối thêm (Append) vào bộ nhớ đệm KV Cache sẵn có, và thực hiện phép nhân véc-tơ -- ma trận.
+\end{definition}
+
+Nhờ KV Cache, chi phí tính toán tại mỗi bước decode giảm triệt để từ $O(t)$ xuống còn phép tính ma trận $O(1)$, đưa tổng độ phức tạp của toàn bộ quá trình sinh văn bản về mức tuyến tính $O(L)$.
+
+\subsection{Công Thức Giải Tích Tính Dung Lượng KV Cache}
+Đổi lấy tốc độ tính toán, cái giá phải trả là sự bùng nổ dung lượng bộ nhớ VRAM. Một Kỹ sư AI bắt buộc phải thuộc lòng công thức định lượng bộ nhớ KV Cache:
+
+\begin{theorem}[Dung lượng bộ nhớ KV Cache]
+Xét một mô hình Transformer có $n_{\text{layers}}$ tầng, cơ chế Attention có $n_{\text{kv\_heads}}$ đầu Key-Value (với MHA thì $n_{\text{kv\_heads}} = n_{\text{heads}}$, với GQA thì $n_{\text{kv\_heads}} < n_{\text{heads}}$), mỗi đầu có chiều dài $d_{\text{head}}$, và dữ liệu được lưu ở định dạng số thực có kích thước $b_{\text{bytes}}$ bytes (FP16/BF16: 2 bytes, FP8: 1 byte).
+
+Dung lượng bộ nhớ VRAM cần thiết để lưu trữ KV Cache cho đúng \textbf{1 token} là:
+\begin{equation}
+M_{\text{token}} = 2 \times n_{\text{layers}} \times n_{\text{kv\_heads}} \times d_{\text{head}} \times b_{\text{bytes}} \quad (\text{Bytes})
+\end{equation}
+(Hệ số $2$ biểu thị cho hai ma trận riêng biệt: Key và Value).
+
+Khi hệ thống phục vụ một Batch gồm $B$ người dùng đồng thời, mỗi người dùng có chuỗi ngữ cảnh trung bình dài $L$ tokens, tổng dung lượng VRAM bị chiếm dụng bởi KV Cache là:
+\begin{equation}
+M_{\text{total\_KV}} = B \times L \times M_{\text{token}} = 2 \times B \times L \times n_{\text{layers}} \times n_{\text{kv\_heads}} \times d_{\text{head}} \times b_{\text{bytes}}
+\end{equation}
+\end{theorem}
+
+\begin{example}[Tính toán KV Cache của Llama-3-70B]
+Mô hình Llama-3-70B có thông số cấu hình: $n_{\text{layers}} = 80$, $n_{\text{heads}} = 64$, sử dụng Grouped-Query Attention với $n_{\text{kv\_heads}} = 8$, kích thước mỗi đầu $d_{\text{head}} = 128$, định dạng nửa độ chính xác BF16 ($b = 2$ bytes).
+
+Áp dụng công thức, dung lượng KV Cache cho mỗi token là:
+\begin{equation*}
+M_{\text{token}} = 2 \times 80 \times 8 \times 128 \times 2 = 327.680\text{ Bytes} \approx 0.32768\text{ MB/token}
+\end{equation*}
+Nếu chúng ta phục vụ $B = 32$ người dùng đồng thời với cửa sổ ngữ cảnh tối đa $L = 8.192$ tokens:
+\begin{equation*}
+M_{\text{total\_KV}} = 32 \times 8.192 \times 327.680\text{ Bytes} \approx 85.899.345.920\text{ Bytes} \approx 80\text{ GiB}!
+\end{equation*}
+\textit{Bình luận kỹ thuật}: Riêng bộ nhớ KV Cache cho 32 người dùng đã nuốt trọn một chiếc GPU cao cấp Nvidia A100/H100 80GB, chưa kể đến $140\text{ GB}$ VRAM cần thiết để lưu trữ bản thân trọng số mô hình 70B!
+\end{example}
+
+\subsection{Căn Bệnh Phân Mảnh Bộ Nhớ Cố Hữu Trong Serving Truyền Thống}
+Trước năm 2023, các framework phục vụ suy luận LLM truyền thống (như Hugging Face Transformers nguyên bản) quản lý bộ nhớ KV Cache theo cách tiếp cận tĩnh thô sơ: \textbf{Cấp phát bộ nhớ liên tục (Contiguous Memory Allocation)}.
+Phương thức này gây ra 3 cuộc khủng hoảng phân mảnh bộ nhớ nghiêm trọng:
+\begin{enumerate}
+  \item \textbf{Cấp phát vượt mức (Over-allocation)}: Vì hệ thống không thể biết trước câu trả lời của mô hình sẽ dài bao nhiêu tokens, nó bắt buộc phải cấp phát một vùng nhớ liên tục ứng với độ dài ngữ cảnh tối đa ($L_{\max}$, ví dụ $8\text{K}$ tokens) cho mỗi request. Nếu người dùng chỉ hỏi một câu ngắn và mô hình trả lời 100 tokens, $98\%$ bộ nhớ đã cấp phát bị bỏ phí hoàn toàn.
+  \item \textbf{Phân mảnh nội bộ (Internal Fragmentation)}: Vùng nhớ trống được giữ trước không thể được chia sẻ cho các yêu cầu khác cùng sử dụng.
+  \item \textbf{Phân mảnh ngoại vi (External Fragmentation)}: Do các request kết thúc ở các thời điểm ngẫu nhiên, VRAM bị chia cắt thành hàng trăm lỗ hổng bộ nhớ rời rạc, không có lỗ hổng nào đủ lớn liên tục để nạp thêm một request mới.
+\end{enumerate}
+
+Các nghiên cứu thực nghiệm tại Đại học UC Berkeley chỉ ra rằng trong hệ thống truyền thống, \textbf{từ $60\%$ đến $80\%$ bộ nhớ VRAM của GPU bị lãng phí hoàn toàn do phân mảnh}, khiến hệ thống bị sập vì lỗi Out-Of-Memory (OOM) dù tải thực tế còn rất thấp.
+
+---
+
+\section{Cuộc Cách Mạng PagedAttention \& Continuous Batching}
+\label{sec:paged-attention-continuous-batching}
+
+\subsection{PagedAttention: Di Sản Của Hệ Điều Hành Đi Vào GPU}
+Năm 2023, nhóm nghiên cứu tại UC Berkeley do Woosuk Kwon dẫn đầu đã công bố công trình lịch sử mang tên \textbf{PagedAttention} (được đóng gói trong thư viện mã nguồn mở \textbf{vLLM}). 
+
+Ý tưởng cốt lõi của PagedAttention được kế thừa trực tiếp từ nguyên lý \textbf{Bộ nhớ Ảo và Phân trang (Virtual Memory \& Paging)} vốn đã thống trị các hệ điều hành máy tính suốt nửa thế kỷ:
+Thay vì bắt buộc toàn bộ KV Cache của một chuỗi phải nằm trong một dải địa chỉ bộ nhớ liên tục khổng lồ trên VRAM, PagedAttention chia nhỏ KV Cache thành các \textbf{Khối Vật Lý (Physical Blocks)} có kích thước cố định (mỗi block thường chứa 16 hoặc 32 tokens).
+
+\begin{figure}[ht]
+\centering
+\footnotesize
+\begin{verbatim}
+Logical KV Cache:  [ Token 0..15 ]       [ Token 16..31 ]      [ Token 32..47 ]
+                          |                     |                     |
+                          v                     v                     v
+Block Table:        Logic Block 0         Logic Block 1         Logic Block 2
+                          |                     |                     |
+                          v                     v                     v
+Physical VRAM:      Physical Blk #12      Physical Blk #3       Physical Blk #7
+                    (Rải rác VRAM)        (Rải rác VRAM)        (Cấp phát mới)
+\end{verbatim}
+\caption{Cơ chế ánh xạ địa chỉ logic sang các khối vật lý phân tán trong PagedAttention.}
+\label{fig:paged-attention-concept}
+\end{figure}
+
+\begin{itemize}
+  \item \textbf{Cấp phát theo nhu cầu (On-Demand Allocation)}: Khi một chuỗi token mới bắt đầu, hệ thống chỉ cấp phát đúng 1 block vật lý (16 tokens). Trong quá trình Decode, khi token sinh thêm chạm tới ranh giới của block (token thứ 16, 32, 48...), hệ thống mới cấp phát thêm một block vật lý tiếp theo từ nhóm block rảnh rỗi (Free Block Pool).
+  \item \textbf{Xóa bỏ phân mảnh ngoại vi}: Các block vật lý có thể nằm rải rác ở bất kỳ đâu trong VRAM. Bất kỳ block rảnh rỗi nào cũng có thể được dùng cho bất kỳ request nào.
+  \item \textbf{Giảm phân mảnh nội bộ xuống dưới $4\%$}: Sự lãng phí bộ nhớ duy nhất chỉ xảy ra ở block cuối cùng của chuỗi khi request kết thúc (trung bình lãng phí một nửa kích thước block, tức $\approx 8$ tokens).
+  \item \textbf{Cơ chế Copy-on-Write (CoW) cho Parallel Sampling}: Khi người dùng yêu cầu tạo ra $N$ câu trả lời khác nhau từ cùng một câu hỏi (Prompt), PagedAttention cho phép tất cả các luồng sinh dùng chung (Share) các block vật lý của phần Prompt trong VRAM mà không cần sao chép nhân bản! Chỉ khi một luồng bắt đầu sinh token mới làm thay đổi nội dung, một block mới mới được cấp phát riêng cho luồng đó.
+\end{itemize}
+
+Nhờ PagedAttention, vLLM đã tăng dung lượng phục vụ đồng thời (Concurrent Throughput) của các cụm GPU lên từ \textbf{$2\times$ đến $4\times$ lần} mà không cần nâng cấp bất kỳ linh kiện phần cứng nào!
+
+\subsection{Continuous Batching (Iteration-level Scheduling)}
+Bên cạnh bài toán bộ nhớ, bài toán lập lịch thực thi (Scheduling) cũng chứng kiến một cuộc cách mạng mang tên \textbf{Continuous Batching} (được giới thiệu đầu tiên trong hệ thống Orca):
+
+\paragraph{1. Static Batching truyền thống (Request-level Batching)}:
+Hệ thống gom một nhóm request lại thành một batch cố định và đưa vào GPU. Vì mỗi câu hỏi có độ dài đầu ra khác nhau, những request ngắn kết thúc sớm buộc phải nằm chờ (Idle) cho đến khi request dài nhất trong batch hoàn tất sinh token cuối cùng. Hiện tượng này tạo ra các khoảng trống lãng phí tài nguyên khổng lồ gọi là \textbf{Execution Bubbles}.
+
+\paragraph{2. Continuous Batching hiện đại (Iteration-level Batching)}:
+Thay vì lập lịch theo cấp độ toàn bộ yêu cầu (Request-level), bộ lập lịch can thiệp vào \textbf{từng bước lặp sinh token (Iteration-level)}:
+\begin{itemize}
+  \item Ngay tại bước lặp mà một request bất kỳ phát ra token \code{EOS}, nó lập tức được trả về cho người dùng và giải phóng các block bộ nhớ của nó.
+  \item Ngay trong bước lặp kế tiếp, một request mới đang chờ trong hàng đợi (Queue) sẽ được đưa vào batch để lấp đầy chỗ trống vừa giải phóng, thực hiện pha Prefill song song với các request đang chạy Decode.
+  \item Các nhân GPU luôn luôn được duy trì ở trạng thái đầy tải $100\%$, loại bỏ hoàn toàn các bong bóng chờ đợi.
+\end{itemize}
+
+---
+
+\section{Kỹ Nghệ Tokenizer \& Cân Đo Tokenomics}
+\label{sec:tokenizer-and-tokenomics}
+
+\subsection{Bản Chất Thuật Toán Byte-Pair Encoding (BPE)}
+Mô hình ngôn ngữ không trực tiếp xử lý các ký tự chữ cái hay các từ hoàn chỉnh. Chúng xử lý các đơn vị số học nguyên tử gọi là \textbf{Tokens}. Thuật toán mã hóa phổ biến nhất hiện nay là \textbf{Byte-Pair Encoding (BPE)} (được sử dụng bởi OpenAI GPT-4, Meta Llama-3):
+
+\begin{definition}[Quy trình học bảng từ vựng BPE]
+Cho một tập dữ liệu văn bản huấn luyện khổng lồ:
+\begin{enumerate}
+  \item Khởi tạo bảng từ vựng $\mathcal{V}$ ban đầu gồm tất cả các ký tự byte cơ bản ($256$ giá trị byte từ \code{0x00} đến \code{0xFF}).
+  \item Tách toàn bộ văn bản thành chuỗi các byte riêng biệt.
+  \item Đếm tần suất xuất hiện của tất cả các cặp byte liền kề nhau trong toàn bộ kho ngữ liệu.
+  \item Tìm cặp byte có tần suất xuất hiện cao nhất, gộp chúng lại thành một token mới, và bổ sung token này vào bảng từ vựng $\mathcal{V}$.
+  \item Lặp lại bước 3 và bước 4 cho đến khi kích thước từ vựng đạt ngưỡng mong muốn (ví dụ: $32.000$ tokens đối với Llama-2, hoặc $128.256$ tokens đối với Llama-3).
+\end{enumerate}
+\end{definition}
+
+Khi suy luận, tokenizer duyệt qua văn bản đầu vào và áp dụng bảng quy tắc gộp (Merge Rules) đã học để phân tách câu thành chuỗi mã định danh Token ID (\code{List[int]}).
+
+\subsection{Căn Bệnh ``Thuế Token'' (Token Tax) Đối Với Tiếng Việt}
+Một trong những cạm bẫy kỹ thuật lớn nhất mà Kỹ sư AI tại Việt Nam bắt buộc phải đối mặt là sự bất bình đẳng trong phân bổ từ vựng của Tokenizer, thường được gọi là hiện tượng \textbf{Thuế Token (Token Tax)}:
+
+Hầu hết các mô hình nền tảng toàn cầu được huấn luyện trên kho ngữ liệu với hơn $90\%$ là tiếng Anh. Do đó, thuật toán BPE dành phần lớn dung lượng từ vựng để học các từ và cụm từ tiếng Anh nguyên vẹn (ví dụ: từ \code{"unbelievable"} chỉ tốn đúng $1$ token).
+Ngược lại, kho ngữ liệu tiếng Việt chiếm tỷ lệ rất nhỏ. Bảng từ vựng không có đủ chỗ cho các từ tiếng Việt có dấu. Hệ quả là:
+\begin{itemize}
+  \item Các từ tiếng Việt bị băm nhỏ thành từng âm tiết rời rạc, thậm chí bị băm thành các byte Unicode UTF-8 đơn lẻ.
+  \item Cùng một văn bản mang dung lượng ngữ nghĩa tương đương:
+  \begin{itemize}
+    \item Tiếng Anh: \code{"Artificial Intelligence is transforming the world."} $\implies 7$ tokens.
+    \item Tiếng Việt: \code{"Trí tuệ nhân tạo đang làm thay đổi thế giới."} $\implies 18$ tokens (gấp $2.57$ lần!).
+  \end{itemize}
+\end{itemize}
+
+\begin{tradeoffbox}[Hệ Quả Ba Chiều Của ``Thuế Token'' Trong Môi Trường Sản Xuất]
+\begin{enumerate}
+  \item \textbf{Chi phí API đội giá $200\% - 300\%$}: Hầu hết các nhà cung cấp mô hình tính tiền theo số lượng token tiêu thụ. Cùng một khối lượng công việc, ứng dụng tiếng Việt phải trả hóa đơn cao gấp 2 đến 3 lần so với tiếng Anh.
+  \item \textbf{Suy giảm tốc độ trải nghiệm $2\times - 3\times$}: Pha Decode phụ thuộc vào số lượng token cần sinh ra. Do phải sinh nhiều token hơn cho cùng một câu trả lời, độ trễ TPOT tổng cộng bị kéo dài tương ứng.
+  \item \textbf{Thu hẹp cửa sổ ngữ cảnh hiệu dụng}: Một cửa sổ ngữ cảnh $8.192$ tokens đối với văn bản tiếng Việt chỉ chứa được lượng thông tin thực tế tương đương khoảng $3.000$ tokens tiếng Anh.
+\end{enumerate}
+\end{tradeoffbox}
+
+\subsection{Kỹ Nghệ Tokenizer Hiện Đại: BPE Mở Rộng Của Llama-3}
+Để khắc phục nhược điểm trên, Meta đã mở rộng bảng từ vựng của Llama-3 từ $32.000$ tokens lên \textbf{$128.256$ tokens}, sử dụng thư viện mã hóa nhanh \textbf{Tiktoken}:
+\begin{itemize}
+  \item Tỷ lệ nén (Compression Ratio) đối với các ngôn ngữ không phải tiếng Anh (trong đó có tiếng Việt) tăng vọt gần $2$ lần.
+  \item Số lượng token cần thiết để biểu diễn câu tiếng Việt giảm khoảng $40\%$, giúp tăng tốc độ sinh và giảm đáng kể chi phí vận hành.
+\end{itemize}
+
+\subsection{Lỗ Hổng An Ninh: Special Token Injection}
+Tokenizer chịu trách nhiệm xử lý các token điều khiển hệ thống đặc biệt (Special Tokens), ví dụ:
+\begin{itemize}
+  \item OpenAI: \code{<|im_start|>}, \code{<|im_end|>}
+  \item Llama-3: \code{<|start_header_id|>}, \code{<|end_header_id|>}, \code{<|eot_id|>}
+\end{itemize}
+
+\begin{securitybox}[Nguy Cơ Special Token Injection \& Chiếm Quyền Hệ Thống]
+Nếu Kỹ sư AI không cấu hình Tokenizer đúng cách, kẻ tấn công có thể chèn trực tiếp chuỗi văn bản thuần \code{"<|eot_id|><|start_header_id|>assistant"} vào ô nhập liệu của người dùng. Nếu tokenizer diễn giải chuỗi này như một Special Token thật thay vì văn bản thô (thông qua tham số \code{allowed_special}), kẻ tấn công có thể cắt ngang vai trò người dùng và giả mạo hoàn toàn mệnh lệnh của hệ thống (System Prompt Hijacking)!
+\end{securitybox}
+
+---
+
+\section{Các Chiến Lược Giải Mã Xác Suất (Decoding Strategies)}
+\label{sec:decoding-strategies}
+
+Tại mỗi bước của pha Decode, tầng tuyến tính cuối cùng (Language Modeling Head) chiếu trạng thái ẩn $\mathbf{h}_t \in \mathbb{R}^{d}$ lên toàn bộ không gian từ vựng để tạo ra véc-tơ điểm số thô gọi là \textbf{Logits}: $\mathbf{z} \in \mathbb{R}^{|\mathcal{V}|}$.
+
+Nhiệm vụ của bộ giải mã (Sampler) là chuyển đổi các giá trị Logits này thành phân phối xác suất và lựa chọn token tiếp theo. Các chiến lược giải mã quyết định trực tiếp tính sáng tạo, tính logic, và sự chuẩn xác của mô hình.
+
+\subsection{Nhiệt Độ Giải Mã (Temperature Scaling)}
+Để kiểm soát độ ngẫu nhiên của phân phối xác suất, chúng ta chia véc-tơ Logits cho một tham số vô hướng thực dương $T > 0$ trước khi đưa qua hàm Softmax:
+\begin{equation}
+P(w_i) = \frac{\exp(z_i / T)}{\sum_{j=1}^{|\mathcal{V}|} \exp(z_j / T)}
+\end{equation}
+
+\begin{theorem}[Bản chất giới hạn của Nhiệt độ $T$]
+Hành vi của phân phối xác suất tại hai điểm cực trị của nhiệt độ:
+\begin{enumerate}
+  \item \textbf{Khi $T \to 0^+$ (Lạnh cực đại)}: Phân phối suy biến thành phân phối suy biến (Dirac Delta distribution) tập trung toàn bộ $100\%$ xác suất vào token có logit lớn nhất:
+  \begin{equation}
+  \lim_{T \to 0^+} P(w_i) = \begin{cases} 1 & \text{nếu } z_i = \max_j z_j \\ 0 & \text{ngược lại} \end{cases}
+  \end{equation}
+  Đây chính là thuật toán \textbf{Giải mã Tham lam (Greedy Decoding)}. Kết quả hoàn toàn xác định (Deterministic), phù hợp nhất cho các bài toán lập trình mã nguồn, toán học, và trích xuất thực thể.
+  \item \textbf{Khi $T \to \infty$ (Nóng cực đại)}: Giá trị $z_i / T \to 0$, kéo theo $e^{z_i / T} \to 1$. Phân phối tiệm cận phân phối đều (Uniform Distribution):
+  \begin{equation}
+  \lim_{T \to \infty} P(w_i) = \frac{1}{|\mathcal{V}|} \quad \forall i \in \{1, \dots, |\mathcal{V}|\}
+  \end{equation}
+  Mọi từ trong từ điển đều có cơ hội được chọn như nhau, sinh ra văn bản hoàn toàn vô nghĩa và hỗn loạn (Maximum Entropy).
+\end{enumerate}
+\end{theorem}
+
+\subsection{Thuật Toán Cắt Ngưỡng Top-K (Top-K Sampling)}
+Nhược điểm của việc chỉ dùng Temperature là đuôi của phân phối xác suất vẫn chứa hàng chục nghìn từ vựng không liên quan với xác suất nhỏ. Thuật toán \textbf{Top-K} giải quyết điều này bằng cách:
+\begin{enumerate}
+  \item Sắp xếp các token theo xác suất giảm dần.
+  \item Chỉ giữ lại đúng $K$ token có xác suất cao nhất.
+  \item Đặt xác suất của tất cả các token còn lại về $0$:
+  \begin{equation}
+  P_{\text{Top-K}}(w_i) = \begin{cases} \frac{P(w_i)}{\sum_{j \in \mathcal{V}_K} P(w_j)} & \text{nếu } i \in \mathcal{V}_K \\ 0 & \text{ngược lại} \end{cases}
+  \end{equation}
+\end{enumerate}
+*Hạn chế của Top-K*: Giá trị $K$ là cố định. Khi phân phối xác suất rất bẹt (nhiều từ hợp lý), Top-K có thể loại bỏ nhầm các từ hay. Khi phân phối rất nhọn (chỉ có 1 từ duy nhất đúng), Top-K với $K=50$ lại ép mô hình phải cân nhắc cả 49 từ vô lý!
+
+\subsection{Thuật Toán Hạt Nhân Top-P (Nucleus / Top-P Sampling)}
+Được đề xuất bởi Holtzman et al. (2019), \textbf{Top-P Sampling} thay đổi kích thước tập ứng viên một cách linh hoạt dựa trên hình dạng thực tế của phân phối:
+\begin{enumerate}
+  \item Sắp xếp các token theo xác suất giảm dần: $P(w_{(1)}) \ge P(w_{(2)}) \ge \dots \ge P(w_{(|\mathcal{V}|)})$.
+  \item Tìm chỉ số $k$ nhỏ nhất sao cho tổng xác suất tích lũy vượt qua ngưỡng $p \in (0, 1]$:
+  \begin{equation}
+  \sum_{i=1}^k P(w_{(i)}) \ge p
+  \end{equation}
+  \item Loại bỏ toàn bộ các token từ vị trí $k+1$ trở đi và tái chuẩn hóa tổng xác suất về $1$.
+\end{enumerate}
+*Ưu điểm*: Khi mô hình rất tự tin (phân phối nhọn), tập Top-P tự động thu hẹp lại chỉ còn $1$ hoặc $2$ tokens. Khi mô hình phân vân (phân phối bẹt), tập Top-P tự động mở rộng để bao hàm nhiều lựa chọn sáng tạo.
+
+\subsection{Thuật Toán Hiện Đại: Min-P Sampling}
+Gần đây, cộng đồng nghiên cứu suy luận đề xuất \textbf{Min-P Sampling} để khắc phục hiện tượng Top-P cắt cụt những token tốt khi ngữ cảnh dài:
+\begin{equation}
+\text{Ngưỡng lọc} = \text{min\_p} \times \max_j P(w_j)
+\end{equation}
+Bất kỳ token nào có xác suất thấp hơn tỷ lệ $\text{min\_p}$ (ví dụ $0.05$) so với token có điểm số cao nhất sẽ bị loại bỏ. Min-P giúp câu văn duy trì tính mạch lạc vượt trội và giảm thiểu tối đa hiện tượng ảo giác (Hallucination) ở nhiệt độ cao.
+
+---
+
+\section{Ví Dụ Giải Mẫu Tính Toán Số Học Bằng Tay}
+\label{sec:llm-runtime-worked-examples}
+
+Để thấm nhuần kiến trúc vận hành hệ thống, chúng ta cùng giải quyết một bài toán thiết kế hạ tầng thực tế thường gặp trong các buổi phỏng vấn Senior AI System Architect.
+
+\begin{example}[Bài toán Định cỡ Phần cứng Cụm Suy Luận vLLM]
+Một doanh nghiệp muốn tự triển khai mô hình \textbf{Llama-3-8B-Instruct} trên máy chủ GPU đám mây.
+\begin{itemize}
+  \item \textbf{Cấu hình mô hình}: 32 tầng ($n_{\text{layers}}=32$), kích thước ẩn $d_{\text{model}}=4096$, số đầu Query $n_{\text{heads}}=32$, số đầu Key-Value $n_{\text{kv\_heads}}=8$ (GQA), kích thước mỗi đầu $d_{\text{head}}=128$.
+  \item \textbf{Định dạng số}: Trọng số mô hình và KV Cache đều lưu ở định dạng BF16 (2 bytes).
+  \item \textbf{Nhu cầu phục vụ}: Cần phục vụ đồng thời $B = 64$ người dùng với độ dài ngữ cảnh trung bình mỗi phiên là $L = 4.096$ tokens.
+  \item \textbf{Phần cứng dự kiến}: Một máy chủ trang bị 1 GPU Nvidia A100 80GB PCIe (Băng thông bộ nhớ HBM2e: $1.935\text{ GB/s}$).
+\end{itemize}
+
+Hãy tính toán:
+\begin{enumerate}
+  \item Dung lượng VRAM cần thiết để chứa trọng số mô hình tĩnh.
+  \item Dung lượng VRAM chính xác để chứa KV Cache cho 64 người dùng.
+  \item Tổng VRAM tối thiểu và kiểm tra xem 1 GPU A100 80GB có đủ tải không.
+  \item Tốc độ sinh token lý thuyết tối đa (Tokens/giây) của toàn hệ thống bị giới hạn bởi băng thông bộ nhớ.
+\end{enumerate}
+\end{example}
+
+\paragraph{Lời giải chi tiết từng bước}:
+
+\paragraph{Bước 1: Tính dung lượng VRAM cho trọng số mô hình}
+Mô hình Llama-3-8B có khoảng $8.03 \times 10^9$ tham số.
+Mỗi tham số BF16 chiếm 2 bytes.
+\begin{equation*}
+M_{\text{weights}} = 8.03 \times 10^9 \times 2\text{ Bytes} \approx 16.06 \times 10^9\text{ Bytes} \approx 14.96\text{ GiB}
+\end{equation*}
+
+\paragraph{Bước 2: Tính dung lượng KV Cache cho 1 token}
+Áp dụng công thức giải tích với $n_{\text{layers}} = 32, n_{\text{kv\_heads}} = 8, d_{\text{head}} = 128, b = 2$:
+\begin{align*}
+M_{\text{token}} &= 2 \times n_{\text{layers}} \times n_{\text{kv\_heads}} \times d_{\text{head}} \times b \\
+&= 2 \times 32 \times 8 \times 128 \times 2 = 131.072\text{ Bytes} = 128\text{ KiB/token}
+\end{align*}
+
+\paragraph{Bước 3: Tính tổng dung lượng KV Cache cho 64 người dùng với $L = 4096$}
+\begin{align*}
+M_{\text{total\_KV}} &= 64 \times 4.096 \times 131.072\text{ Bytes} \\
+&= 262.144\text{ tokens} \times 131.072\text{ Bytes} \\
+&= 34.359.738.368\text{ Bytes} = \frac{34.359.738.368}{1024^3}\text{ GiB} = 32.00\text{ GiB}!
+\end{align*}
+
+\paragraph{Bước 4: Đánh giá khả năng đáp ứng của GPU A100 80GB}
+Tổng bộ nhớ hoạt động tối thiểu:
+\begin{equation*}
+M_{\text{total}} = M_{\text{weights}} + M_{\text{total\_KV}} + M_{\text{cuda\_overhead}}
+\end{equation*}
+Giả sử bộ nhớ đệm CUDA Context và Activation tạm thời chiếm khoảng $4\text{ GiB}$:
+\begin{equation*}
+M_{\text{total}} = 14.96\text{ GiB} + 32.00\text{ GiB} + 4.00\text{ GiB} = 50.96\text{ GiB}
+\end{equation*}
+Vì $50.96\text{ GiB} < 80\text{ GiB}$, chiếc GPU A100 hoàn toàn có khả năng phục vụ tải này một cách an toàn! Phần dư khoảng $29\text{ GiB}$ VRAM có thể được vLLM sử dụng làm bộ đệm PagedAttention để hấp thụ các đợt tăng đột biến (Spike) về độ dài ngữ cảnh.
+
+\paragraph{Bước 5: Tính thông lượng sinh lý thuyết bị giới hạn bởi băng thông bộ nhớ}
+Trong pha Decode, tại mỗi bước sinh cho toàn bộ batch $B=64$, GPU bắt buộc phải đọc:
+\begin{itemize}
+  \item Toàn bộ trọng số mô hình: $16.06\text{ GB}$.
+  \item Toàn bộ KV Cache hiện có của 64 phiên: trung bình khoảng một nửa ngữ cảnh tối đa $\approx 16\text{ GB}$.
+\end{itemize}
+Tổng lượng dữ liệu cần đọc qua bus bộ nhớ cho mỗi bước lặp là:
+\begin{equation*}
+D_{\text{read}} = 16.06\text{ GB} + 16.00\text{ GB} = 32.06\text{ GB/bước}
+\end{equation*}
+Với băng thông thực tế của A100 là $1.935\text{ GB/s}$, số bước lặp tối đa trong 1 giây là:
+\begin{equation*}
+\text{Steps/s} = \frac{1.935\text{ GB/s}}{32.06\text{ GB/bước}} \approx 60.35\text{ bước/giây}
+\end{equation*}
+Vì mỗi bước sinh đồng thời cho $B=64$ người dùng, tổng thông lượng hệ thống đạt được là:
+\begin{equation*}
+\text{Throughput} = 60.35 \times 64 \approx 3.862\text{ tokens/giây}
+\end{equation*}
+Độ trễ trung bình cho mỗi người dùng: $\text{TPOT} = \frac{1}{60.35} \approx 16.57\text{ ms/token}$ (tương đương tốc độ đọc cực nhanh: $60$ từ/giây cho mỗi người dùng!).
+
+---
+
+\section{Hiện Thực Hóa: Bộ Giải Mã Vectorized \& Quản Lý Phân Trang Bộ Nhớ}
+\label{sec:python-implementation-decoding-paged}
+
+Dưới đây là mã nguồn Python chuẩn mực, tối ưu hóa bằng mảng NumPy, mô phỏng chính xác thuật toán giải mã xác suất và cơ chế phân trang bộ nhớ của vLLM.
+
+\begin{lstlisting}[language=Python, caption={Bộ giải mã token đa năng với Temperature, Top-K, Top-P, và Min-P.}]
+import math
+import numpy as np
+
+class DecodingSampler:
+    """
+    Bo giai ma token da nang, ho tro:
+    - Temperature Scaling
+    - Greedy Decoding (T -> 0)
+    - Min-P Filtering
+    - Top-K Truncation
+    - Top-P (Nucleus) Truncation
+    """
+    @staticmethod
+    def sample(
+        logits: np.ndarray,
+        temperature: float = 1.0,
+        top_k: int = 0,
+        top_p: float = 1.0,
+        min_p: float = 0.0,
+        rng: np.random.Generator = None
+    ) -> int:
+        if rng is None:
+            rng = np.random.default_rng()
+
+        logits = np.array(logits, dtype=np.float64)
+
+        # 1. Giai ma tham lam neu nhiet do xap xi 0
+        if temperature <= 1e-5:
+            return int(np.argmax(logits))
+
+        # 2. Dieu chinh nhiet do (Temperature Scaling)
+        scaled_logits = logits / temperature
+
+        # Numerically Stable Softmax chong tran so
+        max_logit = np.max(scaled_logits)
+        exp_logits = np.exp(scaled_logits - max_logit)
+        probs = exp_logits / np.sum(exp_logits)
+
+        # 3. Loc Min-P (Loai bo token co xac suat < min_p * p_max)
+        if min_p > 0.0:
+            p_max = np.max(probs)
+            threshold = min_p * p_max
+            probs[probs < threshold] = 0.0
+
+        # 4. Cat tia Top-K (Chi giu lai K token lon nhat)
+        if 0 < top_k < len(probs):
+            top_k_indices = np.argpartition(probs, -top_k)[-top_k:]
+            mask = np.ones(len(probs), dtype=bool)
+            mask[top_k_indices] = False
+            probs[mask] = 0.0
+
+        # 5. Loc hat nhan Top-P (Nucleus Sampling)
+        if top_p < 1.0:
+            sorted_indices = np.argsort(probs)[::-1]
+            sorted_probs = probs[sorted_indices]
+            cumulative_probs = np.cumsum(sorted_probs)
+
+            # Tim diem ngat vuot nguong top_p
+            cutoff_index = np.searchsorted(cumulative_probs, top_p)
+            cutoff_index = min(cutoff_index + 1, len(probs))
+            valid_indices = sorted_indices[:cutoff_index]
+
+            mask = np.ones(len(probs), dtype=bool)
+            mask[valid_indices] = False
+            probs[mask] = 0.0
+
+        # 6. Tai chuan hoa tong xac suat ve 1
+        total_p = np.sum(probs)
+        if total_p == 0.0:
+            return int(np.argmax(logits))
+
+        probs = probs / total_p
+        return int(rng.choice(len(probs), p=probs))
+\end{lstlisting}
+
+Tiếp theo là trình mô phỏng cấp phát bộ nhớ kiểu PagedAttention:
+
+\begin{lstlisting}[language=Python, caption={Trình mô phỏng quản lý phân trang KV Cache (PagedAttention Manager).}]
+class SimplePagedKVCacheManager:
+    """
+    Mo phong quan ly bo nho phan trang theo khoi co dinh (kieu PagedAttention).
+    Loai bo phan manh ngoai vi va toi thieu hoa phan manh noi bo.
+    """
+    def __init__(self, num_blocks: int, block_size: int = 16):
+        self.block_size = block_size
+        self.num_blocks = num_blocks
+        self.free_blocks = list(range(num_blocks))
+        # Bang anh xa: req_id -> danh sach id cac physical block
+        self.block_tables: dict[int, list[int]] = {}
+
+    def allocate(self, req_id: int, num_tokens: int) -> bool:
+        """Cap phat cac khoi ban dau cho pha Prefill."""
+        needed_blocks = math.ceil(num_tokens / self.block_size)
+        if needed_blocks > len(self.free_blocks):
+            return False  # Het bo nho VRAM
+
+        allocated = [self.free_blocks.pop(0) for _ in range(needed_blocks)]
+        self.block_tables[req_id] = allocated
+        return True
+
+    def append_token(self, req_id: int, current_tokens: int) -> bool:
+        """Them 1 token trong pha Decode. Chi cap phat block moi khi cham bien khoi."""
+        if req_id not in self.block_tables:
+            return False
+
+        if current_tokens % self.block_size == 0:
+            if not self.free_blocks:
+                return False  # OOM trong luc sinh token
+            new_block = self.free_blocks.pop(0)
+            self.block_tables[req_id].append(new_block)
+
+        return True
+
+    def free(self, req_id: int):
+        """Giai phong toan bo block khi request hoan tat."""
+        if req_id in self.block_tables:
+            for blk in self.block_tables[req_id]:
+                self.free_blocks.append(blk)
+            del self.block_tables[req_id]
+
+    def get_fragmentation_stats(self, active_tokens: dict[int, int]) -> tuple[float, float]:
+        """Tinh toan ty le lang phi bo nho do phan manh noi bo."""
+        total_allocated = sum(len(b) * self.block_size for b in self.block_tables.values())
+        total_used = sum(active_tokens.get(r, 0) for r in self.block_tables)
+        if total_allocated == 0:
+            return 0.0, 0.0
+        waste_ratio = (total_allocated - total_used) / total_allocated
+        return total_allocated, waste_ratio
+\end{lstlisting}
+
+---
+
+\section{Hệ Thống Bài Tập \& Câu Hỏi Tư Duy Đa Tầng}
+\label{sec:ch07-exercises}
+
+\subsection{Nhóm A: Câu Hỏi Tư Duy Bản Chất (Conceptual Reasoning)}
+\begin{enumerate}
+  \item \textbf{Câu A.1}: Tại sao việc tăng kích thước lô phục vụ (Batch Size) trong pha Decode lại giúp tăng hiệu suất sử dụng GPU (GPU Utilization) rõ rệt, trong khi việc tăng Batch Size trong pha Prefill rất dễ dẫn đến sập bộ nhớ (OOM)? Giải thích dựa trên mô hình Roofline.
+  \item \textbf{Câu A.2}: Phân tích nguyên nhân kỹ thuật tại sao cơ chế Copy-on-Write (CoW) trong PagedAttention lại đặc biệt hiệu quả trong kỹ thuật Prompt Chaining và Tree-of-Thought (ToT) hơn là các cuộc hội thoại Chat thông thường giữa một người dùng và chatbot?
+  \item \textbf{Câu A.3}: Tại sao thuật toán mã hóa BPE có thể vô tình tạo ra các lỗ hổng ``Glitch Tokens'' (các token khiến mô hình đưa ra câu trả lời ngớ ngẩn hoặc từ chối trả lời dù câu hỏi rất bình thường)?
+\end{enumerate}
+
+\subsection{Nhóm B: Bài Toán Tính Toán Giải Tích Bằng Tay (Analytical Problems)}
+\begin{enumerate}
+  \item \textbf{Bài B.1 (Tính định cỡ KV Cache cho Mô hình Khổng lồ)}:
+  Xét mô hình \textbf{Llama-3-70B} ($n_{\text{layers}} = 80$, $n_{\text{kv\_heads}} = 8$, $d_{\text{head}} = 128$).
+  Doanh nghiệp muốn triển khai cụm phục vụ với cửa sổ ngữ cảnh mở rộng tối đa $L = 128.000$ tokens (128K context) ở định dạng FP8 ($b = 1$ byte).
+  \begin{itemize}
+    \item[a)] Tính dung lượng KV Cache cho đúng 1 session người dùng khi chạm ngưỡng 128K context.
+    \item[b)] Nếu cụm máy chủ trang bị 8 GPU H100 80GB (tổng cộng 640GB VRAM) và trọng số mô hình dạng FP8 chiếm $70\text{ GB}$, hệ thống có thể phục vụ tối đa bao nhiêu người dùng đồng thời chạy ở mức 128K context?
+  \end{itemize}
+
+  \item \textbf{Bài B.2 (Chứng minh Giải tích Giới hạn Nhiệt độ)}:
+  Cho véc-tơ Logits $\mathbf{z} = [z_1, z_2, \dots, z_n]$ với $z_{(1)} > z_{(2)} \ge \dots \ge z_{(n)}$ (phần tử lớn nhất là duy nhất).
+  Chứng minh toán học chặt chẽ rằng khi nhiệt độ $T \to 0^+$, xác suất $P(w_{(1)}) \to 1$ và $P(w_{(i)}) \to 0$ với mọi $i \ge 2$.
+\end{enumerate}
+
+\subsection{Nhóm C: Thực Hành Kỹ Nghệ \& Lập Trình (Implementation Labs)}
+\begin{enumerate}
+  \item \textbf{Bài C.1 (Bộ giải mã phát trực tiếp có phát hiện chuỗi dừng)}:
+  Hiện thực hóa một hàm generator Python \code{streaming_decode_with_stop_sequence} nhận vào một luồng token IDs được sinh ra từng cái một và một danh sách các chuỗi dừng (ví dụ: \code{stop_strings = ["\nUser:", "###"]}).
+  Yêu cầu: Không được giải mã (Decode text) toàn bộ lịch sử từ đầu ở mỗi bước; phải sử dụng cửa sổ trượt (Sliding Window Buffer) và xử lý triệt để trường hợp chuỗi dừng bị xẻ đôi giữa hai tokens liên tiếp.
+\end{enumerate}
+
+\subsection{Nhóm D: Phân Tích Thất Bại \& Debugging Thực Tế (Post-Mortem Analysis)}
+\begin{enumerate}
+  \item \textbf{Tình huống sự cố}: Hệ thống vLLM phục vụ mô hình Qwen-72B của công ty hoạt động ổn định suốt ban ngày với lưu lượng 100 requests/phút. Tuy nhiên, đúng 02:00 sáng, hệ thống bất ngờ crash với lỗi \code{CUDA Out of Memory} dù lưu lượng lúc đó giảm chỉ còn 5 requests/phút.
+  Kiểm tra log cho thấy có một request duy nhất được gửi tới với nội dung là một file log dài 100.000 dòng.
+  Hãy phân tích nguyên nhân gốc rễ (Root Cause) và đưa ra 3 biện pháp kỹ nghệ để ngăn chặn sự cố này tái diễn.
+\end{enumerate}
+
+---
+
+\section{Hướng Dẫn Lời Giải \& Bình Luận Kỹ Thuật Chi Tiết}
+\label{sec:ch07-solutions}
+
+\subsection{Lời Giải Nhóm A: Câu Hỏi Tư Duy Bản Chất}
+\begin{itemize}
+  \item \textbf{Lời giải Câu A.1}:
+  \begin{itemize}
+    \item Trong pha \textbf{Decode}, thao tác là Memory-bound với cường độ tính toán cực thấp ($1\text{ FLOP/Byte}$). GPU dành $99\%$ thời gian để nạp trọng số mô hình từ VRAM. Khi tăng Batch Size từ 1 lên 32, cùng một lần nạp trọng số mô hình từ VRAM có thể được tái sử dụng để tính toán cho 32 tokens khác nhau của 32 người dùng. Cường độ tính toán tăng gấp 32 lần, đưa hoạt động của GPU tiến gần hơn đến điểm bão hòa của mô hình Roofline, do đó GPU Utilization tăng vọt mà không tốn thêm bộ nhớ lưu trọng số.
+    \item Ngược lại, trong pha \textbf{Prefill}, hệ thống thực hiện phép nhân ma trận $L \times L$ (Compute-bound). Kích thước bộ nhớ đệm Activation tỷ lệ thuận với $B \times L^2$. Nếu tăng Batch Size trong pha này khi prompt đã dài, ma trận kích hoạt trung gian vượt quá giới hạn SRAM/VRAM ngay lập tức, dẫn tới lỗi OOM.
+  \end{itemize}
+
+  \item \textbf{Lời giải Câu A.2}:
+  Trong các cuộc hội thoại thông thường, mỗi lượt chat chỉ kéo dài ngữ cảnh tuyến tính theo một nhánh duy nhất. Ngược lại, trong kỹ thuật Prompt Chaining và Tree-of-Thought (ToT), từ một nút suy luận ban đầu (Root Prompt), hệ thống rẽ nhánh sinh ra 5 đến 10 chuỗi suy luận khác nhau để tìm kiếm đường đi tối ưu. Nhờ cơ chế CoW của PagedAttention, tất cả các nhánh con đều dùng chung các block vật lý của câu hỏi gốc trong VRAM. Bộ nhớ tiết kiệm được tỷ lệ thuận với số lượng nhánh ($N-1$ lần dung lượng prompt gốc).
+
+  \item \textbf{Lời giải Câu A.3}:
+  Trong quá trình xây dựng từ vựng BPE trên dữ liệu internet, có những chuỗi ký tự kỳ lạ xuất hiện rất nhiều lần trong các tài liệu mã nguồn hoặc văn bản kỹ thuật (ví dụ: các ID người dùng Reddit, chuỗi byte rác lặp lại). Thuật toán BPE gộp chúng thành một token độc lập. Tuy nhiên, trong pha tiền huấn luyện mô hình (Pre-training), chuỗi ký tự này không bao giờ xuất hiện trong văn cảnh ngôn ngữ tự nhiên. Hệ quả là véc-tơ Embedding của token này không được học và nằm trôi dạt ở một vùng kỳ dị trong không gian đa chiều, khiến ma trận Attention sinh ra giá trị dị thường khi token này được kích hoạt.
+\end{itemize}
+
+\subsection{Lời Giải Nhóm B: Bài Toán Tính Toán Giải Tích Bằng Tay}
+
+\paragraph{Lời giải Bài B.1}:
+\begin{itemize}
+  \item[a)] Áp dụng công thức tính dung lượng KV Cache cho Llama-3-70B dạng FP8 ($b=1$ byte):
+  \begin{align*}
+  M_{\text{token}} &= 2 \times n_{\text{layers}} \times n_{\text{kv\_heads}} \times d_{\text{head}} \times b \\
+  &= 2 \times 80 \times 8 \times 128 \times 1 = 163.840\text{ Bytes} = 160\text{ KiB/token}
+  \end{align*}
+  Với chuỗi ngữ cảnh dài $L = 128.000$ tokens:
+  \begin{equation*}
+  M_{\text{session}} = 128.000 \times 163.840\text{ Bytes} = 20.971.520.000\text{ Bytes} \approx 19.53\text{ GiB}
+  \end{equation*}
+  Mỗi phiên người dùng 128K context ngốn xấp xỉ $19.53\text{ GiB}$ VRAM chỉ riêng cho KV Cache!
+
+  \item[b)] Tổng VRAM của cụm 8 GPU H100 80GB:
+  \begin{equation*}
+  V_{\text{total}} = 8 \times 80\text{ GB} = 640\text{ GB}
+  \end{equation*}
+  Trừ đi trọng số mô hình ($70\text{ GB}$) và bộ nhớ đệm CUDA/OS ($20\text{ GB}$):
+  \begin{equation*}
+  V_{\text{available\_KV}} = 640 - 70 - 20 = 550\text{ GB}
+  \end{equation*}
+  Số lượng người dùng tối đa phục vụ đồng thời ở mức 128K context:
+  \begin{equation*}
+  B_{\max} = \left\lfloor \frac{550\text{ GB}}{19.53\text{ GB}} \right\rfloor = 28\text{ người dùng đồng thời}.
+  \end{equation*}
+\end{itemize}
+
+\paragraph{Lời giải Bài B.2}:
+Xét tỷ số xác suất giữa một token bất kỳ $i \ge 2$ và token lớn nhất $w_{(1)}$:
+\begin{equation*}
+\frac{P(w_{(i)})}{P(w_{(1)})} = \frac{\exp(z_{(i)} / T) / \sum_j \exp(z_j / T)}{\exp(z_{(1)} / T) / \sum_j \exp(z_j / T)} = \exp\left(\frac{z_{(i)} - z_{(1)}}{T}\right)
+\end{equation*}
+Vì $z_{(1)}$ là phần tử lớn nhất duy nhất, ta có $z_{(i)} - z_{(1)} = -\Delta_i < 0$ với $\Delta_i > 0$.
+Do đó:
+\begin{equation*}
+\lim_{T \to 0^+} \frac{P(w_{(i)})}{P(w_{(1)})} = \lim_{T \to 0^+} \exp\left(-\frac{\Delta_i}{T}\right) = \exp(-\infty) = 0
+\end{equation*}
+Mặt khác, ta luôn có $\sum_{j=1}^n P(w_j) = 1$:
+\begin{equation*}
+P(w_{(1)}) \left[ 1 + \sum_{i=2}^n \frac{P(w_{(i)})}{P(w_{(1)})} \right] = 1
+\end{equation*}
+Lấy giới hạn hai vế khi $T \to 0^+$:
+\begin{equation*}
+\lim_{T \to 0^+} P(w_{(1)}) [ 1 + 0 ] = 1 \implies \lim_{T \to 0^+} P(w_{(1)}) = 1
+\end{equation*}
+Kéo theo $\lim_{T \to 0^+} P(w_{(i)}) = 0$ với mọi $i \ge 2$. (Điều phải chứng minh).
+
+\subsection{Lời Giải Nhóm C: Thực Hành Kỹ Nghệ \& Lập Trình}
+Dưới đây là hiện thực hóa hoàn chỉnh của bộ giải mã phát trực tiếp có phát hiện chuỗi dừng:
+
+\begin{lstlisting}[language=Python, caption={Bộ giải mã phát trực tiếp xử lý chuỗi dừng xẻ đôi giữa các token.}]
+from typing import Generator, List
+
+class StreamingStopSequenceDetector:
+    def __init__(self, tokenizer, stop_sequences: List[str]):
+        self.tokenizer = tokenizer
+        self.stop_sequences = stop_sequences
+        self.max_stop_len = max(len(s) for s in stop_sequences) if stop_sequences else 0
+        self.buffer = ""
+        self.token_history: List[int] = []
+
+    def process_token(self, token_id: int) -> Generator[str, None, bool]:
+        """
+        Tra ve chuoi text an toan de hien thi.
+        Neu cham stop sequence, phat ra False de bao hieu dung cuoc sinh.
+        """
+        self.token_history.append(token_id)
+        # Giai ma chi mot vai token gan nhat de cap nhat buffer
+        current_text = self.tokenizer.decode(self.token_history, skip_special_tokens=True)
+        new_text = current_text[len(self.buffer):]
+        self.buffer = current_text
+
+        # Kiem tra xem co stop sequence nao xuat hien tron ven khong
+        for stop_seq in self.stop_sequences:
+            if stop_seq in self.buffer:
+                # Tim thay chuoi dung, cat bo phan sau va dung lai
+                valid_part = self.buffer.split(stop_seq)[0]
+                return False  # Dung cuoc sinh
+
+        # Giu lai mot phan dem bang max_stop_len de de phong stop sequence bi chia cat
+        if len(self.buffer) > self.max_stop_len:
+            safe_to_yield = self.buffer[:-self.max_stop_len]
+            self.buffer = self.buffer[-self.max_stop_len:]
+            yield safe_to_yield
+
+        return True
+\end{lstlisting}
+
+\subsection{Lời Giải Nhóm D: Phân Tích Thất Bại \& Debugging Thực Tế}
+\begin{itemize}
+  \item \textbf{Nguyên nhân gốc rễ (Root Cause)}:
+  Trong kiến trúc Transformer, chi phí bộ nhớ KV Cache và tính toán của pha Prefill tỷ lệ với $L_{\text{prompt}}^2$. Một file log 100.000 dòng có thể tương đương với hơn $500.000$ tokens. Khi request này đi vào vLLM:
+  \begin{enumerate}
+    \item Pha Prefill vượt quá cửa sổ ngữ cảnh vật lý của mô hình (thường là 32K hoặc 128K).
+    \item Ma trận phân bổ trung gian cho $500\text{K}$ tokens yêu cầu hàng trăm GB VRAM, làm cạn kiệt toàn bộ các Block còn lại trong Free Block Pool của PagedAttention ngay lập tức.
+    \item Trình cấp phát bộ nhớ CUDA không thể tìm thấy bộ nhớ khả dụng, ném ra ngoại lệ \code{CUDA OOM} và làm sập toàn bộ tiến trình daemon của máy chủ serving.
+  \end{enumerate}
+
+  \item \textbf{3 Biện pháp phòng vệ bắt buộc (Remediations)}:
+  \begin{enumerate}
+    \item \textbf{Giới hạn cứng kích thước đầu vào tại API Gateway}: Cài đặt Middleware kiểm tra độ dài payload HTTP và số lượng token ước tính (sử dụng tokenizer nhanh trên CPU). Từ chối ngay lập tức bằng mã lỗi \code{HTTP 413 Payload Too Large} nếu prompt vượt quá ngưỡng tối đa cho phép (ví dụ: $16.384$ tokens).
+    \item \textbf{Cấu hình Chunked Prefill trong vLLM}: Sử dụng tính năng \code{--enable-chunked-prefill}, chia nhỏ các prompt dài thành từng khối $512$ tokens và xử lý xen kẽ với các bước Decode, ngăn chặn tình trạng một prompt dài độc chiếm toàn bộ tài nguyên tính toán và bộ nhớ.
+    \item \textbf{Cấu hình giới hạn ngữ cảnh tối đa}: Khởi động vLLM với tham số \code{--max-model-len 32768} để đảm bảo trình quản lý PagedAttention không bao giờ cố gắng cấp phát vượt quá kích thước này.
+  \end{enumerate}
+\end{itemize}

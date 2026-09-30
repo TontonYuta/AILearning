@@ -1,0 +1,172 @@
+% ==============================================================================
+% PHỤ LỤC C: SỔ TAY LỆNH HỆ THỐNG, DOCKER, VLLM, LINUX NETOPS & PYTORCH
+% ==============================================================================
+
+\chapter{Sổ Tay Lệnh Hệ Thống, Docker, vLLM \& Linux NetOps}
+\label{ch:appendix-cheatsheets}
+
+Khi vận hành một hệ thống AI trên máy chủ thực tế hoặc trực ca xử lý sự cố trong đêm, kỹ sư không có thời gian tra cứu Google hay hỏi tài liệu. Bạn cần những câu lệnh ngắn gọn, chính xác, có thể copy-paste và giải quyết vấn đề ngay lập tức. Phụ lục này tổng hợp các câu lệnh ``bỏ túi'' đắt giá nhất của một Senior Production AI Engineer.
+
+---
+
+\section{Giám Sát Phần Cứng GPU NVIDIA \& Môi Trường CUDA}
+\label{sec:app-cheat-gpu}
+
+\subsection{Lệnh nvidia-smi Chuyên Sâu Cho Giám Sát}
+\begin{lstlisting}[language=bash]
+# 1. Theo doi VRAM va do su dung GPU lien tuc moi 1 giay
+nvidia-smi -l 1
+
+# 2. Xuat chi tiet thong so GPU dinh dang CSV de phan tich do tre va nhiet do
+nvidia-smi --query-gpu=timestamp,name,utilization.gpu,utilization.memory,memory.used,memory.total,temperature.gpu,power.draw --format=csv -l 2 > gpu_metrics.csv
+
+# 3. Kiem tra tien trinh (PID) nao dang chiem dung VRAM tren tung card GPU
+nvidia-smi pmon -s m -c 5
+
+# 4. Kiem tra cau truc lien ket NVLink giua cac GPU trong nut may chu
+nvidia-smi topo -m
+\end{lstlisting}
+
+\subsection{Biến Môi Trường CUDA \& NCCL Bắt Buộc Nhớ}
+\begin{table}[htbp]
+\centering
+\small
+\caption{Các Biến Môi Trường CUDA \& NCCL Thiết Yếu Trong Cụm AI}
+\label{tab:app-cuda-env}
+\begin{tabular}{p{5.5cm}p{7.5cm}}
+\toprule
+\textbf{Biến Môi Trường} & \textbf{Ý Nghĩa Kỹ Thuật \& Ứng Dụng} \\
+\midrule
+\code{CUDA_VISIBLE_DEVICES=0,1,2,3} & Chỉ định chính xác các GPU vật lý mà tiến trình Python được phép truy cập. \\
+\code{CUDA_LAUNCH_BLOCKING=1} & Ép CUDA thực thi đồng bộ để dòng thông báo lỗi Python chỉ đúng vị trí tensor bị lỗi (dùng khi debug lỗi OOM hoặc CUDA error). \\
+\code{TORCH_USE_CUDA_DSA=1} & Kích hoạt Device-side Assertions để bắt chính xác lỗi chỉ số vượt mảng trong CUDA kernel. \\
+\code{NCCL_DEBUG=INFO} & Bật ghi log chi tiết cho thư viện NCCL khi huấn luyện hoặc serving đa GPU (Tensor Parallelism). \\
+\code{NCCL_IB_DISABLE=0} & Kích hoạt giao tiếp mạng InfiniBand/RoCE v2 cho giao tiếp đa máy chủ. \\
+\code{PYTORCH_CUDA_ALLOC_CONF=} \newline \code{expandable_segments:True} & Giảm thiểu hiện tượng phân mảnh bộ nhớ VRAM trong PyTorch. \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+---
+
+\section{Docker \& NVIDIA Container Toolkit Cho Production AI}
+\label{sec:app-cheat-docker}
+
+\subsection{Khởi Chạy Container GPU Tránh Lỗi Phân Mảnh Bộ Nhớ}
+Một trong những lỗi kinh điển khiến PyTorch DataLoader bị sập với tín hiệu \code{SIGBUS} là do kích thước bộ nhớ chia sẻ mặc định của Docker (\file{/dev/shm}) chỉ có 64MB. Lệnh khởi chạy container chuẩn mực:
+
+\begin{lstlisting}[language=bash]
+# Chay Docker container voi toan bo GPU va mo rong /dev/shm
+docker run -d \
+  --name vllm_production_node \
+  --gpus all \
+  --ipc=host \
+  --ulimit memlock=-1 \
+  --ulimit stack=67108864 \
+  -p 8000:8000 \
+  -v /data/models:/root/.cache/huggingface \
+  vllm/vllm-openai:latest \
+  --model meta-llama/Meta-Llama-3-70B-Instruct \
+  --tensor-parallel-size 4
+\end{lstlisting}
+
+\subsection{Cấu Hình /etc/docker/daemon.json Hỗ Trợ GPU Runtime}
+\begin{lstlisting}[language=bash]
+{
+  "default-runtime": "nvidia",
+  "runtimes": {
+    "nvidia": {
+      "path": "nvidia-container-runtime",
+      "runtimeArgs": []
+    }
+  },
+  "log-driver": "json-file",
+  "log-opts": {
+    "max-size": "100m",
+    "max-file": "5"
+  }
+}
+\end{lstlisting}
+
+---
+
+\section{Cẩm Nang Cờ Lệnh (CLI Flags) Cho vLLM Serving Engine}
+\label{sec:app-cheat-vllm}
+
+Dưới đây là các tham số quan trọng nhất khi khởi chạy máy chủ vLLM phục vụ sản xuất:
+
+\begin{table}[htbp]
+\centering
+\small
+\caption{Tổng Hợp Cờ Tham Số Production Chuẩn Mực Cho vLLM Server}
+\label{tab:app-vllm-flags}
+\begin{tabular}{p{4.5cm}p{2.5cm}p{6.0cm}}
+\toprule
+\textbf{Cờ Tham Số} & \textbf{Giá Trị Mẫu} & \textbf{Ý Nghĩa Kỹ Thuật} \\
+\midrule
+\code{--tensor-parallel-size} & \code{4} hoặc \code{8} & Số lượng GPU chia nhỏ mô hình qua Tensor Parallelism. \\
+\code{--gpu-memory-utilization} & \code{0.92} & Tỷ lệ VRAM tối đa dành cho trọng số và KV Cache (giữ lại 8\% cho kích hoạt động). \\
+\code{--max-model-len} & \code{8192} & Giới hạn tối đa chiều dài ngữ cảnh (Context Window) để tránh tràn VRAM. \\
+\code{--kv-cache-dtype} & \code{fp8} hoặc \code{auto} & Lượng tử hóa KV Cache sang FP8 để tăng gấp đôi dung lượng ngữ cảnh. \\
+\code{--enable-prefix-caching} & \textit{cờ boolean} & Kích hoạt lưu cache cho System Prompt dùng chung, giảm TTFT xuống dưới 50ms. \\
+\code{--swap-space} & \code{16} (GB) & Dung lượng CPU RAM dùng để tạm lưu các block KV Cache khi GPU bị quá tải tạm thời. \\
+\code{--disable-log-requests} & \textit{cờ boolean} & Tắt ghi log nội dung prompt thô ra stdout để bảo vệ quyền riêng tư người dùng. \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+---
+
+\section{Chẩn Đoán Mạng Chuyên Sâu Cho Kỹ Sư NetOps (Linux Networking)}
+\label{sec:app-cheat-netops}
+
+\begin{lstlisting}[language=bash]
+# 1. Kiem tra cac port dang lang nghe va tien trinh so huu (khong dung netstat cu)
+ss -tulpn
+
+# 2. Bat goi tin HTTP/API tren cong 8000 de kiem tra do tre payload
+tcpdump -i any port 8000 -A -s 0 -c 10
+
+# 3. Kiem tra chi tiet do tre ket noi va bat tay TLS 1.3 bang curl
+curl -w "\nDNS: %{time_namelookup}s\nConnect: %{time_connect}s\nTLS Handshake: %{time_appconnect}s\nTTFB: %{time_starttransfer}s\nTotal: %{time_total}s\n" \
+  -o /dev/null -s https://api.openai.com/v1/models
+
+# 4. Kiem tra so luong ket noi TCP o trang thai TIME_WAIT
+ss -s
+
+# 5. Kiem tra phan giai ten mien DNS chi tiet voi dig
+dig +trace +stats your-ai-gateway.domain.com
+\end{lstlisting}
+
+---
+
+\section{Tinh Chỉnh Nhân Hệ Điều Hành Linux Cho Tải Cao (Kernel Tuning)}
+\label{sec:app-cheat-kernel}
+
+Khi phục vụ hàng chục ngàn kết nối WebSocket hoặc SSE streaming đồng thời, cấu hình mặc định của Linux sẽ gây lỗi \code{Too many open files} hoặc từ chối kết nối. Thêm các cấu hình sau vào \file{/etc/sysctl.conf}:
+
+\begin{lstlisting}[language=bash]
+# Tang so luong file descriptor toi da ma he thong co the mo
+fs.file-max = 2097152
+
+# Tang kich thuoc hang doi backlog chap nhan ket noi TCP
+net.core.somaxconn = 65535
+
+# Cho phep tai su dung cac socket o trang thai TIME_WAIT
+net.ipv4.tcp_tw_reuse = 1
+
+# Tang kich thuoc bo dem doc/ghi cho TCP Socket (Buffer Tuning)
+net.core.rmem_max = 16777216
+net.core.wmem_max = 16777216
+net.ipv4.tcp_rmem = 4096 87380 16777216
+net.ipv4.tcp_wmem = 4096 65536 16777216
+\end{lstlisting}
+Áp dụng cấu hình ngay lập tức mà không cần khởi động lại máy chủ:
+\begin{lstlisting}[language=bash]
+sudo sysctl -p
+\end{lstlisting}
+Và cập nhật giới hạn tiến trình trong \file{/etc/security/limits.conf}:
+\begin{lstlisting}[language=bash]
+* soft nofile 1048576
+* hard nofile 1048576
+\end{lstlisting}

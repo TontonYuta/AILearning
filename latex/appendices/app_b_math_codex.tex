@@ -1,0 +1,209 @@
+% ==============================================================================
+% PHỤ LỤC B: CẨM NANG CÔNG THỨC TOÁN HỌC & ĐỊNH LÝ CỐT LÕI (MATHEMATICAL CODEX)
+% ==============================================================================
+
+\chapter{Cẩm Nang Công Thức Toán Học \& Định Lý Cốt Lõi (Mathematical Codex)}
+\label{ch:appendix-math-codex}
+
+Toán học trong Kỹ nghệ AI không phải là những bài tập chứng minh trừu tượng, mà là chiếc compa và thước đo định hướng mọi quyết định kiến trúc: Từ việc tại sao phải chia cho $\sqrt{d_k}$ trong Attention, tại sao AdamW lại vượt trội hơn Adam truyền thống, cho đến việc tính toán chính xác từng Gigabyte VRAM của KV Cache. Phụ lục này tổng hợp toàn diện các công thức giải tích, đại số và xác suất cốt lõi nhất được sử dụng trong cuốn sách để bạn đọc có thể tra cứu nhanh chóng và vững vàng.
+
+---
+
+\section{Đại Số Tuyến Tính \& Phân Rã Ma Trận}
+\label{sec:app-math-linalg}
+
+\subsection{Các Chuẩn Véc-Tơ \& Chuẩn Ma Trận Phổ Biến}
+Cho véc-tơ $\mathbf{x} = [x_1, x_2, \dots, x_n]^T \in \mathbb{R}^n$:
+\begin{itemize}
+  \item \textbf{Chuẩn $L_1$ (Manhattan Norm)}:
+  \begin{equation}
+  \|\mathbf{x}\|_1 = \sum_{i=1}^n |x_i|
+  \end{equation}
+  Đặc tính: Tạo ra tính chất thưa (\textit{Sparsity}) cho các trọng số khi dùng làm số hạng điều chuẩn (L1 Regularization).
+
+  \item \textbf{Chuẩn $L_2$ (Euclidean Norm)}:
+  \begin{equation}
+  \|\mathbf{x}\|_2 = \sqrt{\sum_{i=1}^n x_i^2} = \sqrt{\mathbf{x}^T \mathbf{x}}
+  \end{equation}
+  Đặc tính: Đo độ dài hình học của véc-tơ trong không gian Euclid; đạo hàm liên tục trơn tru $\nabla_{\mathbf{x}} \|\mathbf{x}\|_2^2 = 2\mathbf{x}$.
+
+  \item \textbf{Chuẩn $L_\infty$ (Max Norm)}:
+  \begin{equation}
+  \|\mathbf{x}\|_\infty = \max_{1 \le i \le n} |x_i|
+  \end{equation}
+  Đặc tính: Cốt lõi của lượng tử hóa đối xứng INT8 ($S = \frac{\|\mathbf{x}\|_\infty}{127}$).
+
+  \item \textbf{Chuẩn Frobenius Cho Ma Trận $\mathbf{A} \in \mathbb{R}^{m \times n}$}:
+  \begin{equation}
+  \|\mathbf{A}\|_F = \sqrt{\sum_{i=1}^m \sum_{j=1}^n a_{ij}^2} = \sqrt{\text{Tr}(\mathbf{A}^T \mathbf{A})}
+  \end{equation}
+\end{itemize}
+
+\subsection{Định Lý Phân Rã SVD \& Xấp Xỉ Hạng Thấp Tối Ưu}
+\begin{theorem}[Phân Rã Giá Trị Suy Biến - Singular Value Decomposition]
+Mọi ma trận thực $\mathbf{A} \in \mathbb{R}^{m \times n}$ đều có thể phân rã thành:
+\begin{equation}
+\mathbf{A} = \mathbf{U} \mathbf{\Sigma} \mathbf{V}^T
+\end{equation}
+trong đó:
+\begin{itemize}
+  \item $\mathbf{U} \in \mathbb{R}^{m \times m}$ là ma trận trực giao chứa các véc-tơ kỳ dị trái ($\mathbf{U}^T \mathbf{U} = \mathbf{I}$).
+  \item $\mathbf{V} \in \mathbb{R}^{n \times n}$ là ma trận trực giao chứa các véc-tơ kỳ dị phải ($\mathbf{V}^T \mathbf{V} = \mathbf{I}$).
+  \item $\mathbf{\Sigma} \in \mathbb{R}^{m \times n}$ là ma trận đường chéo chứa các giá trị kỳ dị giảm dần: $\sigma_1 \ge \sigma_2 \ge \dots \ge \sigma_r > 0$.
+\end{itemize}
+\end{theorem}
+
+\begin{theorem}[Định Lý Eckart-Young-Mirsky]
+Cho ma trận $\mathbf{A}$ có hạng $r$. Ma trận hạng $k < r$ gần nhất với $\mathbf{A}$ theo chuẩn Frobenius là ma trận $\mathbf{A}_k$ được tạo bởi $k$ giá trị kỳ dị lớn nhất:
+\begin{equation}
+\mathbf{A}_k = \sum_{i=1}^k \sigma_i \mathbf{u}_i \mathbf{v}_i^T = \arg\min_{\text{rank}(\mathbf{B}) \le k} \|\mathbf{A} - \mathbf{B}\|_F
+\end{equation}
+với sai số xấp xỉ nhỏ nhất bằng tổng bình phương các giá trị kỳ dị bị bỏ qua:
+\begin{equation}
+\|\mathbf{A} - \mathbf{A}_k\|_F^2 = \sum_{i=k+1}^r \sigma_i^2
+\end{equation}
+\end{theorem}
+
+---
+
+\section{Giải Tích Đa Biến \& Lan Truyền Ngược (Matrix Calculus \& Backprop)}
+\label{sec:app-math-calculus}
+
+\subsection{Các Đạo Hàm Ma Trận Cốt Lõi}
+Cho các véc-tơ $\mathbf{x} \in \mathbb{R}^n$, $\mathbf{y} \in \mathbb{R}^m$ và ma trận $\mathbf{W} \in \mathbb{R}^{m \times n}$:
+\begin{align}
+\nabla_{\mathbf{x}} (\mathbf{a}^T \mathbf{x}) &= \mathbf{a} \\
+\nabla_{\mathbf{x}} (\mathbf{x}^T \mathbf{A} \mathbf{x}) &= (\mathbf{A} + \mathbf{A}^T)\mathbf{x} \quad (\text{bằng } 2\mathbf{A}\mathbf{x} \text{ nếu } \mathbf{A} \text{ đối xứng}) \\
+\frac{\partial (\mathbf{W}\mathbf{x})}{\partial \mathbf{x}} &= \mathbf{W} \\
+\frac{\partial (\mathbf{W}\mathbf{x})}{\partial \mathbf{W}} &\implies \nabla_{\mathbf{W}} (\mathbf{y}^T \mathbf{W} \mathbf{x}) = \mathbf{y} \mathbf{x}^T
+\end{align}
+
+\subsection{Quy Tắc Dây Chuyền Lan Truyền Ngược Cho Tầng Tuyến Tính}
+Xét tầng tuyến tính: $\mathbf{z} = \mathbf{W}\mathbf{x} + \mathbf{b}$, với hàm mất mát vô hướng $\mathcal{L}$.
+Ký hiệu véc-tơ gradient lan truyền ngược từ tầng sau về là $\mathbf{\delta} = \frac{\partial \mathcal{L}}{\partial \mathbf{z}} \in \mathbb{R}^m$:
+\begin{align}
+\frac{\partial \mathcal{L}}{\partial \mathbf{W}} &= \mathbf{\delta} \mathbf{x}^T \in \mathbb{R}^{m \times n} \\
+\frac{\partial \mathcal{L}}{\partial \mathbf{b}} &= \mathbf{\delta} \in \mathbb{R}^m \\
+\frac{\partial \mathcal{L}}{\partial \mathbf{x}} &= \mathbf{W}^T \mathbf{\delta} \in \mathbb{R}^n
+\end{align}
+
+\subsection{Đạo Hàm Ma Trận Softmax \& Mất Mát Cross-Entropy}
+Hàm Softmax với véc-tơ logits $\mathbf{z} \in \mathbb{R}^K$:
+\begin{equation}
+S_i = \frac{e^{z_i}}{\sum_{k=1}^K e^{z_k}}
+\end{equation}
+Ma trận Jacobian của hàm Softmax:
+\begin{equation}
+\frac{\partial S_i}{\partial z_j} = S_i (\delta_{ij} - S_j) = \begin{cases}
+S_i (1 - S_i) & \text{khi } i = j \\
+- S_i S_j & \text{khi } i \neq j
+\end{cases}
+\end{equation}
+trong đó $\delta_{ij}$ là ký hiệu Kronecker delta ($\delta_{ij} = 1$ nếu $i=j$, ngược lại bằng 0).
+
+Khi kết hợp với hàm mất mát Cross-Entropy $\mathcal{L} = - \sum_{k=1}^K y_k \log(S_k)$, đạo hàm riêng đối với logit $z_i$ đạt được dạng tối giản tuyệt đối:
+\begin{equation}
+\frac{\partial \mathcal{L}}{\partial z_i} = S_i - y_i = \hat{y}_i - y_i \implies \nabla_{\mathbf{z}} \mathcal{L} = \hat{\mathbf{y}} - \mathbf{y}
+\end{equation}
+
+---
+
+\section{Hình Học Không Gian \& Cơ Chế Attention}
+\label{sec:app-math-attention}
+
+\subsection{Scaled Dot-Product Attention \& Động Cơ Hệ Số Tỷ Lệ}
+Cho ma trận truy vấn $\mathbf{Q} \in \mathbb{R}^{N \times d_k}$, ma trận khóa $\mathbf{K} \in \mathbb{R}^{M \times d_k}$, và ma trận giá trị $\mathbf{V} \in \mathbb{R}^{M \times d_v}$:
+\begin{equation}
+\text{Attention}(\mathbf{Q}, \mathbf{K}, \mathbf{V}) = \text{Softmax}\left(\frac{\mathbf{Q}\mathbf{K}^T}{\sqrt{d_k}}\right)\mathbf{V}
+\end{equation}
+\textbf{Chứng minh toán học cho hệ số $\sqrt{d_k}$}:
+Giả sử các thành phần của $\mathbf{q}$ và $\mathbf{k}$ là các biến ngẫu nhiên độc lập có kỳ vọng bằng 0 và phương sai bằng 1:
+\begin{equation*}
+\mathbb{E}[q_i] = \mathbb{E}[k_i] = 0, \quad \text{Var}(q_i) = \text{Var}(k_i) = 1
+\end{equation*}
+Tích vô hướng giữa hai véc-tơ $d_k$ chiều: $x = \mathbf{q} \cdot \mathbf{k} = \sum_{i=1}^{d_k} q_i k_i$.
+\begin{align*}
+\mathbb{E}[x] &= \sum_{i=1}^{d_k} \mathbb{E}[q_i k_i] = \sum_{i=1}^{d_k} \mathbb{E}[q_i] \mathbb{E}[k_i] = 0 \\
+\text{Var}(x) &= \sum_{i=1}^{d_k} \text{Var}(q_i k_i) = \sum_{i=1}^{d_k} \Big( \text{Var}(q_i)\text{Var}(k_i) + \text{Var}(q_i)\mathbb{E}[k_i]^2 + \text{Var}(k_i)\mathbb{E}[q_i]^2 \Big) \\
+&= \sum_{i=1}^{d_k} (1 \cdot 1 + 0 + 0) = d_k
+\end{align*}
+Độ lệch chuẩn của tích vô hướng tăng theo $\sqrt{d_k}$. Khi $d_k$ lớn (ví dụ $d_k = 128$), giá trị tích vô hướng có thể đạt biên độ lớn hơn 30, đẩy hàm Softmax vào vùng bão hòa cực biên nơi đạo hàm tiệm cận về 0 (\textit{Vanishing Gradient}).
+Bằng cách chuẩn hóa chia cho $\sqrt{d_k}$, ta đưa phương sai trở về đúng 1:
+\begin{equation}
+\text{Var}\left(\frac{\mathbf{q} \cdot \mathbf{k}}{\sqrt{d_k}}\right) = \frac{\text{Var}(\mathbf{q} \cdot \mathbf{k})}{d_k} = \frac{d_k}{d_k} = 1
+\end{equation}
+
+\subsection{Cơ Chế Quay Hình Học Rotary Position Embedding (RoPE)}
+Biến đổi RoPE tác động lên cặp tọa độ $(x_{2i}, x_{2i+1})$ của véc-tơ tại vị trí token $m$:
+\begin{equation}
+\mathbf{R}_{\Theta, m}^{(i)} = \begin{pmatrix} \cos(m\theta_i) & -\sin(m\theta_i) \\ \sin(m\theta_i) & \cos(m\theta_i) \end{pmatrix}, \quad \text{với } \theta_i = 10000^{-2(i-1)/d}
+\end{equation}
+Tích vô hướng giữa hai véc-tơ sau khi quay:
+\begin{equation}
+\langle \mathbf{R}_{\Theta, m} \mathbf{q}, \mathbf{R}_{\Theta, n} \mathbf{k} \rangle = \mathbf{q}^T \mathbf{R}_{\Theta, m}^T \mathbf{R}_{\Theta, n} \mathbf{k} = \mathbf{q}^T \mathbf{R}_{\Theta, n-m} \mathbf{k}
+\end{equation}
+Do tính chất trực giao của ma trận quay: $\mathbf{R}_m^T \mathbf{R}_n = \mathbf{R}_{-m} \mathbf{R}_n = \mathbf{R}_{n-m}$.
+Tích vô hướng chỉ phụ thuộc vào khoảng cách tương đối $n - m$, mang lại cho mô hình khả năng ngoại suy ngữ cảnh vượt trội.
+
+---
+
+\section{Lý Thuyết Xác Suất \& Thuật Toán Tối Ưu Hóa}
+\label{sec:app-math-prob-opt}
+
+\subsection{Thuật Toán Tối Ưu AdamW Hoàn Chỉnh}
+Tại bước lặp $t$, với hàm mất mát $\mathcal{L}(\theta)$ và gradient $g_t = \nabla_\theta \mathcal{L}(\theta_{t-1})$:
+\begin{align}
+m_t &= \beta_1 m_{t-1} + (1 - \beta_1) g_t \quad (\text{Momentum bậc 1}) \\
+v_t &= \beta_2 v_{t-1} + (1 - \beta_2) g_t^2 \quad (\text{Momentum bậc 2}) \\
+\hat{m}_t &= \frac{m_t}{1 - \beta_1^t}, \quad \hat{v}_t = \frac{v_t}{1 - \beta_2^t} \quad (\text{Hiệu chỉnh độ lệch khởi tạo}) \\
+\theta_t &= \theta_{t-1} - \eta_t \left( \frac{\hat{m}_t}{\sqrt{\hat{v}_t} + \epsilon} + \lambda \theta_{t-1} \right) \quad (\text{Cập nhật tách rời Weight Decay } \lambda)
+\end{align}
+Cấu hình siêu tham số mặc định chuẩn công nghiệp: $\beta_1 = 0.9$, $\beta_2 = 0.95$ (hoặc $0.999$), $\epsilon = 10^{-8}$, $\lambda = 0.1$.
+
+\subsection{Định Lý Bayes \& Nghịch Lý Tỷ Lệ Cơ Sở (Base Rate Fallacy)}
+\begin{equation}
+P(A \mid T) = \frac{P(T \mid A) P(A)}{P(T \mid A) P(A) + P(T \mid \neg A) P(\neg A)}
+\end{equation}
+trong đó:
+\begin{itemize}
+  \item $P(A)$: Tỷ lệ cơ sở của biến cố cần tìm (Base Rate).
+  \item $P(T \mid A)$: Độ nhạy (True Positive Rate hay Recall).
+  \item $P(T \mid \neg A)$: Tỷ lệ báo động giả (False Positive Rate).
+  \item $P(A \mid T)$: Độ chuẩn xác thực tế (Precision hay Positive Predictive Value).
+\end{itemize}
+
+---
+
+\section{Công Thức Kỹ Nghệ Hạ Tầng, Serving \& Sizing}
+\label{sec:app-math-infra}
+
+\subsection{Dung Lượng Bộ Nhớ KV Cache Trên VRAM}
+\begin{equation}
+\text{Memory}_{\text{KV}} = 2 \times B \times L \times n_{\text{layers}} \times n_{\text{kv\_heads}} \times d_k \times P_{\text{bytes}} \text{ (bytes)}
+\end{equation}
+với:
+\begin{itemize}
+  \item $B$: Kích thước Batch (số request đồng thời).
+  \item $L$: Chiều dài ngữ cảnh (Context length).
+  \item $n_{\text{layers}}$: Số lượng tầng Transformer.
+  \item $n_{\text{kv\_heads}}$: Số lượng đầu Key-Value (bằng $n_{\text{heads}}$ nếu MHA, hoặc $n_{\text{heads}} / 8$ nếu GQA 8:1).
+  \item $d_k$: Kích thước mỗi đầu chú ý (thường là 128).
+  \item $P_{\text{bytes}}$: Số byte cho mỗi phần tử (2 cho FP16/BF16, 1 cho INT8, 0.5 cho INT4).
+\end{itemize}
+
+\subsection{Định Luật Little Trong Thiết Kế Hệ Thống Xếp Hàng}
+\begin{equation}
+L = \lambda W
+\end{equation}
+trong đó:
+\begin{itemize}
+  \item $L$: Số lượng yêu cầu trung bình đang tồn tại đồng thời trong hệ thống (Concurrency).
+  \item $\lambda$: Tốc độ đến trung bình của các yêu cầu (Throughput / QPS).
+  \item $W$: Thời gian xử lý trung bình mỗi yêu cầu (Average Response Time / Latency).
+\end{itemize}
+
+\subsection{Giải Thuật Kết Hợp Thứ Hạng Không Tham Số RRF (Reciprocal Rank Fusion)}
+\begin{equation}
+\text{RRF\_Score}(d) = \sum_{m \in \mathcal{M}} \frac{1}{k + r_m(d)}
+\end{equation}
+với $\mathcal{M}$ là tập hợp các phương pháp tìm kiếm (Dense Vector, Sparse BM25), $r_m(d)$ là thứ hạng của tài liệu $d$ trong danh sách $m$ (bắt đầu từ 1), và $k$ là hằng số làm mượt (thường chọn $k = 60$).

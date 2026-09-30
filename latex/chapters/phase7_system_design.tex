@@ -1,0 +1,159 @@
+% ==============================================================================
+% PHASE7_SYSTEM_DESIGN.TEX — GIAI ĐOẠN 7: THIẾT KẾ KIẾN TRÚC HỆ THỐNG AI QUY MÔ LỚN
+% ==============================================================================
+
+\chapter{Thiết Kế Kiến Trúc Hệ Thống AI Quy Mô Lớn}
+\label{ch:phase7-system-design}
+
+\section{Nguyên Lý Mở Rộng \& Xử Lý Bất Đồng Bộ Trong Hệ Thống AI}
+\label{sec:sysdes-scalability}
+
+Khi một ứng dụng AI phát triển từ 100 người dùng thử nghiệm lên 100.000 người dùng hoạt động đồng thời (\textit{Concurrent Users}), những giả định thiết kế ban đầu sẽ bị sụp đổ nếu thiếu kiến trúc phân tán.
+
+\begin{figure}[htbp]
+\centering
+\begin{tcolorbox}[colback=boxbg,colframe=primarycolor,width=0.95\textwidth,arc=2pt]
+\small
+\textbf{Kiến Trúc Ingestion Tài Liệu Bất Đồng Bộ Quy Mô Lớn (Async Pipeline)}:\\[0.2cm]
+\texttt{Người dùng tải lên 1.000 file PDF} $\longrightarrow$ \textbf{FastAPI Ingestion Gateway}\\
+$\downarrow$ (Ghi nhận metadata vào PostgreSQL \& Đẩy task vào hàng đợi, trả về \code{202 Accepted} ngay!)\\
+\textbf{Hàng Đợi Thông Điệp (Message Queue: RabbitMQ / Apache Kafka)}\\
+$\downarrow$\\
+\textbf{Cụm Worker Phân Tán (Celery / Python Workers)}:
+\begin{itemize}
+  \item Worker 1-4: Bóc tách text, OCR hình ảnh và làm sạch văn bản thô.
+  \item Worker 5-8: Chia nhỏ thành các chunks và gọi mô hình Embedding.
+  \item Worker 9-12: Chèn vector hàng loạt (\textit{Batch Upsert}) vào \term{Qdrant Cluster}.
+\end{itemize}
+$\downarrow$\\
+\textbf{Redis Pub/Sub / WebSocket}: Bắn thông báo về trình duyệt: \textit{``Tài liệu đã sẵn sàng để tra cứu!''}.
+\end{tcolorbox}
+\caption{Kiến trúc xử lý tài liệu khối lượng lớn không làm nghẽn API chính}
+\label{fig:async-ingestion-arch}
+\end{figure}
+
+\begin{definitionbox}[Mở Rộng Ngang (Horizontal) vs Mở Rộng Dọc (Vertical)]
+\begin{itemize}
+  \item \term{Mở Rộng Dọc (Scale-Up)}: Nâng cấp máy chủ mạnh hơn (từ 1 GPU lên 8 GPU H100). Đạt tới giới hạn vật lý nhanh chóng và chi phí tăng đột biến theo hàm mũ.
+  \item \term{Mở Rộng Ngang (Scale-Out)}: Bổ sung thêm nhiều máy chủ nhỏ vận hành song song sau bộ Cân Bằng Tải (\textit{Load Balancer}). Cho phép hệ thống co giãn linh hoạt theo nhu cầu thực tế (\textit{Elastic Auto-scaling}).
+\end{itemize}
+\end{definitionbox}
+
+\section{Thiết Kế Hệ Thống RAG Đa Thuê Bao (Enterprise Multi-Tenant RAG)}
+\label{sec:sysdes-multitenant}
+
+Trong các nền tảng SaaS phục vụ hàng nghìn doanh nghiệp, việc để dữ liệu của Công ty A xuất hiện trong câu trả lời cho nhân viên Công ty B là lỗi vi phạm nghiêm trọng nhất có thể dẫn tới phá sản.
+
+\begin{figure}[htbp]
+\centering
+\begin{tcolorbox}[colback=boxbg,colframe=primarycolor,width=0.95\textwidth,arc=2pt]
+\small
+\textbf{Kiến Trúc Cô Lập Dữ Liệu \& Bộ Nhớ Đệm Hai Tầng (Two-Tier Caching)}:\\[0.2cm]
+\texttt{Câu hỏi từ Tenant 102} $\longrightarrow$ \textbf{1. Exact Hash Cache (Redis)}: Kiểm tra mã băm SHA256 câu hỏi $\longrightarrow$ Nếu khớp, trả kết quả trong 1ms!\\
+$\downarrow$ (Cache Miss)\\
+\textbf{2. Semantic Cache (Qdrant Vector Cache)}: Tìm kiếm câu hỏi có độ tương đồng cosine $> 0.96$ của \textit{chính Tenant 102} $\longrightarrow$ Nếu có, trả kết quả trong 15ms!\\
+$\downarrow$ (Cache Miss)\\
+\textbf{3. Tenant-Isolated Vector Search}: Truy xuất Qdrant với bộ lọc bắt buộc:
+\code{filter = \{"tenant_id": 102, "access_group": user.group\}}\\
+$\downarrow$\\
+\textbf{4. Suy luận LLM \& Cập nhật Cache} cho các người dùng sau của Tenant 102.
+\end{tcolorbox}
+\caption{Kiến trúc cách ly dữ liệu thuê bao kết hợp Caching hai tầng tối ưu tốc độ}
+\label{fig:multitenant-rag}
+\end{figure}
+
+\begin{workedexamplebox}[Mô Phỏng Bộ Nhớ Đệm Hai Tầng (Exact + Semantic) Bằng Python]
+\begin{lstlisting}[language=Python]
+import hashlib
+from typing import Dict, Optional
+
+class TwoTierAICache:
+    """Mo phong bo nho dem Exact Hash ket hop Semantic Cache."""
+    def __init__(self, semantic_threshold: float = 0.95):
+        self.exact_cache: Dict[str, str] = {} # Redis Key-Value
+        self.semantic_cache: Dict[str, str] = {} # Vector Store
+        self.threshold = semantic_threshold
+
+    def _hash_key(self, text: str) -> str:
+        return hashlib.sha256(text.strip().lower().encode()).hexdigest()
+
+    def get(self, query: str, mock_similarity: float = 0.0) -> Optional[str]:
+        # Tang 1: Exact Hash Match
+        h = self._hash_key(query)
+        if h in self.exact_cache:
+            return f"[Exact Cache Hit]: {self.exact_cache[h]}"
+            
+        # Tang 2: Semantic Similarity Match
+        if mock_similarity >= self.threshold:
+            return f"[Semantic Cache Hit]: Tra loi gan dung ({mock_similarity * 100:.1f}%)"
+            
+        return None
+
+    def set(self, query: str, answer: str):
+        h = self._hash_key(query)
+        self.exact_cache[h] = answer
+\end{lstlisting}
+\end{workedexamplebox}
+
+\section{Tối Ưu Hóa Chi Phí: Định Tuyến Mô Hình Phân Tầng (Tiered Routing)}
+\label{sec:sysdes-tiered-routing}
+
+Không phải câu hỏi nào cũng cần đến mô hình đắt đỏ nhất. Hơn $70\%$ câu hỏi người dùng chỉ là chào hỏi thông thường hoặc trích xuất dữ liệu cơ bản.
+
+\begin{workedexamplebox}[Bộ Định Tuyến Mô Hình Thông Minh (Intelligent Model Router)]
+\begin{lstlisting}[language=Python]
+class TieredModelRouter:
+    """Dinh tuyen cau hoi sang mo hinh phu hop de tiet kiem 70% chi phi."""
+    def route_request(self, query: str) -> str:
+        q_lower = query.lower().strip()
+        word_count = len(q_lower.split())
+        
+        # Cau hoi don gian hoac chao hoi -> Dung mo hinh nho nhe (8B / Haiku)
+        if word_count < 6 and any(w in q_lower for w in ["chao", "hello", "hi", "cam on"]):
+            return "TIER_1_SMALL_8B"
+            
+        # Cau hoi yeu cau lap luan phuc tap hoac code -> Dung mo hinh lon (70B / Opus)
+        if any(kw in q_lower for kw in ["chung minh", "lap trinh", "kien truc", "debug"]):
+            return "TIER_3_LARGE_REASONING"
+            
+        # Truong hop trung binh -> Dung mo hinh trung (Sonnet / GPT-4o-mini)
+        return "TIER_2_BALANCED"
+\end{lstlisting}
+\end{workedexamplebox}
+
+\begin{debugbox}[Sự Cố Đổ Vỡ Dây Chuyền (Cascading Failures) \& Circuit Breaker]
+\textbf{Hiện tượng}: Khi máy chủ LLM phục vụ bị quá tải và phản hồi chậm, hàng nghìn client gửi lại yêu cầu liên tục (\textit{Retry Storm}). Hậu quả làm toàn bộ hệ thống API Gateway, Redis và PostgreSQL cùng sụp đổ theo.\\
+\textbf{Giải pháp Thiết Kế}:
+\begin{enumerate}
+  \item Triển khai mẫu thiết kế \textbf{Circuit Breaker}: Nếu tỷ lệ lỗi của máy chủ LLM vượt quá $30\%$ trong 10 giây, Circuit Breaker tự động ngắt kết nối (\textit{Open state}), trả về thông báo bảo trì ngay lập tức mà không gửi thêm request làm nghẽn máy chủ.
+  \item Cấu hình Exponential Backoff bắt buộc kèm \textbf{Jitter} ở tất cả các ứng dụng client.
+\end{enumerate}
+\end{debugbox}
+
+\begin{securitybox}[Tấn Công Vượt Rào Phân Vùng Thuê Bao (Tenant Boundary Crossing)]
+\textbf{Nguy cơ}: Kẻ tấn công thuộc Tenant A sửa đổi tham số \code{tenant_id=101} trong HTTP payload gửi lên để trích xuất dữ liệu của Tenant B.\\
+\textbf{Quy tắc kiến trúc}: \textbf{Tuyệt đối không bao giờ tin cậy \code{tenant_id} do client truyền lên trong Body hoặc Header}. Giá trị \code{tenant_id} bắt buộc phải được mã hóa bất biến bên trong chữ ký số của mã thông báo xác thực (\textit{JWT Claims / Signed Session}) do chính máy chủ cấp phát sau khi đăng nhập thành công.
+\end{securitybox}
+
+\begin{interviewbox}[Câu Hỏi Phỏng Vấn Kiến Trúc Hệ Thống AI Triệu Người Dùng]
+\textbf{Câu hỏi}: \textit{``Hãy thiết kế kiến trúc hệ thống phục vụ một ứng dụng AI RAG doanh nghiệp xử lý 50.000 truy vấn mỗi phút, đảm bảo P99 Latency $< 800\text{ms}$ và độ sẵn sàng 99.99\%?''}\\
+\textbf{Khung trả lời của Software Architect}:
+\begin{enumerate}
+  \item \textbf{Tầng Mạng \& Cổng}: Sử dụng Cloudflare CDN/WAF phân phối tải toàn cầu, Nginx/Envoy API Gateway với JWT verification.
+  \item \textbf{Tầng Caching Đa Tầng}: Redis Cluster triển khai 2 tầng: Exact Hash Cache cho câu hỏi lặp lại và Semantic Cache bằng Qdrant với ngưỡng tương đồng $0.95$, giúp giảm $40\%$ lượng tải vào GPU.
+  \item \textbf{Tầng Model Serving}: Cụm máy chủ vLLM tự động co giãn (\textit{K8s HPA}) kết hợp kỹ thuật PagedAttention và Continuous Batching. Kèm theo cơ chế Fallback sang Cloud API khi tải GPU vượt ngưỡng $85\%$.
+  \item \textbf{Tầng Cơ Sở Dữ Liệu}: PostgreSQL Primary-Replica (1 Master ghi, 3 Read-Replicas đọc) kết hợp Qdrant Cluster phân mảnh (\textit{Sharding by Tenant ID}).
+  \item \textbf{Khả Năng Phục Hồi}: Triển khai Circuit Breaker, Rate Limiting và Dead Letter Queue (DLQ).
+\end{enumerate}
+\end{interviewbox}
+
+\begin{checkpointbox}[Nghiệm Thu Năng Lực AI System Design]
+Đánh dấu hoàn thành khi bạn đã:
+\begin{itemize}
+  \item[$\square$] Thiết kế được pipeline xử lý tài liệu bất đồng bộ với Message Queue.
+  \item[$\square$] Hiểu nguyên lý cách ly dữ liệu an toàn trong hệ thống Multi-Tenant.
+  \item[$\square$] Vận dụng được bộ nhớ đệm hai tầng Exact Hash và Semantic Cache.
+  \item[$\square$] Biết cách thiết kế bộ định tuyến phân tầng Tiered Router tiết kiệm chi phí.
+  \item[$\square$] Nắm vững cơ chế Circuit Breaker phòng chống sự cố đổ vỡ dây chuyền.
+\end{itemize}
+\end{checkpointbox}

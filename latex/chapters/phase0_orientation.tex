@@ -1,0 +1,177 @@
+% ==============================================================================
+% PHASE0_ORIENTATION.TEX — GIAI ĐOẠN 0: ĐỊNH HƯỚNG NGHỀ NGHIỆP & HỆ THỐNG AI
+% ==============================================================================
+
+\chapter{Định Hướng Nghề Nghiệp \& Toàn Cảnh Hệ Thống AI}
+\label{ch:phase0-orientation}
+
+\section{Bản Chất Của AI, Machine Learning, Deep Learning \& Generative AI}
+\label{sec:p0-fundamentals}
+
+Để trở thành một kỹ sư AI thực chiến, bước đầu tiên là phải giải mã chính xác các thuật ngữ công nghệ thường bị thổi phồng trên truyền thông đại chúng.
+
+\begin{definitionbox}[Phân Tầng Công Nghệ AI]
+\begin{itemize}
+  \item \term{Trí Tuệ Nhân Tạo (Artificial Intelligence - AI)}: Là ngành khoa học máy tính rộng lớn nghiên cứu việc xây dựng các hệ thống có khả năng thực hiện những tác vụ đòi hỏi trí thông minh của con người (từ hệ chuyên gia dựa trên luật \textit{Rule-based Systems} đến các giải thuật tìm kiếm đồ thị).
+  \item \term{Học Máy (Machine Learning - ML)}: Là phân nhánh của AI, thay vì lập trình thủ công từng luật, hệ thống tự động học các mẫu (\textit{patterns}) ẩn trong dữ liệu lịch sử để đưa ra dự đoán.
+  \item \term{Học Sâu (Deep Learning - DL)}: Phân nhánh của ML sử dụng các mạng nơ-ron nhân tạo nhiều tầng (\textit{Deep Neural Networks}) để tự động trích xuất các đặc trưng phân cấp từ dữ liệu phi cấu trúc (hình ảnh, âm thanh, văn bản).
+  \item \term{AI Tạo Sinh (Generative AI - GenAI)}: Tập con của DL tập trung vào việc \textbf{sinh ra nội dung mới} (văn bản, mã nguồn, hình ảnh, âm thanh) dựa trên xác suất có điều kiện, thay vì chỉ phân loại (\textit{classification}) hay hồi quy (\textit{regression}).
+\end{itemize}
+\end{definitionbox}
+
+\begin{intuitionbox}[Mô Hình Tư Duy: Từ Con Trẻ Đến Họa Sĩ Độc Bản]
+\begin{itemize}
+  \item \textbf{Lập trình truyền thống (Rules)}: Như một người bảo mẫu lập ra danh sách quy tắc nghiêm ngặt: \textit{``Nếu nhiệt độ $> 38^\circ\text{C}$ thì cho uống thuốc hạ sốt''}. Khi gặp tình huống chưa có luật, hệ thống hoàn toàn tê liệt.
+  \item \textbf{Machine Learning}: Như đưa cho một đứa trẻ 10.000 tấm ảnh chụp hoa hồng và hoa sen. Đứa trẻ tự tìm ra quy luật phân biệt cánh hoa và gai nhọn mà không cần ai chỉ rõ kích thước từng milimet.
+  \item \textbf{Deep Learning}: Mạng lưới tế bào não bộ nhiều tầng tự nhận thức: Tầng 1 nhận diện mép cạnh $\rightarrow$ Tầng 2 nhận diện hình khối $\rightarrow$ Tầng 3 nhận diện kết cấu bề mặt $\rightarrow$ Tầng cuối cùng nhận diện tổng thể bông hoa.
+  \item \textbf{Generative AI}: Không chỉ nhận diện đâu là hoa hồng, nó cầm cọ và vẽ nên một loài hoa hoàn toàn mới chưa từng tồn tại trên thế giới, nhưng mang đầy đủ quy luật sinh học của tự nhiên.
+\end{itemize}
+\end{intuitionbox}
+
+\section{Bản Đồ Nghề Nghiệp: AI Engineer Trong Mối Quan Hệ Đa Ngành}
+\label{sec:p0-roles}
+
+Nhiều người mới bắt đầu thường nhầm lẫn giữa việc nghiên cứu mô hình toán học và việc xây dựng sản phẩm AI thực tế. Bảng dưới đây phân định rõ trách nhiệm và thước đo thành công giữa các vị trí:
+
+\begin{table}[htbp]
+\centering
+\small
+\begin{tabular}{p{3.2cm}p{3.8cm}p{3.8cm}p{3.8cm}}
+\toprule
+\textbf{Vị trí} & \textbf{Trọng tâm công việc} & \textbf{Công cụ cốt lõi} & \textbf{Thước đo thành công} \\
+\midrule
+\term{AI Researcher} & Phát minh kiến trúc mô hình mới, tối ưu toán học & PyTorch, CUDA, LaTeX, Paper reading & Điểm benchmark, Bài báo khoa học tại NeurIPS/ICML \\
+\term{Data Scientist} & Phân tích kinh doanh, xây dựng mô hình dự báo thống kê & Pandas, Scikit-learn, SQL, Tableau & Độ chính xác (Accuracy, ROC-AUC), Tác động doanh thu \\
+\term{MLOps Engineer} & Xây dựng pipeline CI/CD cho huấn luyện và tự động hóa & Kubeflow, MLflow, Docker, Kubernetes & Thời gian huấn luyện lại, Độ sẵn sàng hệ thống \\
+\term{AI Engineer} & Tích hợp LLM vào ứng dụng, thiết kế RAG, Agent, bảo mật & FastAPI, LangGraph, Qdrant, vLLM, Docker & Độ trễ P95, Chi phí Token, Tránh rò rỉ dữ liệu, UX \\
+\bottomrule
+\end{tabular}
+\caption{So sánh trách nhiệm giữa các vai trò trong hệ sinh thái AI hiện đại}
+\label{tbl:ai-roles}
+\end{table}
+
+\begin{definitionbox}[Sứ Mệnh Duy Nhất Của AI Engineer]
+\textbf{AI Engineer} là chiếc cầu nối vững chắc đưa trí tuệ nhân tạo từ phòng thí nghiệm nghiên cứu bước vào đời sống sản xuất thực tế. Kỹ sư AI giải quyết bài toán: Làm thế nào để một mô hình xác suất không ổn định (\textit{non-deterministic}) trở thành một thành phần phần mềm có thể dự đoán được (\textit{deterministic}), có độ tin cậy cao, kiểm soát được chi phí và bảo mật tuyệt đối.
+\end{definitionbox}
+
+\section{Vòng Đời Hoàn Chỉnh Của Hệ Thống AI (The AI Lifecycle)}
+\label{sec:p0-lifecycle}
+
+Một hệ thống AI chuyên nghiệp trong doanh nghiệp không bao giờ bắt đầu bằng việc viết prompt ngay lập tức. Nó vận hành qua 8 giai đoạn khép kín:
+
+\begin{center}
+\textbf{1. Thu Thập Dữ Liệu (Ingestion)} $\longrightarrow$ \textbf{2. Tiền Xử Lý \& Embedding} $\longrightarrow$ \textbf{3. Chỉ Mục Vector}\\
+$\downarrow$\\
+\textbf{4. Truy Xuất Ngữ Cảnh (Retrieval)} $\longrightarrow$ \textbf{5. Tối Ưu Prompt \& Guardrails} $\longrightarrow$ \textbf{6. Suy Luận LLM}\\
+$\downarrow$\\
+\textbf{7. Đánh Giá Độ Tin Cậy (Evaluation)} $\longleftarrow$ \textbf{8. Giám Sát Production (Monitoring)}
+\end{center}
+
+\begin{workedexamplebox}[Định Lượng Chi Phí Và Độ Trễ Suy Luận (Token Economics)]
+Trong suy luận LLM, hai chỉ số độ trễ quan trọng nhất là:
+\begin{enumerate}
+  \item \term{TTFT (Time To First Token)}: Thời gian từ lúc người dùng gửi request đến khi nhận được ký tự đầu tiên. Phụ thuộc vào kích thước prompt đầu vào và quá trình tiền xử lý (\textit{Prefill stage}).
+  \item \term{TPOT (Time Per Output Token)}: Thời gian trung bình để sinh ra mỗi token tiếp theo trong pha giải mã (\textit{Decode stage}).
+\end{enumerate}
+Giả sử hệ thống xử lý $20.000$ truy vấn/ngày. Mỗi truy vấn gồm $1.500$ tokens input và $400$ tokens output.
+Nếu đơn giá Cloud API là $\$2.50$ / 1M input tokens và $\$10.00$ / 1M output tokens:
+\begin{align*}
+\text{Chi phí Input / ngày} &= 20.000 \times \frac{1.500}{10^6} \times \$2.50 = \$75.00 \\
+\text{Chi phí Output / ngày} &= 20.000 \times \frac{400}{10^6} \times \$10.00 = \$80.00 \\
+\text{Chi phí tháng} &= (\$75.00 + \$80.00) \times 30 = \$4.650.00 / \text{tháng}
+\end{align*}
+Nếu áp dụng \textbf{Prompt Caching} cho $80\%$ ngữ cảnh cố định, chi phí input giảm $75\%$, giúp doanh nghiệp tiết kiệm hơn $\$1.600$ mỗi tháng!
+\end{workedexamplebox}
+
+\section{Mental Model: Bốn Tầng Của Hệ Thống AI Hiện Đại}
+\label{sec:p0-mental-model}
+
+Người học cần phân tách rõ ràng 4 tầng kiến trúc tách biệt:
+\begin{enumerate}
+  \item \textbf{Tầng Trọng Số (Model Weights)}: Tệp tin nhị phân tĩnh chứa hàng tỷ tham số số thực (ví dụ file \code{.safetensors} hay \code{.gguf}). Bản thân file này không tự chạy được nếu không có phần mềm nạp vào bộ nhớ.
+  \item \textbf{Tầng Động Cơ Suy Luận (Inference Engine)}: Phần mềm chịu trách nhiệm nạp trọng số vào GPU/RAM, quản lý bộ nhớ đệm KV Cache và thực thi các phép nhân ma trận (ví dụ: \code{vLLM}, \code{llama.cpp}, \code{TGI}).
+  \item \textbf{Tầng Ứng Dụng \& Logic (Application Layer)}: Mã nguồn Python/FastAPI/LangGraph thực hiện: xác thực người dùng, định tuyến câu hỏi, gọi cơ sở dữ liệu, kích hoạt công cụ (Tools) và lọc dữ liệu độc hại.
+  \item \textbf{Tầng Hạ Tầng \& Bảo Mật (Infrastructure \& Security)}: Cụm máy chủ GPU, mạng ảo VPC, Docker container, hệ thống giám sát Prometheus và các rào chắn an ninh (Guardrails).
+\end{enumerate}
+
+\begin{labbox}[Xây Dựng Pipeline Đo Lường Metrics Suy Luận Chuẩn Type-Hinting]
+\begin{lstlisting}[language=Python]
+import time
+from dataclasses import dataclass
+from typing import Dict, Any
+
+@dataclass
+class InferenceMetrics:
+    prompt_tokens: int
+    output_tokens: int
+    ttft_seconds: float
+    total_latency: float
+    cost_usd: float
+
+def execute_inference_benchmark(prompt: str) -> InferenceMetrics:
+    """Do dac chi tiet TTFT, do tre tong va chi phi suy luan."""
+    if not prompt or len(prompt.strip()) == 0:
+        raise ValueError("Prompt dau vao khong duoc de trong")
+        
+    t_start = time.perf_counter()
+    # Mo phong pha prefill tao token dau tien
+    time.sleep(0.05) 
+    ttft = time.perf_counter() - t_start
+    
+    # Mo phong pha decode sinh them 50 tokens
+    time.sleep(0.10)
+    total_time = time.perf_counter() - t_start
+    
+    in_tok = len(prompt.split())
+    out_tok = 50
+    # Gia dinh gia $2.5/1M in, $10.0/1M out
+    cost = (in_tok * 2.5 / 1e6) + (out_tok * 10.0 / 1e6)
+    
+    return InferenceMetrics(
+        prompt_tokens=in_tok,
+        output_tokens=out_tok,
+        ttft_seconds=round(ttft, 4),
+        total_latency=round(total_time, 4),
+        cost_usd=round(cost, 6)
+    )
+
+if __name__ == "__main__":
+    metrics = execute_inference_benchmark("Kien truc he thong AI")
+    print(f"Metrics: {metrics}")
+\end{lstlisting}
+\end{labbox}
+
+\begin{debugbox}[Phân Tích Lỗi Timeout Do Độ Trễ Suy Luận Tăng Vọt]
+\textbf{Hiện tượng}: Khách hàng nhận lỗi HTTP 504 Gateway Timeout khi yêu cầu tóm tắt tài liệu dài.\\
+\textbf{Truy tìm nguyên nhân}: Kỹ sư mới thường cấu hình reverse-proxy (Nginx / Cloudflare) với timeout mặc định 30s. Khi prompt dài 10.000 tokens, pha prefill và generation của LLM mất 45s khiến kết nối HTTP bị ngắt giữa chừng.\\
+\textbf{Giải pháp}: Chuyển ngay sang cơ chế \textbf{Streaming (Server-Sent Events - SSE)} để trả về token đầu tiên sau vài trăm mili-giây, giữ cho kết nối HTTP luôn tích cực và cải thiện đáng kể trải nghiệm người dùng.
+\end{debugbox}
+
+\begin{securitybox}[Mô Hình Đe Dọa Sơ Khởi (Threat Modeling Cho AI)]
+Trước khi viết bất kỳ dòng mã nào, kỹ sư AI luôn phải tự hỏi:
+\begin{itemize}
+  \item \textbf{Dữ liệu đầu vào đến từ đâu?} Nếu người dùng nhập vào mã độc hoặc các câu lệnh điều khiển trá hình (\textit{Indirect Prompt Injection}), hệ thống có bị đánh lừa không?
+  \item \textbf{Công cụ được cấp quyền gì?} Nếu cấp quyền thực thi SQL hoặc xóa file cho Agent, kẻ tấn công có thể lợi dụng prompt để phá hủy cơ sở dữ liệu hay không?
+  \item \textbf{Phản hồi có chứa thông tin nhạy cảm không?} Hệ thống có vô tình để lộ bí mật nội bộ, mật khẩu API hoặc thông tin cá nhân (PII) của người dùng khác hay không?
+\end{itemize}
+\end{securitybox}
+
+\begin{interviewbox}[Câu Hỏi Khảo Sát Năng Lực AI Engineer Đầu Vào]
+\textbf{Câu hỏi}: \textit{``Hãy phân biệt sự khác nhau giữa Latency (độ trễ) và Throughput (thông lượng) trong hệ thống phục vụ mô hình ngôn ngữ lớn? Trong trường hợp hệ thống bị quá tải, bạn ưu tiên tối ưu chỉ số nào trước?''}\\
+\textbf{Gợi ý trả lời chuẩn mực}:
+\begin{itemize}
+  \item \textbf{Latency} đo thời gian xử lý của \textit{một yêu cầu đơn lẻ} (tính bằng mili-giây), quyết định trực tiếp đến trải nghiệm tương tác trực tiếp của người dùng cuối.
+  \item \textbf{Throughput} đo tổng số lượng tokens hoặc requests mà \textit{toàn bộ hệ thống} có thể xử lý trong một đơn vị thời gian (tokens/giây), quyết định hiệu quả khai thác phần cứng GPU và khả năng mở rộng.
+  \item Khi quá tải trong môi trường phục vụ đồng thời hàng nghìn người dùng, kỹ sư AI áp dụng kỹ thuật \textbf{Continuous Batching} (như trong vLLM) để tối đa hóa throughput của GPU, đồng thời thiết lập cơ chế hàng đợi (\textit{Request Queue}) để kiểm soát P99 Latency không vượt quá ngưỡng cho phép.
+\end{itemize}
+\end{interviewbox}
+
+\begin{checkpointbox}[Nghiệm Thu Năng Lực Phase 0]
+Đánh dấu hoàn thành khi bạn đã:
+\begin{itemize}
+  \item[$\square$] Phân biệt rõ ranh giới giữa AI Engineer và Data Scientist / Researcher.
+  \item[$\square$] Hiểu cặn kẽ 8 bước trong vòng đời sản xuất của hệ thống AI.
+  \item[$\square$] Biết cách tính toán định lượng chi phí token và phân rã TTFT vs TPOT.
+  \item[$\square$] Thấu hiểu 4 tầng kiến trúc: Trọng số $\rightarrow$ Engine $\rightarrow$ App $\rightarrow$ Hạ tầng.
+\end{itemize}
+\end{checkpointbox}

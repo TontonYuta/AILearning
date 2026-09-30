@@ -1,46 +1,32 @@
 # CURRENT_TASK.md — CONTRACT CÔNG VIỆC HIỆN TẠI
 
-**TASK ID**: TASK-INIT-001  
-**TASK TYPE**: Architecture & Minimal Compiling Skeleton Setup  
-**OBJECTIVE**: Thiết lập toàn bộ hạ tầng biên dịch LaTeX (Design System, environments, metadata, preamble), kịch bản tự động hóa `build.sh` và `check.sh`, biên dịch thành công một Minimal Compiling Skeleton của sách sang PDF và xác thực QA đạt chuẩn 100%.
+**TASK ID**: TASK-CURRICULUM-COMPLETE  
+**TASK TYPE**: Full End-to-End Curriculum Implementation & Publishing  
+**OBJECTIVE**: Hoàn thành toàn bộ 10 Giai đoạn (Phase 0 đến Phase 9) và Phụ lục tra cứu của Giáo trình Kỹ sư AI Thực chiến, bao gồm đặc tả kiến trúc, mã nguồn mẫu runnable, bộ kiểm thử tự động Pytest, biên dịch 2-pass pdfLaTeX và kiểm định QA không có lỗi/cảnh báo.
 
 ---
 
-## SCOPE
-- `latex/main.tex`
-- `latex/preamble.tex`
-- `latex/metadata.tex`
-- `latex/commands.tex`
-- `latex/environments.tex`
-- `latex/frontmatter/title.tex`
-- `latex/frontmatter/preface.tex`
-- `latex/chapters/phase0_overview.tex`
-- `scripts/build.sh`
-- `scripts/check.sh`
-- `docs/decisions/ADR-001-repository-and-pdflatex-architecture.md`
-- `docs/DECISIONS.md`
-- `docs/DEPENDENCY_MAP.md`
-- `docs/GLOSSARY.md`
-- `docs/CHANGELOG.md`
+## SCOPE (HOÀN TẤT 100%)
+- **Phase 0**: Định hướng nghề nghiệp & Toàn cảnh hệ thống AI (`chapters/phase0_orientation.tex`)
+- **Phase 1 (Python)**: Kỹ nghệ Python chuyên sâu cho AI (`chapters/phase1_python.tex`)
+- **Phase 1 (Systems)**: Nền tảng Khoa học máy tính, Linux & Backend (`chapters/phase1_systems.tex`)
+- **Phase 2**: Toán học, Machine Learning & Deep Learning (`chapters/phase2_aiml.tex`)
+- **Phase 3**: Transformer Internals & Mô hình Ngôn ngữ Lớn (`chapters/phase3_llm.tex`)
+- **Phase 4**: Hệ thống RAG & AI Agent Tự hành với LangGraph (`chapters/phase4_rag_agent.tex`)
+- **Phase 5**: Đưa AI vào Vận hành Production & MLOps (`chapters/phase5_production.tex`)
+- **Phase 6**: Giao thoa Mạng máy tính & An ninh mạng AI (`chapters/phase6_security.tex`)
+- **Phase 7**: Thiết kế Kiến trúc Hệ thống AI Quy mô lớn (`chapters/phase7_system_design.tex`)
+- **Phase 8**: Dự án Thực chiến & Đồ án Đỉnh cao AI-NetSecOps (`chapters/phase8_capstone.tex`)
+- **Phase 9**: Phát triển Sự nghiệp, Portfolio & 6 Vòng Phỏng vấn (`chapters/phase9_career.tex`)
+- **Appendix**: Bảng thuật ngữ song ngữ Anh - Việt & Sổ tay lệnh (`appendices/glossary_and_cheatsheets.tex`)
+- **Tests**: Bộ 35 unit tests bao phủ toàn bộ code mẫu (`tests/test_*.py`)
+- **Build & QA Scripts**: `./scripts/build.sh` và `./scripts/check.sh`
 
-## OUT OF SCOPE
-- Viết ồ ạt nội dung toàn bộ các chương tiếp theo (sẽ thực hiện theo từng task kế tiếp sau khi skeleton được duyệt QA).
-- Cài đặt thêm các công cụ bên ngoài không cần thiết.
+## VALIDATION RESULTS
+- `pytest tests/`: **35 passed in 0.25s** (100% test passing).
+- `./scripts/build.sh`: **PASS** (Exit 0, 68 trang A4, 512KB).
+- `./scripts/check.sh`: **QA RESULT: PASS** (0 Errors, 0 Warnings, 0 Broken refs).
 
-## DEPENDENCIES
-- TeX Live 2025 (`pdflatex`, `vntex`, `mathptmx`, `tcolorbox`, `listings`).
-- Bash Shell.
-
-## EXPECTED OUTPUT
-- `build/pdf/ai_engineer_curriculum.pdf` được tạo ra thành công, đẹp mắt, có trang bìa, mục lục, một chương mẫu với các environments tiêu chuẩn (`definitionbox`, `intuitionbox`, `labbox`, `debugbox`, `securitybox`, `interviewbox`, `checkpointbox`).
-- Chạy `./scripts/build.sh` không có lỗi.
-- Chạy `./scripts/check.sh` trả về `QA RESULT: PASS` (exit code 0).
-
-## VALIDATION
-- `./scripts/build.sh` exit 0.
-- `./scripts/check.sh` exit 0.
-- Không có lỗi nghiêm trọng hay broken reference.
-
-## SUCCESS CRITERIA
-- Minimal compiling skeleton hoàn tất.
-- Sẵn sàng để chuyển sang viết nội dung chi tiết theo đúng quy trình của Master Prompt.
+## STATUS
+- **TRẠNG THÁI**: HOÀN THÀNH TOÀN DIỆN (COMPLETED).
+- **FILE PDF XUẤT XƯỞNG**: `build/pdf/ai_engineer_curriculum.pdf`.

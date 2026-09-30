@@ -1,0 +1,179 @@
+% ==============================================================================
+% PHASE2_AIML.TEX — GIAI ĐOẠN 2: NỀN TẢNG TOÁN HỌC, MACHINE LEARNING & DEEP LEARNING
+% ==============================================================================
+
+\chapter{Nền Tảng Toán Học, Machine Learning \& Deep Learning}
+\label{ch:phase2-aiml}
+
+\section{Đại Số Tuyến Tính Ứng Dụng: Không Gian Vector \& Tích Vô Hướng}
+\label{sec:math-linear-algebra}
+
+Trọng tâm của AI Engineering không phải là giải ma trận bằng tay trên giấy, mà là hiểu được cách dữ liệu văn bản và hình ảnh được biến đổi thành các vector nhiều chiều và tính toán độ tương đồng giữa chúng.
+
+\begin{definitionbox}[Vector, Ma Trận \& Tích Vô Hướng (Dot Product)]
+\begin{itemize}
+  \item \term{Vector Embedding}: Một đoạn văn bản được ánh xạ thành một vector $d$-chiều $\vct{v} = [v_1, v_2, \dots, v_d]^T \in \R^d$ (với OpenAI text-embedding-3 là $1536$ chiều, BGE-M3 là $1024$ chiều).
+  \item \term{Tích vô hướng (Dot Product)} giữa hai vector $\vct{u}, \vct{v} \in \R^d$:
+  \[
+  \vct{u} \cdot \vct{v} = \sum_{i=1}^d u_i v_i = \norm{\vct{u}}_2 \norm{\vct{v}}_2 \cos(\theta)
+  \]
+  \item \term{Độ Tương Đồng Cosine (Cosine Similarity)}: Thước đo góc giữa 2 vector, độc lập với độ dài magnitude:
+  \[
+  S_C(\vct{u}, \vct{v}) = \frac{\vct{u} \cdot \vct{v}}{\norm{\vct{u}}_2 \norm{\vct{v}}_2} = \frac{\sum_{i=1}^d u_i v_i}{\sqrt{\sum_{i=1}^d u_i^2} \sqrt{\sum_{i=1}^d v_i^2}} \in [-1, 1]
+  \]
+\end{itemize}
+\end{definitionbox}
+
+\begin{intuitionbox}[Vector Embedding Giống Như Tọa Độ La Bàn Ngữ Nghĩa]
+Hãy tưởng tượng không gian 3 chiều: Trục $X$ đo mức độ ``vương giả'', Trục $Y$ đo mức độ ``giới tính nam'', Trục $Z$ đo mức độ ``độ tuổi''.
+\begin{itemize}
+  \item Từ \textit{``Vua (King)''} có tọa độ $[0.95, 0.90, 0.70]$.
+  \item Từ \textit{``Nữ hoàng (Queen)''} có tọa độ $[0.95, -0.90, 0.70]$.
+  \item Từ \textit{``Đàn ông (Man)''} có tọa độ $[0.05, 0.90, 0.65]$.
+\end{itemize}
+Khi thực hiện phép trừ đại số: $\vct{v}_{\text{King}} - \vct{v}_{\text{Man}} + \vct{v}_{\text{Woman}}$, vector thu được sẽ có tọa độ gần như trùng khớp hoàn toàn với $\vct{v}_{\text{Queen}}$! Đó chính là cách các thuật toán tìm kiếm ngữ nghĩa hiểu được tư duy con người.
+\end{intuitionbox}
+
+\section{Giải Tích Đa Biến: Gradient Vector \& Lan Truyền Ngược}
+\label{sec:math-calculus}
+
+Mọi mô hình Deep Learning từ đơn giản đến nghìn tỷ tham số đều học bằng một nguyên lý duy nhất: \textbf{Tìm hướng đi dốc nhất để giảm thiểu hàm mất mát (Loss)}.
+
+\begin{definitionbox}[Gradient Vector \& Quy Tắc Dây Chuyền (Chain Rule)]
+Cho hàm mất mát $\loss(\vct{w})$ phụ thuộc vào vector trọng số $\vct{w} = [w_1, \dots, w_n]^T$. \term{Gradient Vector} $\nabla \loss(\vct{w})$ là tập hợp các đạo hàm riêng:
+\[
+\nabla \loss(\vct{w}) = \left[ \frac{\partial \loss}{\partial w_1}, \frac{\partial \loss}{\partial w_2}, \dots, \frac{\partial \loss}{\partial w_n} \right]^T
+\]
+Theo giải thuật \textbf{Gradient Descent}, trọng số được cập nhật ngược hướng gradient với tốc độ học $\eta$ (Learning Rate):
+\[
+\vct{w}^{(t+1)} = \vct{w}^{(t)} - \eta \nabla \loss(\vct{w}^{(t)})
+\]
+Quá trình tính toán đạo hàm cho mạng nhiều tầng dựa vào \term{Quy tắc Dây chuyền (Chain Rule)}:
+\[
+\frac{\partial \loss}{\partial w_{ij}} = \frac{\partial \loss}{\partial \hat{y}} \cdot \frac{\partial \hat{y}}{\partial z} \cdot \frac{\partial z}{\partial w_{ij}}
+\]
+\end{definitionbox}
+
+\section{Bản Chất Machine Learning: Đánh Đổi Bias-Variance \& Thước Đo}
+\label{sec:ml-core}
+
+\begin{figure}[htbp]
+\centering
+\begin{tcolorbox}[colback=boxbg,colframe=primarycolor,width=0.95\textwidth,arc=2pt]
+\small
+\textbf{Đánh Đổi Độ Lệch và Phương Sai (Bias-Variance Tradeoff)}:\\[0.2cm]
+\begin{itemize}
+  \item \textbf{Underfitting (High Bias)}: Mô hình quá đơn giản, không học được quy luật dữ liệu (ví dụ dùng đường thẳng ép vào parabol). Train Loss cao, Test Loss cao.
+  \item \textbf{Overfitting (High Variance)}: Mô hình quá phức tạp, học vẹt cả nhiễu ngẫu nhiên trong tập huấn luyện. Train Loss cực thấp ($\approx 0$), nhưng Test Loss vọt cao!
+  \item \textbf{Sweet Spot (Điểm tối ưu)}: Mô hình khái quát hóa tốt (\textit{Generalization}), cân bằng giữa khả năng biểu diễn và tính đơn giản.
+\end{itemize}
+\end{tcolorbox}
+\caption{Hiện tượng Quá khớp (Overfitting) và Dưới khớp (Underfitting) trong thực tế}
+\label{fig:bias-variance}
+\end{figure}
+
+\begin{table}[htbp]
+\centering
+\small
+\begin{tabular}{p{3.0cm}p{4.2cm}p{6.0cm}}
+\toprule
+\textbf{Thước đo} & \textbf{Công thức} & \textbf{Ý nghĩa thực tế trong AI} \\
+\midrule
+\term{Precision} & $\frac{TP}{TP + FP}$ & Trong số các cảnh báo hệ thống báo là mã độc/spam, có bao nhiêu \% thực sự là mã độc? \\
+\term{Recall} & $\frac{TP}{TP + FN}$ & Trong số tất cả các cuộc tấn công thực tế xảy ra, hệ thống đã bắt được bao nhiêu \%? \\
+\term{F1-Score} & $2 \times \frac{\text{Precision} \times \text{Recall}}{\text{Precision} + \text{Recall}}$ & Trung bình điều hòa cân bằng giữa Precision và Recall khi dữ liệu bị mất cân bằng trầm trọng. \\
+\bottomrule
+\end{tabular}
+\caption{Bộ thước đo đánh giá chất lượng phân loại mô hình}
+\label{tbl:ml-metrics}
+\end{table}
+
+\section{Deep Learning \& Xây Dựng Mạng Nơ-ron Từ Số Không}
+\label{sec:dl-pytorch}
+
+Để hiểu tận cùng cơ chế huấn luyện mà không bị phụ thuộc vào các thư viện đóng gói sẵn, dưới đây là mã nguồn thuần Python hiện thực hóa giải thuật Hồi quy Tuyến tính với Gradient Descent:
+
+\begin{labbox}[Hiện Thực Hóa Gradient Descent \& Lan Truyền Ngược Bằng Thuần Python]
+\begin{lstlisting}[language=Python]
+import math
+from typing import List, Tuple
+
+class SimpleLinearRegression:
+    """Mo hinh hoi quy y = w * x + b toi uu bang Gradient Descent."""
+    def __init__(self, lr: float = 0.01):
+        self.w = 0.0
+        self.b = 0.0
+        self.lr = lr
+
+    def forward(self, x: float) -> float:
+        return self.w * x + self.b
+
+    def compute_loss(self, X: List[float], Y: List[float]) -> float:
+        """Tinh Mean Squared Error (MSE)."""
+        n = len(X)
+        total_error = sum((self.forward(x) - y) ** 2 for x, y in zip(X, Y))
+        return total_error / n
+
+    def train_step(self, X: List[float], Y: List[float]):
+        """Tinh gradient va cap nhat trong so theo lan truyen nguoc."""
+        n = len(X)
+        dw = (2.0 / n) * sum(x * (self.forward(x) - y) for x, y in zip(X, Y))
+        db = (2.0 / n) * sum((self.forward(x) - y) for x, y in zip(X, Y))
+        
+        # Cap nhat trong so
+        self.w -= self.lr * dw
+        self.b -= self.lr * db
+
+    def fit(self, X: List[float], Y: List[float], epochs: int = 200):
+        for epoch in range(epochs):
+            self.train_step(X, Y)
+\end{lstlisting}
+\end{labbox}
+
+\begin{workedexamplebox}[Hàm Kích Hoạt Phi Tuyến: ReLU, GeLU \& Softmax]
+Nếu chỉ dùng các phép biến đổi tuyến tính $W \cdot x + b$, mạng nơ-ron 100 tầng cũng chỉ tương đương với một phép nhân ma trận đơn lẻ. Các hàm kích hoạt phi tuyến (\textit{Activation Functions}) mang lại sức mạnh xấp xỉ vạn năng (\textit{Universal Approximation Theorem}):
+\begin{itemize}
+  \item \term{ReLU (Rectified Linear Unit)}: $f(x) = \max(0, x)$. Đơn giản, tính toán cực nhanh, giải quyết triệt để vấn đề biến mất gradient (\textit{Vanishing Gradient}) ở miền dương.
+  \item \term{GeLU (Gaussian Error Linear Unit)}: $f(x) = x \cdot \Phi(x) \approx 0.5x(1 + \tanh(\sqrt{2/\pi}(x + 0.044715x^3)))$. Là hàm kích hoạt tiêu chuẩn bên trong Transformer (BERT, GPT-2, GPT-3, Llama).
+  \item \term{Softmax}: Chuẩn hóa một vector điểm số (\textit{logits}) thành phân phối xác suất có tổng bằng $1$:
+  \[
+  \softmax(\vct{z})_i = \frac{e^{z_i}}{\sum_{j=1}^K e^{z_j}}
+  \]
+\end{itemize}
+\end{workedexamplebox}
+
+\begin{debugbox}[Tràn Số Mũ Trong Tính Toán Softmax (Numerical Overflow)]
+\textbf{Lỗi toán học}: Khi các logits $z_i$ lớn (ví dụ $z_i = 1000$), giá trị $e^{1000} \rightarrow \infty$, gây lỗi tràn số \code{nan} (Not a Number) hoặc sập tiến trình.\\
+\textbf{Kỹ thuật khắc phục chuẩn kỹ sư}: Trừ toàn bộ vector cho giá trị cực đại $z_{\max} = \max_j(z_j)$ trước khi lấy mũ:
+\[
+\softmax(\vct{z})_i = \frac{e^{z_i - z_{\max}}}{\sum_{j=1}^K e^{z_j - z_{\max}}}
+\]
+Về mặt toán học, tỷ lệ xác suất hoàn toàn không thay đổi nhưng giá trị số mũ luôn nằm trong khoảng $[0, 1]$, triệt tiêu hoàn toàn nguy cơ tràn số!
+\end{debugbox}
+
+\begin{securitybox}[Đầu Độc Dữ Liệu Huấn Luyện (Data Poisoning)]
+\textbf{Mối nguy}: Kẻ tấn công cố tình chèn dữ liệu gán nhãn sai lệch hoặc mã độc ngầm (\textit{Backdoor trigger}) vào tập dữ liệu huấn luyện công khai.\\
+\textbf{Hậu quả}: Mô hình hoạt động hoàn toàn bình thường trên tập dữ liệu kiểm thử, nhưng khi gặp một chuỗi ký tự kích hoạt cụ thể (\textit{Trigger phrase}), mô hình sẽ tự động bỏ qua kiểm duyệt an ninh.\\
+\textbf{Phòng ngừa}: Luôn kiểm tra tính toàn vẹn của tập dữ liệu (\textit{Dataset hashing}), loại bỏ các mẫu ngoại lai (\textit{Outlier detection}) và áp dụng kỹ thuật kiểm tra xáo trộn nhãn ngẫu nhiên.
+\end{securitybox}
+
+\begin{interviewbox}[Câu Hỏi Phỏng Vấn Thuật Toán Học Sâu Cốt Lõi]
+\textbf{Câu hỏi}: \textit{``Tại sao giải thuật tối ưu hóa AdamW lại vượt trội hơn Adam truyền thống trong việc huấn luyện các mô hình ngôn ngữ lớn (Transformers)?''}\\
+\textbf{Trả lời}:
+\begin{enumerate}
+  \item Trong Adam truyền thống, điều hòa $\ell_2$ (L2 Regularization / Weight Decay) được cộng trực tiếp vào hàm mất mát $\loss$. Do đó, gradient của thành phần suy giảm trọng số cũng bị chia tỷ lệ bởi moment bậc hai $\sqrt{v_t}$.
+  \item Điều này làm cho các trọng số có gradient lớn lại bị suy giảm ít hơn, làm méo mó mục đích ban đầu của Weight Decay.
+  \item \textbf{AdamW (Decoupled Weight Decay)} tách biệt hoàn toàn việc suy giảm trọng số ra khỏi bước cập nhật gradient: $\vct{w}^{(t+1)} = \vct{w}^{(t)} - \eta \lambda \vct{w}^{(t)} - \eta \frac{m_t}{\sqrt{v_t} + \epsilon}$, giúp mô hình tổng quát hóa tốt hơn và huấn luyện ổn định hơn nhiều.
+\end{enumerate}
+\end{interviewbox}
+
+\begin{checkpointbox}[Nghiệm Thu Năng Lực AI/ML Foundation]
+Đánh dấu hoàn thành khi bạn đã:
+\begin{itemize}
+  \item[$\square$] Hiểu bản chất hình học của Cosine Similarity và Dot Product.
+  \item[$\square$] Tự giải thích được luồng lan truyền ngược qua Chain Rule.
+  \item[$\square$] Nắm vững đánh đổi Bias-Variance và các thước đo Precision/Recall/F1.
+  \item[$\square$] Tự viết được thuật toán Gradient Descent từ số 0 không cần thư viện.
+  \item[$\square$] Biết cách xử lý Numerical Overflow trong hàm Softmax.
+\end{itemize}
+\end{checkpointbox}

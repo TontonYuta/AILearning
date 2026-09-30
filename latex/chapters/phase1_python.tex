@@ -1,0 +1,244 @@
+% ==============================================================================
+% PHASE1_PYTHON.TEX — GIAI ĐOẠN 1.1: LẬP TRÌNH PYTHON CHUYÊN NGHIỆP CHO KỸ SƯ AI
+% ==============================================================================
+
+\chapter{Lập Trình Python Chuyên Nghiệp Cho Kỹ Sư AI}
+\label{ch:phase1-python}
+
+\section{Bản Chất Cấu Trúc Dữ Liệu \& Cơ Chế Lưu Trữ Bộ Nhớ}
+\label{sec:py-data-structures}
+
+Người mới học Python thường sử dụng \code{list}, \code{dict}, \code{set} theo thói quen mà không hiểu cấu trúc bên dưới của CPython. Trong các hệ thống AI xử lý hàng triệu vector hoặc tài liệu, việc chọn sai cấu trúc dữ liệu có thể biến một tác vụ chạy trong 2 giây thành 2 giờ.
+
+\begin{definitionbox}[Độ Phức Tạp Bộ Nhớ \& Truy Xuất Của Python Collections]
+\begin{itemize}
+  \item \term{Python List}: Là một mảng động (\textit{Dynamic Array}) chứa các con trỏ trỏ đến đối tượng trong bộ nhớ Heap. Khi danh sách đầy, CPython cấp phát dư thừa (\textit{over-allocation}) theo tỷ lệ $0, 4, 8, 16, 25, 35, 46, \dots$. Thao tác truy xuất theo chỉ số là $O(1)$, nhưng tìm kiếm giá trị là $O(N)$.
+  \item \term{Python Dict}: Sử dụng cấu trúc Bảng Băm kết hợp (\textit{Combined Hash Table}) từ Python 3.6+. Nó lưu trữ một mảng thưa (\textit{sparse hash indices}) và một mảng đặc (\textit{dense key-value array}). Truy xuất, chèn và xóa trung bình là $O(1)$.
+  \item \term{Python Set}: Tương tự như Dict nhưng chỉ lưu trữ khóa (Keys) duy nhất, tối ưu cho bài toán kiểm tra sự tồn tại (\textit{membership test}) với độ phức tạp $O(1)$.
+\end{itemize}
+\end{definitionbox}
+
+\begin{intuitionbox}[Tủ Đựng Đồ Có Đánh Số vs Sổ Tra Cứu Mục Lục Nhanh]
+\begin{itemize}
+  \item \textbf{List} giống như một dãy ngăn tủ dài thẳng tắp được đánh số từ $0$ đến $N-1$. Bạn muốn mở tủ số 5? Chỉ mất 1 giây ($O(1)$). Nhưng nếu hỏi: \textit{``Trong dãy tủ này, tủ nào đang cất cuốn hộ chiếu?''}, bạn buộc phải đi mở từng cánh tủ từ đầu đến cuối ($O(N)$).
+  \item \textbf{Dict/Set} giống như một thủ thư có trí nhớ siêu việt. Khi bạn nói từ khóa \textit{``Hộ chiếu''}, thủ thư tính toán một mã băm toán học và chỉ ngay: \textit{``Ngăn 42''}. Bất kể thư viện có 100 hay 10 triệu cuốn sách, thời gian tìm ra vị trí vẫn chỉ là tích tắc ($O(1)$).
+\end{itemize}
+\end{intuitionbox}
+
+\section{Hàm Nâng Cao, Closures \& Decorators Thực Chiến}
+\label{sec:py-decorators}
+
+Trong kỹ nghệ AI, các API gọi LLM bên ngoài thường xuyên gặp lỗi mạng chập chờn, bị giới hạn tần suất (\textit{Rate Limiting}) hoặc mất kết nối đột ngột. Kỹ thuật viết Decorator giúp tái sử dụng logic xử lý lỗi mà không làm bẩn mã nguồn nghiệp vụ chính.
+
+\begin{workedexamplebox}[Xây Dựng Decorator Retry Tự Động Với Exponential Backoff \& Jitter]
+Nguyên lý: Khi một cuộc gọi API thất bại, không thử lại ngay lập tức (tránh làm tê liệt máy chủ), mà chờ đợi theo lũy thừa:
+\[
+t_{\text{wait}} = \text{base\_delay} \times 2^{\text{attempt}} + \text{jitter}
+\]
+Dưới đây là mã nguồn Python chuẩn mực:
+
+\begin{lstlisting}[language=Python]
+import time
+import random
+import functools
+from typing import Callable, Any
+
+def retry_with_backoff(max_retries: int = 3, base_delay: float = 1.0):
+    """Decorator tu dong thu lai ham khi gap ngoai le mang."""
+    def decorator(func: Callable[..., Any]) -> Callable[..., Any]:
+        @functools.wraps(func)
+        def wrapper(*args: Any, **kwargs: Any) -> Any:
+            attempt = 0
+            while attempt < max_retries:
+                try:
+                    return func(*args, **kwargs)
+                except Exception as e:
+                    attempt += 1
+                    if attempt >= max_retries:
+                        raise e
+                    # Tinh toan thoi gian cho voi ngau nhien (jitter)
+                    jitter = random.uniform(0.1, 0.5)
+                    delay = (base_delay * (2 ** (attempt - 1))) + jitter
+                    time.sleep(delay)
+            return func(*args, **kwargs)
+        return wrapper
+    return decorator
+\end{lstlisting}
+\end{workedexamplebox}
+
+\section{Lập Trình Hướng Đối Tượng: Ưu Tiên Composition Thay Vì Inheritance}
+\label{sec:py-oop}
+
+Người mới học thường lạm dụng tính kế thừa (\textit{Inheritance}) đa tầng phức tạp, tạo ra các lớp con phụ thuộc chặt chẽ vào lớp cha. Trong kiến trúc AI hiện đại, nguyên lý \term{Composition over Inheritance (Tập hợp thay vì Kế thừa)} là chuẩn mực vàng.
+
+\begin{lstlisting}[language=Python]
+from abc import ABC, abstractmethod
+from typing import Dict, Any
+
+class LLMProvider(ABC):
+    """Giao dien truu tuong cho cac nha cung cap mo hinh."""
+    @abstractmethod
+    def generate(self, prompt: str) -> str:
+        pass
+
+class MockOpenAIProvider(LLMProvider):
+    def generate(self, prompt: str) -> str:
+        return f"[OpenAI Response]: Tra loi cho '{prompt}'"
+
+class MockLocalVLLMProvider(LLMProvider):
+    def generate(self, prompt: str) -> str:
+        return f"[vLLM Response]: Suy luan cuc bo cho '{prompt}'"
+
+class AIAssistant:
+    """Tich hop provider thong qua Composition thay vi ke thua."""
+    def __init__(self, provider: LLMProvider):
+        self.provider = provider  # Dependency Injection
+
+    def answer(self, question: str) -> str:
+        # Xu ly tien kiem tra (Guardrails) truoc khi goi provider
+        cleaned_question = question.strip()
+        return self.provider.generate(cleaned_question)
+\end{lstlisting}
+
+\section{Generators, Iterators \& Xử Lý Luồng Dữ Liệu Lớn (Streaming)}
+\label{sec:py-generators}
+
+Khi LLM sinh phản hồi gồm hàng nghìn từ, việc chờ đợi toàn bộ văn bản hoàn thành sẽ tạo ra trải nghiệm người dùng tồi tệ. Kỹ thuật \code{yield} trong Python cho phép truyền tải từng phần tử ngay khi nó được sinh ra mà không cần lưu toàn bộ vào bộ nhớ RAM.
+
+\begin{lstlisting}[language=Python]
+from typing import Generator
+import time
+
+def stream_tokens_from_llm(sentence: str) -> Generator[str, None, None]:
+    """Mo phong qua trinh sinh tung token voi generator."""
+    words = sentence.split()
+    for word in words:
+        time.sleep(0.01) # Mo phong thoi gian decode cua GPU
+        yield word + " "
+
+def consume_stream():
+    """Tieu thu luong token theo thoi gian thuc."""
+    full_text = []
+    for token in stream_tokens_from_llm("Ky su AI can lam chu streaming token"):
+        full_text.append(token)
+    return "".join(full_text).strip()
+\end{lstlisting}
+
+\section{Xác Thực Dữ Liệu Chặt Chẽ Với Pydantic V2}
+\label{sec:py-pydantic}
+
+Các mô hình AI vốn dĩ có tính chất xác suất (\textit{probabilistic}). Để tích hợp vào cơ sở dữ liệu quan hệ hoặc API, kỹ sư AI bắt buộc phải ép cấu trúc đầu ra tuân thủ 100\% một schema định sẵn bằng Pydantic.
+
+\begin{lstlisting}[language=Python]
+from pydantic import BaseModel, Field, field_validator
+from typing import List
+
+class ExtractedEntity(BaseModel):
+    name: str = Field(description="Ten thuc the trich xuat")
+    category: str = Field(description="Loai thuc the: PERSON, ORG, LOCATION")
+    confidence: float = Field(ge=0.0, le=1.0, description="Do tin cay")
+
+class StructuredAnalysisOutput(BaseModel):
+    summary: str = Field(min_length=5)
+    entities: List[ExtractedEntity]
+    
+    @field_validator("summary")
+    @classmethod
+    def prevent_empty_summary(cls, v: str) -> str:
+        if not v.strip():
+            raise ValueError("Summary khong duoc chua khoang trang rong")
+        return v
+\end{lstlisting}
+
+\section{Lập Trình Bất Đồng Bộ (Async/Await \& Concurrency)}
+\label{sec:py-asyncio}
+
+Hầu hết thời gian của một ứng dụng AI là \textbf{I/O-Bound} (chờ mạng gửi dữ liệu từ vector database hoặc chờ GPU sinh phản hồi). Nếu dùng lập trình tuần tự (\textit{synchronous}), máy chủ sẽ đứng yên lãng phí tài nguyên CPU. \code{asyncio} cho phép xử lý hàng trăm request đồng thời trên một tiến trình duy nhất.
+
+\begin{labbox}[Thực Hành Gọi Đồng Thời 5 Truy Vấn Bất Đồng Bộ Với Asyncio]
+\begin{lstlisting}[language=Python]
+import asyncio
+import time
+from typing import List
+
+async def fetch_llm_async(query_id: int, latency: float) -> str:
+    """Mo phong cuoc goi mang bat dong bo khong nghen luong."""
+    await asyncio.sleep(latency)
+    return f"Result {query_id} (latency: {latency}s)"
+
+async def run_parallel_llm_queries() -> List[str]:
+    start_time = time.perf_counter()
+    tasks = [
+        fetch_llm_async(1, 0.1),
+        fetch_llm_async(2, 0.15),
+        fetch_llm_async(3, 0.05),
+        fetch_llm_async(4, 0.12),
+        fetch_llm_async(5, 0.08)
+    ]
+    # Chay dong thoi ca 5 tac vu
+    results = await asyncio.gather(*tasks)
+    elapsed = time.perf_counter() - start_time
+    # Tong thoi gian chi xap xi tac vu dai nhat (0.15s) thay vi tong (0.50s)!
+    return results
+\end{lstlisting}
+\end{labbox}
+
+\begin{debugbox}[Cạm Bẫy Chặn Event Loop (Blocking The Event Loop)]
+\textbf{Lỗi phổ biến}: Sử dụng \code{time.sleep()} hoặc gọi thư viện HTTP đồng bộ (\code{requests.get}) bên trong hàm \code{async def}.\\
+\textbf{Hậu quả}: Tiến trình Event Loop bị đóng băng hoàn toàn. Mọi người dùng khác đang kết nối đều bị treo và không nhận được phản hồi.\\
+\textbf{Giải pháp}: Luôn sử dụng các thư viện bất đồng bộ chuẩn: \code{asyncio.sleep()} thay cho \code{time.sleep()}, \code{httpx.AsyncClient} thay cho \code{requests}, và \code{asyncpg} thay cho \code{psycopg2} đồng bộ.
+\end{debugbox}
+
+\begin{securitybox}[Rủi Ro Bất Tuân Xác Thực Dữ Liệu Đầu Vào (Type Confusion)]
+\textbf{Lỗ hổng}: Chấp nhận trực tiếp dictionary người dùng gửi lên mà không xác thực kiểu dữ liệu.\\
+\textbf{Tấn công}: Kẻ tấn công gửi giá trị \code{null}, chuỗi văn bản cực lớn (10MB), hoặc cấu trúc JSON lồng nhau 100 tầng nhằm gây tràn bộ nhớ đệm (\textit{ReDoS / Memory Exhaustion}).\\
+\textbf{Phòng thủ}: Định nghĩa Pydantic Schema có giới hạn độ dài ký tự (\code{max_length}), số lượng phần tử danh sách (\code{max_items}) và bật cấm thuộc tính lạ (\code{model_config = ConfigDict(extra='forbid')}).
+\end{securitybox}
+
+\begin{exercisebox}[Bài Tập Rèn Luyện Kỹ Năng Python AI (Cấp Độ 1 Đến 4)]
+\begin{enumerate}
+  \item \textbf{Level 1 (Recall)}: Tại sao phép kiểm tra \code{if x in my_set} nhanh hơn đáng kể so với \code{if x in my_list} khi dữ liệu có 1 triệu phần tử?
+  \item \textbf{Level 2 (Understand)}: Phân tích cơ chế hoạt động của từ khóa \code{yield} và giải thích tại sao generator tiêu thụ rất ít bộ nhớ RAM so với việc trả về một list.
+  \item \textbf{Level 3 (Implement)}: Hãy viết một context manager \code{TimerContext} đo lường thời gian thực thi của một khối mã nguồn và tự động ghi log cảnh báo nếu thời gian chạy vượt quá 500ms.
+  \item \textbf{Level 4 (Debug)}: Cho đoạn mã sau bị rò rỉ bộ nhớ, hãy tìm nguyên nhân và sửa lại:
+\begin{lstlisting}[language=Python]
+def append_inference_history(prompt, cache=[]):
+    cache.append(prompt)
+    return cache
+\end{lstlisting}
+\end{enumerate}
+\end{exercisebox}
+
+\begin{solutionbox}[Chỉ Dẫn Giải Bài Tập Python]
+\begin{itemize}
+  \item \textbf{Giải Level 4}: Trong Python, đối số mặc định (\textit{default argument}) dạng danh sách mutable \code{cache=[]} được khởi tạo duy nhất một lần tại thời điểm định nghĩa hàm (Load time), không phải mỗi lần gọi hàm. Do đó mọi lần gọi đều chèn vào cùng một danh sách dùng chung trong bộ nhớ!\\
+  \textbf{Cách sửa chuẩn}:
+\begin{lstlisting}[language=Python]
+def append_inference_history(prompt, cache=None):
+    if cache is None:
+        cache = []
+    cache.append(prompt)
+    return cache
+\end{lstlisting}
+\end{itemize}
+\end{solutionbox}
+
+\begin{interviewbox}[Câu Hỏi Phỏng Vấn Python Cốt Lõi Cho Kỹ Sư AI]
+\textbf{Câu hỏi}: \textit{``Cơ chế Global Interpreter Lock (GIL) trong CPython ảnh hưởng như thế nào đến việc huấn luyện mô hình học sâu và việc phục vụ ứng dụng FastAPI? Làm sao để vượt qua rào cản này?''}\\
+\textbf{Câu trả lời chuẩn}:
+\begin{enumerate}
+  \item \textbf{Trong huấn luyện}: GIL ngăn cản nhiều thread Python chạy mã bytecode đồng thời trên nhiều lõi CPU. Tuy nhiên, các thư viện như PyTorch hoặc NumPy giải phóng GIL khi thực thi các phép toán tensor dưới tầng C/C++ hoặc CUDA trên GPU, do đó GIL không cản trở việc tính toán ma trận nặng.
+  \item \textbf{Trong phục vụ FastAPI}: Các tác vụ I/O mạng (chờ LLM API, truy vấn database) được xử lý hoàn hảo bởi \code{asyncio} trên một luồng đơn. Đối với các tác vụ CPU nặng cục bộ (như tiền xử lý văn bản, trích xuất đặc trưng), kỹ sư AI sử dụng \code{ProcessPoolExecutor} để tách sang các tiến trình con độc lập với bộ nhớ riêng biệt, bỏ qua hoàn toàn giới hạn GIL.
+\end{enumerate}
+\end{interviewbox}
+
+\begin{checkpointbox}[Nghiệm Thu Năng Lực Python Mastery]
+Bạn đã nắm vững:
+\begin{itemize}
+  \item[$\square$] Cơ chế bên dưới của mảng động List và bảng băm Dict/Set.
+  \item[$\square$] Viết được decorator tự động thử lại với Exponential Backoff.
+  \item[$\square$] Áp dụng thuần thục Pydantic V2 để ép kiểu cấu trúc JSON.
+  \item[$\square$] Làm chủ Generator để phục vụ luồng Streaming Tokens.
+  \item[$\square$] Hiểu sâu Asyncio và tránh bẫy chặn Event Loop.
+\end{itemize}
+\end{checkpointbox}

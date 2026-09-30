@@ -1,0 +1,78 @@
+% ==============================================================================
+% GLOSSARY_AND_CHEATSHEETS.TEX — PHỤ LỤC TRA CỨU NHANH & BẢNG THUẬT NGỮ
+% ==============================================================================
+
+\chapter{Bảng Tra Cứu Thuật Ngữ \& Sổ Tay Lệnh Kỹ Sư AI}
+\label{ch:appendix-glossary-cheatsheet}
+
+\section{Bảng Tra Cứu Thuật Ngữ Kỹ Thuật Song Ngữ Anh -- Việt}
+\label{sec:appendix-glossary}
+
+Dưới đây là bảng đối chiếu các khái niệm cốt lõi được sử dụng xuyên suốt bộ giáo trình:
+
+\begin{table}[htbp]
+\centering
+\small
+\begin{tabular}{|p{0.3\textwidth}|p{0.3\textwidth}|p{0.32\textwidth}|}
+\hline
+\textbf{Thuật Ngữ Tiếng Anh} & \textbf{Dịch Nghĩa Tiếng Việt} & \textbf{Ý Nghĩa Kỹ Thuật Tóm Lược} \\
+\hline
+\textbf{Autograd} & Đạo hàm tự động & Cơ chế tính toán gradient ngược qua đồ thị tính toán trong PyTorch. \\
+\hline
+\textbf{Continuous Batching} & Gom cụm động liên tục & Kỹ thuật phục vụ LLM chèn request mới vào ngay khi request cũ kết thúc. \\
+\hline
+\textbf{Cross-Entropy Loss} & Hàm mất mát entropy chéo & Thước đo độ sai lệch giữa phân phối xác suất dự đoán và nhãn thực tế. \\
+\hline
+\textbf{Dense Retrieval} & Truy xuất véc-tơ dày đặc & Tìm kiếm theo khoảng cách ngữ nghĩa trong không gian véc-tơ nhiều chiều. \\
+\hline
+\textbf{Grounding} & Neo thông tin & Ràng buộc câu trả lời của mô hình dựa trên tài liệu thực tế để chống ảo giác. \\
+\hline
+\textbf{Inference} & Suy luận & Giai đoạn chạy mô hình đã huấn luyện để dự đoán kết quả cho dữ liệu mới. \\
+\hline
+\textbf{KV Cache} & Bộ nhớ đệm Khóa-Giá trị & Lưu trữ các véc-tơ Key và Value của các token trước đó để tăng tốc suy luận. \\
+\hline
+\textbf{PagedAttention} & Phân trang bộ nhớ Attention & Quản lý bộ nhớ VRAM cho KV Cache theo từng trang tương tự RAM của hệ điều hành. \\
+\hline
+\textbf{Quantization} & Lượng tử hóa & Nén trọng số mô hình từ FP16/FP32 xuống INT8/INT4 để tiết kiệm VRAM. \\
+\hline
+\textbf{Reranking} & Xếp hạng lại & Dùng mô hình Cross-Encoder để tái sắp xếp các văn bản được truy xuất ban đầu. \\
+\hline
+\textbf{Sparse Retrieval} & Truy xuất thưa & Tìm kiếm văn bản dựa trên tần suất từ khóa chính xác (vd: thuật toán BM25). \\
+\hline
+\textbf{Time-to-First-Token (TTFT)} & Thời gian đến token đầu tiên & Độ trễ từ lúc gửi request đến khi người dùng nhìn thấy ký tự đầu tiên phản hồi. \\
+\hline
+\end{tabular}
+\caption{Bảng tra cứu thuật ngữ chuyên sâu ngành Kỹ nghệ AI}
+\label{tbl:appendix-glossary-table}
+\end{table}
+
+\section{Sổ Tay Lệnh Tắt Hệ Thống \& Mạng Dành Cho Kỹ Sư AI}
+\label{sec:appendix-cheatsheet}
+
+\begin{figure}[htbp]
+\centering
+\begin{tcolorbox}[colback=boxbg,colframe=primarycolor,width=0.95\textwidth,arc=2pt]
+\small
+\textbf{Tổng Hợp Các Lệnh Hệ Thống Bỏ Túi}:\\[0.2cm]
+\textbf{1. Giám Sát Tài Nguyên \& GPU}:
+\begin{itemize}
+  \item \code{nvidia-smi -l 1}: Theo dõi mức sử dụng VRAM và nhiệt độ GPU mỗi giây.
+  \item \code{htop} hoặc \code{btop}: Giám sát CPU, RAM và luồng tiến trình thời gian thực.
+  \item \code{df -h}: Kiểm tra dung lượng phân vùng ổ cứng (tránh lỗi tràn disk khi tải mô hình).
+\end{itemize}
+\textbf{2. Chuẩn Đoán Mạng \& Cổng Dịch Vụ}:
+\begin{itemize}
+  \item \code{ss -tulpn}: Liệt kê tất cả các cổng mạng TCP/UDP đang lắng nghe và PID tương ứng.
+  \item \code{curl -v -X POST http://localhost:8000/v1/chat/completions}: Kiểm tra trực tiếp API Gateway.
+  \item \code{dig +short google.com}: Tra cứu nhanh bản ghi phân giải tên miền DNS.
+\end{itemize}
+\textbf{3. Vận Hành Docker \& Quản Trị Vòng Đời}:
+\begin{itemize}
+  \item \code{docker compose up -d --build}: Khởi chạy nền toàn bộ cụm dịch vụ AI.
+  \item \code{docker logs -f --tail 100 app-gateway}: Theo dõi 100 dòng log gần nhất của container.
+  \item \code{docker system prune -af --volumes}: Dọn dẹp triệt để các layer image rác và cache cũ.
+\end{itemize}
+\end{tcolorbox}
+\caption{Sổ tay câu lệnh thực chiến dành cho Kỹ sư Vận hành AI}
+\label{fig:appendix-system-cheatsheet}
+\end{figure}

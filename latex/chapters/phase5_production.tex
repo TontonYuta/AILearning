@@ -1,0 +1,217 @@
+% ==============================================================================
+% PHASE5_PRODUCTION.TEX — GIAI ĐOẠN 5: ĐƯA AI VÀO VẬN HÀNH PRODUCTION & MLOPS
+% ==============================================================================
+
+\chapter{Đưa AI Vào Vận Hành Production \& MLOps}
+\label{ch:phase5-production}
+
+\section{Đóng Gói Ứng Dụng AI Với Docker \& Docker Compose}
+\label{sec:prod-docker}
+
+Trong môi trường AI thực tế, câu nói \textit{``Nó chạy tốt trên máy của tôi''} là một thảm họa kỹ thuật. Sự xung đột giữa các phiên bản driver NVIDIA CUDA, PyTorch C++ bindings và các thư viện hệ thống đòi hỏi toàn bộ ứng dụng phải được đóng gói bằng Docker Container.
+
+\begin{figure}[htbp]
+\centering
+\begin{tcolorbox}[colback=boxbg,colframe=primarycolor,width=0.95\textwidth,arc=2pt]
+\small
+\textbf{Kiến Trúc Cụm Dịch Vụ Độc Lập Qua Docker Compose}:\\[0.2cm]
+\texttt{Client HTTPS Request} $\longrightarrow$ \textbf{Cổng Gateway (Port 8000: FastAPI)}\\
+$\downarrow$\\
+Mạng nội bộ ảo (\textit{Bridge Network: ai-internal-net}):
+\begin{itemize}
+  \item \textbf{Service 1: api-gateway}: Chạy FastAPI, giao tiếp với client, quản lý logic ứng dụng.
+  \item \textbf{Service 2: vector-db}: Chạy \term{Qdrant} (Port 6333) lưu trữ embeddings và vector index.
+  \item \textbf{Service 3: relational-db}: Chạy \term{PostgreSQL} (Port 5432) lưu trữ người dùng và lịch sử.
+  \item \textbf{Service 4: cache-layer}: Chạy \term{Redis} (Port 6379) lưu trữ session và rate limiting.
+  \item \textbf{Service 5: llm-serving}: Chạy \term{vLLM} kết nối trực tiếp với GPU qua NVIDIA runtime.
+\end{itemize}
+\end{tcolorbox}
+\caption{Mô hình triển khai cụm dịch vụ hoàn chỉnh bằng Docker Compose}
+\label{fig:docker-compose-arch}
+\end{figure}
+
+\begin{labbox}[Mẫu Cấu Hình Dockerfile Đa Tầng (Multi-Stage) Chuẩn Bảo Mật]
+\begin{lstlisting}[language=bash]
+# Giai doan 1: Builder compile dependencies
+FROM python:3.11-slim as builder
+WORKDIR /app
+RUN apt-get update && apt-get install -y --no-install-recommends gcc python3-dev
+COPY requirements.txt .
+RUN pip install --user --no-cache-dir -r requirements.txt
+
+# Giai doan 2: Production Runner sieu nhe
+FROM python:3.11-slim
+WORKDIR /app
+# Tao user non-root de tang cuong an ninh
+RUN useradd -m -u 1000 appuser
+COPY --from=builder /root/.local /home/appuser/.local
+COPY --chown=appuser:appuser . .
+
+USER appuser
+ENV PATH=/home/appuser/.local/bin:$PATH
+EXPOSE 8000
+CMD ["uvicorn", "server:app", "--host", "0.0.0.0", "--port", "8000"]
+\end{lstlisting}
+\end{labbox}
+
+\section{Tối Ưu Phục Vụ Mô Hình Với vLLM: PagedAttention \& Continuous Batching}
+\label{sec:prod-vllm}
+
+Khi phục vụ hàng trăm người dùng cùng lúc, việc sử dụng các thư viện như Hugging Face \code{generate()} thuần túy sẽ khiến GPU bị lãng phí hơn $80\%$ công suất do cơ chế xếp mẻ tĩnh (\textit{Static Batching}).
+
+\begin{definitionbox}[Công Nghệ Đột Phá Của vLLM]
+\begin{itemize}
+  \item \term{PagedAttention}: Tương tự như cơ chế Phân Trang Bộ Nhớ Ảo (\textit{Virtual Memory Paging}) trong Hệ điều hành. Thay vì cấp phát một khối VRAM liên tục cố định cho mỗi request (gây phân mảnh bộ nhớ lên tới 60-80\%), PagedAttention chia nhỏ KV Cache thành các trang (\textit{Pages}) có kích thước cố định (ví dụ 16 tokens/block) và cấp phát động khi cần.
+  \item \term{Continuous Batching (Xếp mẻ liên tục)}: Thay vì đợi toàn bộ các câu trong một batch hoàn thành mới tiếp nhận batch mới, vLLM thêm request mới ngay tại mỗi bước sinh token của các request đã kết thúc. Thông lượng suy luận tăng vọt từ \textbf{10x đến 20x}!
+\end{itemize}
+\end{definitionbox}
+
+\begin{intuitionbox}[Chuyến Xe Buýt Đợi Đủ Người vs Thang Máy Tòa Nhà Chọc Trời]
+\begin{itemize}
+  \item \textbf{Static Batching} giống như một chuyến xe buýt: Xe chở 5 hành khách đi các điểm đến khác nhau. Xe buộc phải đợi người đi xa nhất xuống xe xong xuôi mới quay về bến đón đợt khách mới, khiến 4 ghế trống còn lại bị bỏ hoang suốt nửa chặng đường.
+  \item \textbf{Continuous Batching} giống như một thang máy thông minh: Cứ mỗi khi thang dừng ở một tầng có người bước ra, nó lập tức mở cửa đón ngay người mới ở tầng đó bước vào. Ghế trống luôn được lấp đầy ở mọi thời điểm, tối đa hóa hiệu suất chuyên chở.
+\end{itemize}
+\end{intuitionbox}
+
+\section{Lượng Tử Hóa Mô Hình: Đánh Đổi Giữa VRAM, Tốc Độ \& Chất Lượng}
+\label{sec:prod-quantization}
+
+Một mô hình 70 tỷ tham số (như Llama-3-70B) ở định dạng FP16 nguyên bản tiêu tốn tới \textbf{140GB VRAM} — đòi hỏi 2 card đồ họa NVIDIA A100/H100 với chi phí hàng chục nghìn USD. Lượng tử hóa (\textit{Quantization}) là giải pháp sống còn để chạy mô hình lớn trên phần cứng hạn chế.
+
+\begin{table}[htbp]
+\centering
+\small
+\begin{tabular}{p{2.8cm}p{2.8cm}p{3.2cm}p{4.8cm}}
+\toprule
+\textbf{Định dạng} & \textbf{Số bit/tham số} & \textbf{VRAM cho 8B Model} & \textbf{Đánh giá chất lượng \& Ứng dụng} \\
+\midrule
+\term{FP16 / BF16} & 16 bits (2 Bytes) & $\approx 16$ GB & Chuẩn gốc, chất lượng hoàn hảo, tốn VRAM nhất. \\
+\term{INT8 (AWQ/GPTQ)} & 8 bits (1 Byte) & $\approx 8$ GB & Suy giảm chất lượng $< 1\%$, tốc độ tăng nhẹ. \\
+\term{INT4 (AWQ/GGUF)} & 4 bits (0.5 Byte) & $\approx 5$ GB & Tiết kiệm 70\% VRAM, chạy được trên laptop/máy chủ nhỏ. \\
+\bottomrule
+\end{tabular}
+\caption{So sánh các mức độ lượng tử hóa trọng số mô hình}
+\label{tbl:quantization-comparison}
+\end{table}
+
+\begin{workedexamplebox}[Công Thức Tính Toán Nhu Cầu Bộ Nhớ VRAM Cần Thiết]
+Để triển khai một mô hình LLM an toàn trên production, công thức tính toán tổng dung lượng VRAM là:
+\[
+\text{VRAM}_{\text{Total}} = \left( \frac{\text{Số lượng tham số (Tỷ)} \times \text{Bits}}{8} + \text{VRAM}_{\text{KV\_Cache}} \right) \times 1.2
+\]
+Trong đó hệ số $1.2$ dự phòng $20\%$ cho CUDA context và kích hoạt trung gian (\textit{Activation memory}).
+Ví dụ với mô hình \textbf{Llama-3-8B lượng tử hóa INT4} phục vụ ngữ cảnh 8k tokens:
+\begin{align*}
+\text{Trọng số INT4} &= \frac{8 \times 4}{8} = 4.0\text{ GB} \\
+\text{KV Cache (FP16)} &\approx 2.0\text{ GB} \\
+\text{VRAM}_{\text{Total}} &= (4.0 + 2.0) \times 1.2 = 7.2\text{ GB}
+\end{align*}
+Như vậy, một card đồ họa phổ thông 8GB VRAM (như RTX 3070 / RTX 4060) hoàn toàn có thể phục vụ mượt mà mô hình 8B chất lượng cao!
+\end{workedexamplebox}
+
+\section{Tinh Chỉnh Mô Hình Hiệu Quả Tham Số: Bản Chất Toán Học Của LoRA}
+\label{sec:prod-lora}
+
+Thay vì huấn luyện lại toàn bộ hàng tỷ tham số (\textit{Full Fine-Tuning}), kỹ thuật \term{LoRA (Low-Rank Adaptation)} đóng băng trọng số gốc $\mat{W}_0$ và chỉ huấn luyện 2 ma trận phụ trợ có rank thấp:
+
+\begin{figure}[htbp]
+\centering
+\begin{tcolorbox}[colback=boxbg,colframe=primarycolor,width=0.95\textwidth,arc=2pt]
+\small
+\textbf{Cơ Chế Phép Nhân Ma Trận Rank Thấp Của LoRA}:\\[0.2cm]
+Trọng số mới được biểu diễn bằng tổng của trọng số gốc đóng băng và ma trận điều chỉnh:
+\[
+\mat{W} = \mat{W}_0 + \Delta \mat{W} = \mat{W}_0 + \frac{\alpha}{r} \left( \mat{B} \times \mat{A} \right)
+\]
+Trong đó:
+\begin{itemize}
+  \item $\mat{W}_0 \in \R^{d \times k}$: Ma trận trọng số ban đầu (Đóng băng hoàn toàn, không tính gradient).
+  \item $\mat{A} \in \R^{r \times k}$: Khởi tạo ngẫu nhiên theo phân phối chuẩn Gaussian.
+  \item $\mat{B} \in \R^{d \times r}$: Khởi tạo bằng toàn bộ số 0 ($\mat{B} = \mat{0}$), đảm bảo tại thời điểm bắt đầu huấn luyện $\Delta \mat{W} = \mat{0}$.
+  \item $r \ll \min(d, k)$: Hạng của ma trận (thường chọn $r = 8$ hoặc $r = 16$).
+  \item $\alpha$: Hằng số tỷ lệ (\textit{Scaling factor}, thường chọn $\alpha = 2r$).
+\end{itemize}
+\end{tcolorbox}
+\caption{Kiến trúc toán học của kỹ thuật thích ứng ma trận rank thấp LoRA}
+\label{fig:lora-mechanics}
+\end{figure}
+
+\begin{workedexamplebox}[Minh Họa Tiết Kiệm Bộ Nhớ Cực Đại Của LoRA Bằng Python]
+\begin{lstlisting}[language=Python]
+class MinimalLoRALayer:
+    """Mo phong tinh toan forward pass cua LoRA layer."""
+    def __init__(self, in_dim: int, out_dim: int, rank: int = 4, alpha: float = 8.0):
+        self.rank = rank
+        self.scaling = alpha / rank
+        # Trong thuc te W0 la ma tran goc dong bang
+        self.w0 = [[0.5 for _ in range(in_dim)] for _ in range(out_dim)]
+        # Ma tran A (rank x in_dim) va B (out_dim x rank)
+        self.matrix_a = [[0.1 for _ in range(in_dim)] for _ in range(rank)]
+        self.matrix_b = [[0.0 for _ in range(rank)] for _ in range(out_dim)]
+
+    def compute_param_count(self, in_dim: int, out_dim: int) -> tuple[int, int]:
+        full_params = in_dim * out_dim
+        lora_params = (in_dim * self.rank) + (out_dim * self.rank)
+        return full_params, lora_params
+
+layer = MinimalLoRALayer(in_dim=4096, out_dim=4096, rank=8)
+full, lora = layer.compute_param_count(4096, 4096)
+# full = 16,777,216 tham so. lora = 65,536 tham so -> Giam 99.6% tham so can cap nhat!
+\end{lstlisting}
+\end{workedexamplebox}
+
+\section{Bản Đồ Quyết Định: Prompting vs RAG vs Fine-Tuning}
+\label{sec:prod-decision-map}
+
+Một trong những sai lầm tốn kém nhất của doanh nghiệp là vội vàng Fine-Tuning mô hình khi bài toán thực chất chỉ cần RAG. Hãy tuân thủ cây quyết định sau:
+
+\begin{center}
+\textbf{Bài toán cần cập nhật kiến thức mới/tài liệu nội bộ?} $\longrightarrow$ \textbf{DÙNG RAG!}\\
+$\downarrow$\\
+\textbf{Bài toán cần thay đổi phong cách, giọng văn hoặc tuân thủ định dạng cố định?} $\longrightarrow$ \textbf{DÙNG FINE-TUNING (LoRA)!}\\
+$\downarrow$\\
+\textbf{Bài toán vừa cần kiến thức mới, vừa cần phong cách đặc thù?} $\longrightarrow$ \textbf{KẾT HỢP RAG + LORA!}
+\end{center}
+
+\begin{debugbox}[Lỗi CUDA Out of Memory (OOM) Khi Huấn Luyện LoRA]
+\textbf{Hiện tượng}: Quá trình huấn luyện văng lỗi \code{torch.cuda.OutOfMemoryError: CUDA out of memory}.\\
+\textbf{Giải pháp khắc phục từng bước}:
+\begin{enumerate}
+  \item Kích hoạt kỹ thuật \textbf{QLoRA}: Lượng tử hóa mô hình nền tảng về 4-bit NormalFloat (\code{bitsandbytes NF4}).
+  \item Bật kỹ thuật \textbf{Gradient Checkpointing}: Đánh đổi $20\%$ tốc độ tính toán để tiết kiệm tới $60\%$ bộ nhớ VRAM của activation.
+  \item Giảm \code{per_device_train_batch_size = 1} và tăng \code{gradient_accumulation_steps = 16} để giữ nguyên batch size hiệu dụng.
+\end{enumerate}
+\end{debugbox}
+
+\begin{securitybox}[Rò Rỉ Trọng Số \& Chuỗi Cung Ứng Mô Hình (Model Supply Chain Risks)]
+\textbf{Hiểm họa}: Tải các tệp tin trọng số mô hình dạng \code{.pickle} hoặc \code{.bin} không rõ nguồn gốc từ internet.\\
+\textbf{Cơ chế tấn công}: Tệp tin Python \code{pickle} có khả năng thực thi mã lệnh tùy ý (\textit{Arbitrary Code Execution}) ngay khi được nạp vào bộ nhớ bằng hàm \code{torch.load()}!\\
+\textbf{Tiêu chuẩn an toàn}:
+\begin{itemize}
+  \item \textbf{Chỉ sử dụng định dạng \code{.safetensors}}: Định dạng lưu trữ trọng số thuần túy do Hugging Face phát triển, hoàn toàn không có khả năng thực thi mã độc.
+  \item Kiểm tra mã băm SHA256 của mô hình trước khi nạp vào máy chủ sản xuất.
+\end{itemize}
+\end{securitybox}
+
+\begin{interviewbox}[Câu Hỏi Phỏng Vấn Chuyên Sâu Về Vận Hành Production]
+\textbf{Câu hỏi}: \textit{``Trong một cụm máy chủ phục vụ mô hình vLLM, khi lưu lượng truy vấn tăng đột biến gấp 10 lần, bạn sẽ áp dụng những chiến lược nào để bảo vệ hệ thống không bị sập và giữ cho P95 Latency ổn định?''}\\
+\textbf{Chiến lược trả lời toàn diện}:
+\begin{enumerate}
+  \item \textbf{Tầng Cổng (API Gateway)}: Áp dụng thuật toán Token Bucket Rate Limiting tại Redis để giới hạn tần suất theo từng người dùng hoặc API key.
+  \item \textbf{Tầng Caching}: Sử dụng \textbf{Semantic Caching} (GPTCache / Redis) để trả lời ngay lập tức các câu hỏi có ngữ nghĩa tương đồng $>95\%$ mà không cần gọi GPU.
+  \item \textbf{Tầng Serving (vLLM)}: Thiết lập tham số \code{max_num_seqs} và cấu hình hàng đợi ưu tiên (\textit{Priority Queue}).
+  \item \textbf{Tầng Điều Phối Mở Rộng (Auto-scaling)}: Kích hoạt định tuyến phụ trợ (\textit{Cloud Fallback}): Khi cụm vLLM cục bộ đạt ngưỡng $85\%$ GPU VRAM utilization, tự động chuyển hướng một phần lưu lượng sang các dịch vụ Cloud API (OpenAI/Anthropic) để xả tải.
+\end{enumerate}
+\end{interviewbox}
+
+\begin{checkpointbox}[Nghiệm Thu Năng Lực Production AI \& MLOps]
+Đánh dấu hoàn thành khi bạn đã:
+\begin{itemize}
+  \item[$\square$] Viết được Dockerfile đa tầng non-root cho ứng dụng AI.
+  \item[$\square$] Hiểu sâu cơ chế PagedAttention và Continuous Batching của vLLM.
+  \item[$\square$] Tính toán chính xác dung lượng VRAM cần thiết cho mô hình và KV Cache.
+  \item[$\square$] Thấu hiểu công thức toán học và sự tiết kiệm tham số của LoRA.
+  \item[$\square$] Phân biệt rõ ràng khi nào cần Prompting, RAG và Fine-Tuning.
+  \item[$\square$] Nắm vững quy tắc bảo mật chỉ dùng định dạng \code{.safetensors}.
+\end{itemize}
+\end{checkpointbox}

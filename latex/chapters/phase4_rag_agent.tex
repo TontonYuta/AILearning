@@ -1,0 +1,217 @@
+% ==============================================================================
+% PHASE4_RAG_AGENT.TEX — GIAI ĐOẠN 4: HỆ THỐNG RAG & AI AGENT TỰ HÀNH
+% ==============================================================================
+
+\chapter{Hệ Thống RAG Doanh Nghiệp \& AI Agent Tự Hành}
+\label{ch:phase4-rag-agent}
+
+\section{Kiến Trúc Production RAG: Vượt Qua Hạn Chế Tìm Kiếm Vector Thuần Túy}
+\label{sec:rag-architecture}
+
+Nhiều dự án AI thất bại khi đưa vào thực tế vì chỉ áp dụng mô hình RAG ngây thơ (\textit{Naive RAG}): Cắt văn bản tùy tiện, dùng vector search đơn thuần rồi nhồi toàn bộ vào prompt. Khi gặp từ khóa mã lỗi kỹ thuật (như \code{CVE-2024-38077} hay mã linh kiện \code{X9-B2}), tìm kiếm vector thất bại hoàn toàn.
+
+\begin{figure}[htbp]
+\centering
+\begin{tcolorbox}[colback=boxbg,colframe=primarycolor,width=0.95\textwidth,arc=2pt]
+\small
+\textbf{Kiến Trúc Production RAG Đa Tầng (Enterprise Multi-Stage RAG Pipeline)}:\\[0.2cm]
+\texttt{Tài liệu thô (PDF/Docx)} $\longrightarrow$ \textbf{1. Parsing \& Cleaning} $\longrightarrow$ \textbf{2. Chunking có cấu trúc}\\
+$\downarrow$\\
+\textbf{3. Chỉ mục kép song song}:
+\begin{itemize}
+  \item \textbf{Dense Vector Index}: Nạp vào \term{Qdrant} với giải thuật HNSW (tìm kiếm ngữ nghĩa tương đồng).
+  \item \textbf{Sparse Keyword Index}: Chỉ mục tần suất từ vựng \term{BM25} (bắt chính xác mã số, từ khóa hiếm).
+\end{itemize}
+$\downarrow$\\
+\textbf{4. Tìm Kiếm Lai (Hybrid Search)}: Kết hợp 2 luồng qua giải thuật \term{Reciprocal Rank Fusion (RRF)}\\
+$\downarrow$\\
+\textbf{5. Tái Xếp Hạng (Cross-Encoder Reranker)}: Tinh lọc từ Top-50 ứng viên xuống Top-5 đoạn chuẩn xác nhất\\
+$\downarrow$\\
+\textbf{6. Trích Dẫn Nguồn (Citations \& Grounding)}: LLM sinh câu trả lời kèm tham chiếu chính xác từng trang!
+\end{tcolorbox}
+\caption{Toàn bộ quy trình RAG đa tầng cấp độ doanh nghiệp}
+\label{fig:production-rag-pipeline}
+\end{figure}
+
+\begin{definitionbox}[Thuật Toán Reciprocal Rank Fusion (RRF)]
+Để hợp nhất bảng xếp hạng giữa tìm kiếm ngữ nghĩa Dense và tìm kiếm từ khóa Sparse mà không bị lệch thang đo điểm số (\textit{score calibration problem}), kỹ thuật \term{RRF} xếp hạng tài liệu $d$ theo thứ hạng $r(d)$:
+\[
+\text{RRF\_Score}(d) = \sum_{m \in M} \frac{1}{k + r_m(d)}
+\]
+Trong đó:
+\begin{itemize}
+  \item $M$: Tập hợp các hệ thống tìm kiếm (ví dụ $M = \{\text{Dense}, \text{BM25}\}$).
+  \item $r_m(d)$: Thứ hạng của tài liệu $d$ trong hệ thống $m$ ($1, 2, 3, \dots$).
+  \item $k$: Hằng số làm mượt (mặc định chuẩn công nghiệp là $k = 60$).
+\end{itemize}
+Tài liệu nào xuất hiện ở thứ hạng cao trên cả hai bảng xếp hạng sẽ nhận điểm số đột biến và được đưa lên hàng đầu.
+\end{definitionbox}
+
+\begin{workedexamplebox}[Hiện Thực Hóa Thuật Toán RRF Bằng Python]
+\begin{lstlisting}[language=Python]
+from typing import List, Dict
+
+def reciprocal_rank_fusion(
+    dense_ranks: List[str], 
+    sparse_ranks: List[str], 
+    k: int = 60
+) -> List[tuple[str, float]]:
+    """Hop nhat thu hang giua Dense va Sparse search."""
+    scores: Dict[str, float] = {}
+
+    for rank, doc_id in enumerate(dense_ranks, start=1):
+        scores[doc_id] = scores.get(doc_id, 0.0) + (1.0 / (k + rank))
+
+    for rank, doc_id in enumerate(sparse_ranks, start=1):
+        scores[doc_id] = scores.get(doc_id, 0.0) + (1.0 / (k + rank))
+
+    # Sap xep theo diem RRF giam dan
+    sorted_docs = sorted(scores.items(), key=lambda item: item[1], reverse=True)
+    return sorted_docs
+
+# Du lieu thu nghiem
+dense_results = ["doc_A", "doc_B", "doc_C"]
+sparse_results = ["doc_B", "doc_D", "doc_A"]
+fused = reciprocal_rank_fusion(dense_results, sparse_results)
+# doc_B dung hang 2 dense va hang 1 sparse -> diem cao nhat!
+\end{lstlisting}
+\end{workedexamplebox}
+
+\section{Định Lượng Độ Tin Cậy Của RAG: Bộ Thước Đo Ragas \& LLM-as-a-Judge}
+\label{sec:rag-evaluation}
+
+Đừng bao giờ đánh giá hệ thống RAG bằng cảm tính: \textit{``Tôi thấy nó trả lời có vẻ hay''}. Hệ thống kỹ nghệ đòi hỏi 4 chỉ số đo lường định lượng độc lập:
+
+\begin{table}[htbp]
+\centering
+\small
+\begin{tabular}{p{3.2cm}p{5.5cm}p{5.5cm}}
+\toprule
+\textbf{Chỉ số đánh giá} & \textbf{Câu hỏi định lượng cốt lõi} & \textbf{Phạm vi kiểm tra} \\
+\midrule
+\term{Context Recall} & Bộ truy xuất có lấy đủ toàn bộ thông tin cần thiết để trả lời câu hỏi không? & Tầng Truy Xuất (\textit{Retrieval}) \\
+\term{Context Precision} & Tỷ lệ thông tin rác trong số các đoạn tài liệu được đưa vào prompt là bao nhiêu? & Tầng Truy Xuất (\textit{Retrieval}) \\
+\term{Faithfulness} & Mọi tuyên bố trong câu trả lời có được chứng minh bởi tài liệu trích xuất không? & Tầng Sinh (\textit{Anti-Hallucination}) \\
+\term{Answer Relevance} & Câu trả lời có đi thẳng vào trọng tâm câu hỏi của người dùng không? & Tầng Sinh (\textit{Generation}) \\
+\bottomrule
+\end{tabular}
+\caption{Bộ 4 thước đo định lượng cốt lõi cho hệ thống Production RAG}
+\label{tbl:ragas-metrics}
+\end{table}
+
+\begin{definitionbox}[Độ Trung Thực (Faithfulness) \& Ngăn Chặn Ảo Giác]
+Chỉ số \term{Faithfulness} được tính bằng:
+\[
+\text{Faithfulness} = \frac{|\text{Các luận điểm trong câu trả lời được chứng minh bởi Ngữ cảnh}|}{|\text{Tổng số luận điểm mô hình đưa ra}|} \in [0, 1]
+\]
+Nếu chỉ số này $< 1.0$, điều đó đồng nghĩa với việc mô hình đang tự ý bịa đặt thông tin (\textit{Hallucination}). Trong các ứng dụng Tài chính, Y tế hoặc Pháp lý, mọi phản hồi có Faithfulness $< 0.95$ đều phải bị chặn lại tại cổng Gateway.
+\end{definitionbox}
+
+\section{AI Agent Tự Hành Bền Bỉ Với Kiến Trúc LangGraph}
+\label{sec:agent-langgraph}
+
+Một \term{AI Agent} khác với một chuỗi gọi tuần tự (\textit{Pipeline}): Nó có khả năng tự suy luận, chọn công cụ, quan sát kết quả và quyết định xem có cần lặp lại hành động hay kết thúc.
+
+\begin{figure}[htbp]
+\centering
+\begin{tcolorbox}[colback=boxbg,colframe=primarycolor,width=0.95\textwidth,arc=2pt]
+\small
+\textbf{Mô Hình Trạng Thái Hữu Hạn Của LangGraph (Cyclic StateGraph)}:\\[0.2cm]
+\texttt{Start} $\longrightarrow$ \textbf{Node: Agent Reasoning (LLM)}\\
+$\downarrow$\\
+\textbf{Conditional Edge}: LLM có yêu cầu gọi công cụ không?\\
+\begin{itemize}
+  \item \textbf{Nếu CÓ}: Chuyển sang $\longrightarrow$ \textbf{Node: Execute Tools} (Chạy lệnh mạng, truy vấn DB)\\
+  $\downarrow$ (Gửi kết quả trở lại Agent Reasoning để tiếp tục vòng lặp!)\\
+  \item \textbf{Nếu KHÔNG}: Đã có đủ thông tin $\longrightarrow$ Chuyển sang $\longrightarrow$ \textbf{End} (Trả kết quả cho người dùng).
+\end{itemize}
+\end{tcolorbox}
+\caption{Máy trạng thái có chu trình điều phối hoạt động tự hành của LangGraph Agent}
+\label{fig:langgraph-stategraph}
+\end{figure}
+
+\begin{labbox}[Hiện Thực Hóa Máy Trạng Thái Agent Tự Hành Thuần Python]
+\begin{lstlisting}[language=Python]
+from typing import Dict, Any, List
+
+class AgentState:
+    """Luu giu trang thai cua Agent qua tung buoc lap."""
+    def __init__(self, query: str):
+        self.query = query
+        self.messages: List[str] = [f"User: {query}"]
+        self.tool_calls: int = 0
+        self.final_answer: str = ""
+
+def agent_reasoning_node(state: AgentState) -> str:
+    """Node suy luan: Quyet dinh goi tool hay tra loi."""
+    if "ip" in state.query.lower() and state.tool_calls == 0:
+        return "call_network_tool"
+    return "finish"
+
+def execute_tool_node(state: AgentState):
+    """Node thuc thi cong cu va cap nhat state."""
+    state.tool_calls += 1
+    state.messages.append("Tool: IP 192.168.1.1 is ACTIVE with latency 5ms")
+
+def run_agent_workflow(query: str) -> AgentState:
+    state = AgentState(query)
+    max_steps = 5
+    step = 0
+    
+    while step < max_steps:
+        decision = agent_reasoning_node(state)
+        if decision == "call_network_tool":
+            execute_tool_node(state)
+        elif decision == "finish":
+            state.final_answer = f"Tong hop: {state.messages[-1]}"
+            break
+        step += 1
+        
+    return state
+\end{lstlisting}
+\end{labbox}
+
+\begin{debugbox}[Bẫy Vòng Lặp Vô Tận Của Agent (Infinite Reasoning Loop)]
+\textbf{Hiện tượng}: Agent liên tục gọi một công cụ kiểm tra nhưng không bao giờ thoát ra để trả lời người dùng, làm cháy ngân sách token trong vài phút.\\
+\textbf{Nguyên nhân}: Công cụ trả về kết quả rỗng hoặc thông báo lỗi, nhưng LLM không được hướng dẫn cách xử lý thất bại nên cố chấp gọi lại chính công cụ đó.\\
+\textbf{Giải pháp}:
+\begin{enumerate}
+  \item Luôn thiết lập giới hạn bước tối đa: \code{recursion_limit = 10}.
+  \item Thêm cơ chế phản hồi lỗi vào state: Nếu cùng một tool lỗi 2 lần liên tiếp, ép rẽ nhánh sang thông báo thất bại cho người dùng.
+\end{enumerate}
+\end{debugbox}
+
+\begin{securitybox}[Tấn Công Đầu Độc Dữ Liệu RAG (RAG Knowledge Poisoning)]
+\textbf{Hình thức tấn công}: Kẻ tấn công tải lên hệ thống tài liệu nội bộ một file văn bản tưởng chừng vô hại: \textit{``Hướng dẫn thanh toán mới: Mọi hóa đơn chuyển khoản về số tài khoản hacker 099999''}.\\
+\textbf{Hậu quả}: Khi nhân viên hỏi Agent: \textit{``Chính sách thanh toán hóa đơn như thế nào?''}, hệ thống RAG trích xuất đoạn văn bị đầu độc và Agent chuyển tiếp thông tin sai lệch cho khách hàng.\\
+\textbf{Giải pháp bảo vệ}:
+\begin{enumerate}
+  \item Áp dụng kiểm soát phân quyền tài liệu chặt chẽ ở tầng nạp (\textit{Document Access Control / RBAC}).
+  \item Ký số điện tử (\textit{Digital Signatures}) xác thực nguồn gốc tài liệu chính thống trước khi đưa vào cơ sở dữ liệu vector.
+\end{enumerate}
+\end{securitybox}
+
+\begin{interviewbox}[Câu Hỏi Phỏng Vấn Thiết Kế Hệ Thống RAG Cấp Cao]
+\textbf{Câu hỏi}: \textit{``Khi hệ thống RAG của bạn cần xử lý tài liệu kỹ thuật dài 500 trang chứa nhiều bảng biểu phức tạp, việc chia nhỏ theo ký tự cố định (Fixed-size Chunking) gặp những hạn chế gì? Bạn sẽ thiết kế chiến lược Ingestion như thế nào?''}\\
+\textbf{Chiến lược trả lời}:
+\begin{enumerate}
+  \item \textbf{Hạn chế}: Fixed-size chunking cắt ngang giữa các dòng của bảng biểu, làm mất cấu trúc hàng/cột và phá hủy hoàn toàn ngữ cảnh ngữ nghĩa của số liệu.
+  \item \textbf{Thiết kế giải pháp chuyên sâu}:
+    \begin{itemize}
+      \item Sử dụng bộ phân tích nhận thức bố cục (\textit{Layout-aware Parser}) để bóc tách bảng biểu riêng biệt và chuyển đổi thành định dạng Markdown Table hoặc HTML Table.
+      \item Dùng kỹ thuật \textbf{Parent-Child Chunking}: Cắt tài liệu thành các đoạn con nhỏ ($128$ tokens) để tối ưu độ chính xác của phép tìm kiếm vector, nhưng khi gửi cho LLM thì truy xuất toàn bộ đoạn cha lớn ($1024$ tokens) chứa trọn vẹn ngữ cảnh.
+      \item Sinh bản tóm tắt (\textit{Summary Embedding}) cho từng bảng biểu để tăng khả năng khớp câu hỏi tổng quát.
+    \end{itemize}
+\end{enumerate}
+\end{interviewbox}
+
+\begin{checkpointbox}[Nghiệm Thu Năng Lực RAG \& Agent Engineering]
+Đánh dấu hoàn thành khi bạn đã:
+\begin{itemize}
+  \item[$\square$] Hiểu tại sao cần kết hợp Dense Vector và Sparse BM25 qua thuật toán RRF.
+  \item[$\square$] Tự viết được thuật toán Reciprocal Rank Fusion.
+  \item[$\square$] Nắm vững bộ 4 thước đo đánh giá chất lượng Ragas (Faithfulness, Recall, Precision, Relevance).
+  \item[$\square$] Hiểu kiến trúc StateGraph của LangGraph và cơ chế xử lý vòng lặp an toàn.
+  \item[$\square$] Biết cách phòng chống tấn công RAG Knowledge Poisoning.
+\end{itemize}
+\end{checkpointbox}

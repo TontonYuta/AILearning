@@ -1,0 +1,221 @@
+% ==============================================================================
+% PHASE1_SYSTEMS.TEX — GIAI ĐOẠN 1.2: HỆ THỐNG, MẠNG, BACKEND & CƠ SỞ DỮ LIỆU
+% ==============================================================================
+
+\chapter{Hệ Thống, Mạng Máy Tính, Cơ Sở Dữ Liệu \& Backend}
+\label{ch:phase1-systems}
+
+\section{Khoa Học Máy Tính Cốt Lõi: Quản Lý Bộ Nhớ \& Concurrency}
+\label{sec:sys-cs-core}
+
+Để vận hành các mô hình AI tiêu tốn hàng chục Gigabyte VRAM và RAM hệ thống, kỹ sư AI bắt buộc phải hiểu rõ cơ chế phân bổ bộ nhớ của Hệ điều hành và sự khác biệt giữa các mô hình đồng thời.
+
+\begin{definitionbox}[Process vs Thread vs Coroutine (Event Loop)]
+\begin{itemize}
+  \item \term{Tiến Trình (Process)}: Là một phiên bản thực thi độc lập của chương trình, có không gian địa chỉ bộ nhớ ảo riêng biệt (\textit{Isolated Virtual Address Space}). Chi phí khởi tạo và chuyển đổi ngữ cảnh (\textit{Context switch}) cao nhất, nhưng đảm bảo an toàn bộ nhớ tuyệt đối.
+  \item \term{Tiểu Trình (Thread)}: Là đơn vị thực thi nhỏ nhất bên trong một Process, chia sẻ chung không gian bộ nhớ Heap với các Thread khác. Dễ gặp rủi ro tương tranh dữ liệu (\textit{Race Condition}), đòi hỏi cơ chế khóa (\textit{Mutex / Lock}).
+  \item \term{Coroutine (Async Event Loop)}: Là cơ chế đa nhiệm cộng tác (\textit{Cooperative Multitasking}) ở tầng người dùng (User-space). Một luồng duy nhất chuyển đổi giữa các tác vụ tại các điểm dừng \code{await} mà không cần sự can thiệp của OS kernel, tiêu tốn rất ít RAM (chỉ vài Kilobyte cho mỗi coroutine).
+\end{itemize}
+\end{definitionbox}
+
+\begin{intuitionbox}[Ba Mô Hình Vận Hành Một Nhà Hàng Lớn]
+\begin{itemize}
+  \item \textbf{Multi-processing}: Mỗi bàn ăn được mở một chi nhánh nhà hàng riêng biệt với đầy đủ bếp trưởng, bồi bàn và thu ngân. Cực kỳ an toàn, chi nhánh này cháy chi nhánh khác không ảnh hưởng, nhưng chi phí mặt bằng và nhân sự vô cùng đắt đỏ.
+  \item \textbf{Multi-threading}: Một nhà hàng duy nhất nhưng thuê 20 bồi bàn cùng chạy vào một căn bếp chật hẹp để lấy món. Nếu không có quy tắc điều phối rõ ràng (Lock/Mutex), hai bồi bàn sẽ tranh giành cùng một chiếc đĩa và làm đổ thức ăn (Race Condition).
+  \item \textbf{Asynchronous Event Loop}: Chỉ có 1 người phục vụ siêu đẳng duy nhất (Event Loop). Sau khi gửi đơn gọi món vào bếp (I/O call), người phục vụ không đứng yên chờ đợi mà lập tức quay sang tiếp nhận yêu cầu của bàn kế tiếp. Khi chuông nhà bếp reo báo món đã nấu xong, người phục vụ quay lại bưng ra bàn. Đây chính là cách FastAPI và Node.js phục vụ hàng chục nghìn kết nối đồng thời.
+\end{itemize}
+\end{intuitionbox}
+
+\section{Linux Cho Kỹ Sư AI: Dòng Lệnh \& Quản Lý Dịch Vụ Systemd}
+\label{sec:sys-linux}
+
+Hầu hết các cụm máy chủ huấn luyện GPU và máy chủ suy luận đều vận hành trên nền tảng Linux (Ubuntu Server / Debian).
+
+\begin{workedexamplebox}[Tạo Dịch Vụ Systemd Tự Khởi Động Cho Máy Chủ FastAPI]
+Để API server tự động chạy ngầm khi máy chủ khởi động và tự phục hồi khi bị sập (\textit{auto-restart}), kỹ sư AI tạo tệp tin dịch vụ tại \file{/etc/systemd/system/ai-api.service}:
+
+\begin{lstlisting}[language=bash]
+[Unit]
+Description=AI Engineer FastAPI Service
+After=network.target
+
+[Service]
+Type=simple
+User=tontonyuta
+WorkingDirectory=/home/tontonyuta/ai-engineer-curriculum
+ExecStart=/usr/bin/python3 -m uvicorn server:app --host 0.0.0.0 --port 8000 --workers 4
+Restart=always
+RestartSec=5s
+Environment="PYTHONUNBUFFERED=1"
+Environment="CUDA_VISIBLE_DEVICES=0"
+
+[Install]
+WantedBy=multi-user.target
+\end{lstlisting}
+
+Các lệnh quản trị thiết yếu:
+\begin{lstlisting}[language=bash]
+sudo systemctl daemon-reload
+sudo systemctl enable --now ai-api.service
+sudo systemctl status ai-api.service
+journalctl -u ai-api.service -f --tail=100
+\end{lstlisting}
+\end{workedexamplebox}
+
+\section{Mạng Máy Tính: Giao Thức TCP/IP \& Chẩn Đoán Sự Cố Mạng}
+\label{sec:sys-networking}
+
+Một ứng dụng AI kết nối với Vector Database qua mạng nội bộ, gọi LLM qua HTTPS bên ngoài và truyền tải token về ứng dụng di động. Nếu không hiểu cơ chế mạng, bạn sẽ không thể định vị được nguyên nhân khi độ trễ bị tăng vọt.
+
+\begin{table}[htbp]
+\centering
+\small
+\begin{tabular}{p{3.2cm}p{5.5cm}p{5.5cm}}
+\toprule
+\textbf{Bộ công cụ} & \textbf{Mục đích sử dụng trong AI Engineering} & \textbf{Ví dụ lệnh thực thi} \\
+\midrule
+\code{curl} & Kiểm tra endpoint API, đo lường thời gian DNS \& TTFT & \code{curl -w "@format.txt" -o /dev/null -s https://api.openai.com} \\
+\code{dig / nslookup} & Kiểm tra phân giải tên miền máy chủ Vector DB & \code{dig +trace qdrant.internal.corp} \\
+\code{ss / netstat} & Kiểm tra cổng mở và trạng thái các kết nối TCP & \code{ss -tulpn | grep 8000} \\
+\code{tcpdump} & Bắt gói tin mạng để kiểm tra bắt tay TLS và rò rỉ gói & \code{tcpdump -i eth0 port 443 -w capture.pcap} \\
+\bottomrule
+\end{tabular}
+\caption{Bộ công cụ chẩn đoán mạng thiết yếu dành cho kỹ sư AI}
+\label{tbl:networking-tools}
+\end{table}
+
+\section{Backend Hiệu Năng Cao Với FastAPI \& Server-Sent Events (SSE)}
+\label{sec:sys-fastapi}
+
+FastAPI là chuẩn mực công nghiệp hàng đầu hiện nay nhờ tốc độ vượt trội, tích hợp sẵn Pydantic xác thực schema tự động và hỗ trợ Native Async/Await.
+
+\begin{lstlisting}[language=Python]
+from fastapi import FastAPI, HTTPException, Depends
+from fastapi.responses import StreamingResponse
+from pydantic import BaseModel, Field
+import asyncio
+import json
+
+app = FastAPI(title="AI Inference Gateway")
+
+class ChatRequest(BaseModel):
+    message: str = Field(min_length=1, max_length=2000)
+    stream: bool = False
+
+async def generate_mock_tokens(prompt: str):
+    """Sinh luong token SSE (Server-Sent Events) chuan."""
+    words = prompt.split()
+    for w in words:
+        await asyncio.sleep(0.02) # Mo phong tinh toan GPU
+        payload = json.dumps({"token": w + " "})
+        yield f"data: {payload}\n\n"
+    yield "data: [DONE]\n\n"
+
+@app.post("/v1/chat")
+async def chat_endpoint(req: ChatRequest):
+    if req.stream:
+        return StreamingResponse(
+            generate_mock_tokens(req.message),
+            media_type="text/event-stream"
+        )
+    return {"status": "success", "reply": f"Completed: {req.message}"}
+\end{lstlisting}
+
+\section{Cơ Sở Dữ Liệu Quan Hệ (PostgreSQL) \& Bộ Nhớ Đệm (Redis)}
+\label{sec:sys-db-redis}
+
+Trong các hệ thống RAG và Agent, cơ sở dữ liệu quan hệ lưu trữ tài khoản, phân quyền, lịch sử hội thoại (\textit{chat logs}) và dữ liệu metadata, trong khi Redis lưu trữ session ngắn hạn và caching phản hồi.
+
+\begin{figure}[htbp]
+\centering
+\begin{tcolorbox}[colback=boxbg,colframe=primarycolor,width=0.95\textwidth,arc=2pt]
+\small
+\textbf{Kiến trúc Lưu Trữ Dữ Liệu Hai Tầng (PostgreSQL + Redis Caching)}:\\[0.2cm]
+\texttt{Client Request} $\longrightarrow$ \textbf{FastAPI Gateway}\\
+$\downarrow$\\
+\textbf{1. Kiểm tra Redis Cache}: Nếu câu hỏi đã có câu trả lời hợp lệ $\longrightarrow$ Trả về ngay trong 2ms!\\
+$\downarrow$ (Cache Miss)\\
+\textbf{2. Truy xuất PostgreSQL}: Kiểm tra quyền hạn người dùng (RBAC) \& Metadata tài liệu\\
+$\downarrow$\\
+\textbf{3. Vector Database (Qdrant)}: Lấy ngữ cảnh văn bản liên quan\\
+$\downarrow$\\
+\textbf{4. Ghi nhận nhật ký}: Lưu câu hỏi và câu trả lời vào PostgreSQL cho mục đích kiểm toán.
+\end{tcolorbox}
+\caption{Luồng dữ liệu kết hợp giữa Redis Cache và PostgreSQL trong ứng dụng AI}
+\label{fig:db-caching-flow}
+\end{figure}
+
+\begin{workedexamplebox}[Triển Khai Token Bucket Rate Limiting Với Redis]
+Để bảo vệ hệ thống không bị phá sản vì người dùng spam API, kỹ sư AI xây dựng thuật toán Rate Limiter bằng Redis:
+
+\begin{lstlisting}[language=Python]
+class SimpleRateLimiter:
+    """Mo phong thuat toan Token Bucket Rate Limiting."""
+    def __init__(self, max_requests: int = 5, window_seconds: int = 60):
+        self.max_requests = max_requests
+        self.window = window_seconds
+        self.storage = {} # Trong thuc te su dung Redis Pipeline
+
+    def is_allowed(self, user_id: str, current_time: float) -> bool:
+        user_history = self.storage.get(user_id, [])
+        # Loai bo cac timestamp da qua thoi gian window
+        valid_history = [t for t in user_history if current_time - t < self.window]
+        
+        if len(valid_history) >= self.max_requests:
+            self.storage[user_id] = valid_history
+            return False
+            
+        valid_history.append(current_time)
+        self.storage[user_id] = valid_history
+        return True
+\end{lstlisting}
+\end{workedexamplebox}
+
+\begin{debugbox}[Bẫy Tràn Kết Nối Cơ Sở Dữ Liệu (Connection Pool Exhaustion)]
+\textbf{Hiện tượng}: Ứng dụng chạy tốt trong thử nghiệm, nhưng khi có 500 người dùng truy cập đồng thời, hệ thống báo lỗi \code{FATAL: remaining connection slots are reserved for non-replication superuser connections}.\\
+\textbf{Nguyên nhân}: Kỹ sư mở kết nối cơ sở dữ liệu mới trong từng hàm xử lý mà không sử dụng Cơ chế Hồ bơi kết nối (\textit{Connection Pool}) hoặc quên đóng kết nối trong khối \code{finally}.\\
+\textbf{Giải pháp}: Sử dụng Connection Pool qua \code{asyncpg.create_pool(min_size=10, max_size=50)} và luôn quản lý bằng Context Manager (\code{async with pool.acquire() as conn:}).
+\end{debugbox}
+
+\begin{securitybox}[Tấn Công SQL Injection Thông Qua Câu Hỏi Của Người Dùng]
+\textbf{Lỗ hổng}: Nối chuỗi văn bản người dùng vào câu truy vấn SQL:
+\begin{lstlisting}[language=Python]
+# SAI LAM NGUY HIEM:
+query = f"SELECT * FROM documents WHERE user_id = '{user_input}'"
+\end{lstlisting}
+\textbf{Tấn công}: Người dùng nhập chuỗi \code{' OR '1'='1}, trích xuất toàn bộ dữ liệu bí mật của mọi khách hàng khác.\\
+\textbf{Quy tắc bảo mật}: Bắt buộc sử dụng Tham số hóa Truy vấn (\textit{Parameterized Queries}) hoặc ORM chuẩn (SQLAlchemy V2):
+\begin{lstlisting}[language=Python]
+# DUNG CHUAN KANG:
+query = "SELECT * FROM documents WHERE user_id = :uid"
+await db.fetch_all(query=query, values={"uid": user_input})
+\end{lstlisting}
+\end{securitybox}
+
+\begin{interviewbox}[Câu Hỏi Phỏng Vấn Kiến Trúc Backend Cho AI]
+\textbf{Câu hỏi}: \textit{``Tại sao Server-Sent Events (SSE) lại được ưa chuộng hơn WebSockets cho tính năng Streaming của các mô hình LLM như ChatGPT hay Claude? Khi nào thì bắt buộc phải dùng WebSockets?''}\\
+\textbf{Đáp án phân tích}:
+\begin{enumerate}
+  \item \textbf{Tại sao chọn SSE cho LLM Streaming}:
+    \begin{itemize}
+      \item SSE vận hành trực tiếp trên giao thức HTTP tiêu chuẩn, tận dụng được toàn bộ cơ chế bảo mật (HTTP Headers, Cookies, OAuth/Bearer tokens) và các hệ thống CDN/Load Balancer hiện có mà không cần cấu hình đặc biệt.
+      \item Luồng dữ liệu của LLM là \textbf{một chiều (Unidirectional)}: Người dùng gửi câu hỏi một lần, sau đó chỉ nhận phản hồi liên tục từ máy chủ. SSE được thiết kế tối ưu chính xác cho kịch bản này.
+      \item Tích hợp sẵn cơ chế tự động kết nối lại (\textit{auto-reconnect}) khi đường truyền mạng bị ngắt.
+    \end{itemize}
+  \item \textbf{Khi nào bắt buộc dùng WebSockets}:
+    \begin{itemize}
+      \item Khi cần giao tiếp \textbf{hai chiều theo thời gian thực (Bidirectional)} với độ trễ cực thấp, ví dụ: Tính năng Voice-to-Voice AI, nơi người dùng liên tục nói và ngắt lời mô hình theo thời gian thực (\textit{Interruption Handling}).
+    \end{itemize}
+\end{enumerate}
+\end{interviewbox}
+
+\begin{checkpointbox}[Nghiệm Thu Năng Lực Systems \& Backend]
+Đánh dấu hoàn thành khi bạn đã:
+\begin{itemize}
+  \item[$\square$] Phân biệt rõ Process vs Thread vs Coroutine và cơ chế Event Loop.
+  \item[$\square$] Biết viết tệp tin cấu hình dịch vụ Systemd để quản lý tiến trình AI server.
+  \item[$\square$] Nắm vững các công cụ chẩn đoán mạng curl, ss, dig và bắt tay TCP/TLS.
+  \item[$\square$] Xây dựng được API Streaming SSE với FastAPI và xử lý biệt lệ chuẩn.
+  \item[$\square$] Hiểu nguyên lý phân tầng lưu trữ PostgreSQL kết hợp Redis Caching.
+\end{itemize}
+\end{checkpointbox}

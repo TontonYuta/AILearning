@@ -1,19 +1,23 @@
 % ==============================================================================
-% CHƯƠNG 15: KỸ NGHỆ PHÁT TRIỂN SỰ NGHIỆP, PORTFOLIO & PHỎNG VẤN AI ENGINEER
+% CH15_CAREER_PORTFOLIO_INTERVIEWS.TEX — CHƯƠNG 15: SỰ NGHIỆP, PORTFOLIO & PHỎNG VẤN AI
+% ==============================================================================
+% Định dạng: Sách chuyên khảo kinh điển (Classic Academic & Engineering Monograph)
+% Chuẩn mực: Tuyệt đối không dùng khung hộp 4 phía, toán học 5 bước, bài tập đa tầng
 % ==============================================================================
 
 \chapter{Kỹ Nghệ Phát Triển Sự Nghiệp, Portfolio \& Chinh Phục Phỏng Vấn}
 \label{ch:career-portfolio-interviews}
 
-Sau khi đã hoàn thành 14 chương với đầy đủ các kiến thức từ bản chất toán học, kỹ nghệ mô hình Transformer, hệ thống RAG, Agent tự hành, hạ tầng Docker/vLLM, bảo mật Guardrails cho đến việc xây dựng Đồ án Kỳ hạm AI-NetSecOps, bạn đã sở hữu một khối lượng tri thức và kỹ năng thực chiến tương đương với một **Senior AI Engineer**.
+Sau khi đã hoàn thành 14 chương với đầy đủ các kiến thức từ bản chất toán học, kỹ nghệ mô hình Transformer, hệ thống RAG, Agent tự hành, hạ tầng Docker/vLLM, bảo mật Guardrails cho đến việc xây dựng Đồ án Kỳ hạm AI-NetSecOps, bạn đã sở hữu một khối lượng tri thức và kỹ năng thực chiến tương đương với một \textbf{Senior AI Engineer}.
 
-Tuy nhiên, năng lực kỹ thuật xuất chúng là chưa đủ nếu bạn không biết cách đóng gói và truyền tải giá trị đó đến thị trường lao động. Hàng ngàn ứng viên tài năng bị loại ngay từ vòng duyệt hồ sơ (CV Screening) vì viết CV sơ sài, không đạt chuẩn hệ thống theo dõi ứng viên (\textit{Applicant Tracking System - ATS}), hoặc có một kho lưu trữ GitHub lộn xộn, thiếu tài liệu hướng dẫn.
+Tuy nhiên, năng lực kỹ thuật xuất chúng là chưa đủ nếu bạn không biết cách đóng gói và truyền tải giá trị đó đến thị trường lao động. Hàng ngàn ứng viên tài năng bị loại ngay từ vòng duyệt hồ sơ (\textit{CV Screening}) vì viết CV sơ sài, không đạt chuẩn hệ thống theo dõi ứng viên (\textit{Applicant Tracking System -- ATS}), hoặc có một kho lưu trữ GitHub lộn xộn, thiếu tài liệu hướng dẫn.
 
 Chương cuối cùng này trang bị cho bạn chiến lược toàn diện để:
 \begin{enumerate}
   \item Thiết kế một bộ CV định lượng đạt chuẩn ATS quốc tế, thu hút ánh nhìn của các Tech Recruiter và Hiring Manager.
   \item Xây dựng một GitHub Portfolio cấp độ chuyên gia phản ánh tư duy kỹ nghệ phần mềm chuẩn mực.
   \item Giải mã và vượt qua trọn vẹn \textbf{6 vòng phỏng vấn kỹ thuật gắt gao} tại các tập đoàn công nghệ và công ty khởi nghiệp AI hàng đầu thế giới.
+  \item Làm chủ nghệ thuật đàm phán đãi ngộ tổng thể (\textit{Total Compensation}) dành cho kỹ sư cấp cao.
 \end{enumerate}
 
 ---
@@ -25,22 +29,28 @@ Hơn $75\%$ các công ty công nghệ hiện nay sử dụng hệ thống ATS (
 
 \begin{figure}[htbp]
 \centering
-\begin{tikzpicture}[node distance=1.1cm, auto,
-    proc/.style={rectangle, draw=primarycolor, thick, fill=boxbg, text width=12cm, rounded corners=2pt, minimum height=0.8cm, font=\small},
-    arrow/.style={draw=primarycolor, -Stealth, thick}
-]
-    \node[proc] (p1) {\textbf{Tầng 1: Parser Bóc Tách Cấu Trúc (Text Extraction)}\\
-    \footnotesize Trích xuất văn bản thô, phân đoạn: Kỹ năng, Kinh nghiệm, Dự án, Học vấn. Tránh dùng layout 2 cột hoặc bảng phức tạp.};
-    
-    \node[proc, below=0.5cm of p1] (p2) {\textbf{Tầng 2: Semantic Keyword Matching (Khớp Từ Khóa Ngữ Nghĩa)}\\
-    \footnotesize Đối chiếu vector nhúng và từ khóa với Job Description (JD): \code{vLLM}, \code{LangGraph}, \code{Qdrant}, \code{KV Cache}.};
-    
-    \node[proc, below=0.5cm of p2] (p3) {\textbf{Tầng 3: Đánh Giá Tác Động Kỹ Nghệ (Quantified Impact Scoring)}\\
-    \footnotesize Đánh giá mức độ đóng góp theo công thức XYZ của Google: Có số liệu phần trăm, độ trễ ms, chi phí USD cụ thể.};
-
-    \path[arrow] (p1) -- (p2);
-    \path[arrow] (p2) -- (p3);
-\end{tikzpicture}
+\small
+\begin{verbatim}
++------------------------------------------------------------------------+
+| TẦNG 1: PARSER BÓC TÁCH CẤU TRÚC (Text Extraction)                     |
+| Trích xuất văn bản thô, phân đoạn: Kỹ năng, Kinh nghiệm, Dự án.       |
+| Tránh hoàn toàn layout 2 cột hoặc bảng biểu phức tạp.                 |
++------------------------------------------------------------------------+
+                                   |
+                                   v
++------------------------------------------------------------------------+
+| TẦNG 2: SEMANTIC KEYWORD MATCHING (Khớp Từ Khóa Ngữ Nghĩa)             |
+| Đối chiếu vector nhúng và từ khóa với Job Description (JD):            |
+| vLLM, LangGraph, Qdrant, KV Cache, PagedAttention, Guardrails.         |
++------------------------------------------------------------------------+
+                                   |
+                                   v
++------------------------------------------------------------------------+
+| TẦNG 3: ĐÁNH GIÁ TÁC ĐỘNG KỸ NGHỆ (Quantified Impact Scoring)           |
+| Đánh giá mức độ đóng góp theo công thức XYZ của Google:                |
+| Có số liệu phần trăm, độ trễ mili-giây, thông lượng QPS cụ thể.       |
++------------------------------------------------------------------------+
+\end{verbatim}
 \caption{Quy trình 3 tầng quét hồ sơ tự động của hệ thống ATS hiện đại}
 \label{fig:ats-pipeline}
 \end{figure}
@@ -63,28 +73,26 @@ trong đó:
   \item $\mathbf{Z}$ (Hành động kỹ nghệ cụ thể): Giải pháp kiến trúc hoặc thuật toán mà bạn trực tiếp thiết kế và cài đặt.
 \end{itemize}
 
-\begin{workedexamplebox}[So Sánh Trực Quan: Cách Viết CV Nghiệp Dư vs. Senior AI Engineer]
-\textbf{1. Mô tả về Dự án RAG Doanh Nghiệp}:
-\begin{itemize}
-  \item \textbf{Cách viết nghiệp dư}: ``Xây dựng chatbot RAG đọc tài liệu nội bộ công ty bằng LangChain và ChromaDB.''
-  \item \textbf{Cách viết chuẩn Senior (Google XYZ)}: \\
-  \textit{``Thiết kế kiến trúc Enterprise Hybrid RAG kết hợp dense vector (Qdrant) và sparse search (Okapi BM25) phục vụ 200.000 tài liệu kỹ thuật; tăng chỉ số Context Recall@5 từ $58\%$ lên $91\%$ và giảm $65\%$ hiện tượng ảo giác ngữ cảnh nhờ tích hợp mô hình Cross-Encoder Reranking.''}
-\end{itemize}
+\paragraph{Ví dụ so sánh: Nghiệp dư vs Senior AI Engineer}:
+\begin{enumerate}
+  \item \textbf{Dự án RAG Doanh Nghiệp}:
+  \begin{itemize}
+    \item \textit{Nghiệp dư}: ``Xây dựng chatbot RAG đọc tài liệu nội bộ công ty bằng LangChain và ChromaDB.''
+    \item \textit{Chuẩn Senior (Google XYZ)}: ``Thiết kế kiến trúc Enterprise Hybrid RAG kết hợp dense vector (Qdrant) và sparse search (Okapi BM25) phục vụ 200.000 tài liệu kỹ thuật; tăng chỉ số Context Recall@5 từ $58\%$ lên $91\%$ và giảm $65\%$ hiện tượng ảo giác ngữ cảnh nhờ tích hợp mô hình Cross-Encoder Reranking.''
+  \end{itemize}
 
-\textbf{2. Mô tả về Đồ Án Tối Ưu Phục Vụ Mô Hình (vLLM Serving)}:
-\begin{itemize}
-  \item \textbf{Cách viết nghiệp dư}: ``Deploy mô hình Llama-3 trên GPU để phục vụ người dùng qua API.''
-  \item \textbf{Cách viết chuẩn Senior (Google XYZ)}: \\
-  \textit{``Triển khai cụm suy luận vLLM phục vụ mô hình Llama-3-70B FP8 trên máy chủ 4xH100 với Tensor Parallelism ($TP=4$); tăng thông lượng sinh token gấp $14$ lần (đạt 2500 tokens/s) và giảm $40\%$ độ trễ TTFT thông qua kỹ thuật Prefix Caching và Continuous Batching.''}
-\end{itemize}
+  \item \textbf{Dự án Tối Ưu Phục Vụ Mô Hình (vLLM Serving)}:
+  \begin{itemize}
+    \item \textit{Nghiệp dư}: ``Deploy mô hình Llama-3 trên GPU để phục vụ người dùng qua API.''
+    \item \textit{Chuẩn Senior (Google XYZ)}: ``Triển khai cụm suy luận vLLM phục vụ mô hình Llama-3-70B FP8 trên máy chủ 4xH100 với Tensor Parallelism ($TP=4$); tăng thông lượng sinh token gấp $14$ lần (đạt 2500 tokens/s) và giảm $40\%$ độ trễ TTFT thông qua kỹ thuật Prefix Caching và Continuous Batching.''
+  \end{itemize}
 
-\textbf{3. Mô tả về Bảo Mật \& Guardrails}:
-\begin{itemize}
-  \item \textbf{Cách viết nghiệp dư}: ``Thêm bộ lọc để ngăn chặn người dùng hack prompt của chatbot.''
-  \item \textbf{Cách viết chuẩn Senior (Google XYZ)}: \\
-  \textit{``Xây dựng hệ thống phòng thủ an ninh đa tầng (Defense-in-Depth) tuân thủ OWASP Top 10 for LLMs; ngăn chặn $100\%$ các nỗ lực Indirect Prompt Injection và rò rỉ System Prompt bằng kỹ thuật Canary Tokens, đồng thời cô lập môi trường thực thi công cụ trong Docker Sandbox có giới hạn quyền.''}
-\end{itemize}
-\end{workedexamplebox}
+  \item \textbf{Dự án Bảo Mật \& Guardrails}:
+  \begin{itemize}
+    \item \textit{Nghiệp dư}: ``Thêm bộ lọc để ngăn chặn người dùng hack prompt của chatbot.''
+    \item \textit{Chuẩn Senior (Google XYZ)}: ``Xây dựng hệ thống phòng thủ an ninh đa tầng (Defense-in-Depth) tuân thủ OWASP Top 10 for LLMs; ngăn chặn $100\%$ các nỗ lực Indirect Prompt Injection và rò rỉ System Prompt bằng kỹ thuật Canary Tokens, đồng thời cô lập môi trường thực thi công cụ trong Docker Sandbox có giới hạn quyền.''
+  \end{itemize}
+\end{enumerate}
 
 ---
 
@@ -93,22 +101,14 @@ trong đó:
 
 Khi ứng tuyển vào các vị trí AI Engineer có mức thu nhập cao, Tech Lead hoặc Principal Engineer của công ty sẽ trực tiếp click vào link GitHub của bạn. Họ sẽ đóng ngay tab trình duyệt nếu thấy một repository chỉ có một file \code{main.py} lộn xộn hoặc một tệp Jupyter Notebook chưa xóa output.
 
-Một repository GitHub chuẩn mực của Senior AI Engineer bắt buộc phải hội tụ 5 tiêu chuẩn vàng sau:
-
-\begin{figure}[htbp]
-\centering
-\begin{tikzpicture}[node distance=0.8cm, auto,
-    pillar/.style={rectangle, draw=primarycolor, thick, fill=boxbg, text width=12cm, rounded corners=2pt, minimum height=0.75cm, font=\small}
-]
-    \node[pillar] (p1) {\textbf{1. Tài Liệu README Chuẩn Mực}: Sơ đồ kiến trúc Mermaid, Động cơ dự án (Why/What), và bảng so sánh Benchmark định lượng.};
-    \node[pillar, below=0.35cm of p1] (p2) {\textbf{2. Khởi Chạy Một Lệnh (One-Command Quickstart)}: File \code{docker-compose.yml} chạy trọn vẹn cụm dịch vụ (FastAPI + vLLM + Qdrant + Redis).};
-    \node[pillar, below=0.35cm of p2] (p3) {\textbf{3. Tài Liệu Quyết Định Kiến Trúc (ADR - Architecture Decision Records)}: Thư mục \file{docs/adr/} giải thích tại sao chọn công nghệ A thay vì B.};
-    \node[pillar, below=0.35cm of p3] (p4) {\textbf{4. Kiểm Thử Tự Động (Automated Testing)}: Bộ test Pytest với độ bao phủ $> 80\%$, có Mocking API ngoại vi và integration tests.};
-    \node[pillar, below=0.35cm of p4] (p5) {\textbf{5. CI/CD Pipeline}: Tệp cấu hình \file{.github/workflows/ci.yml} tự động chạy linter (Ruff) và pytest khi mở Pull Request.};
-\end{tikzpicture}
-\caption{5 trụ cột bắt buộc trong một Repository GitHub chuẩn công nghiệp}
-\label{fig:github-pillars}
-\end{figure}
+Một repository GitHub chuẩn mực của Senior AI Engineer bắt buộc phải hội tụ 5 tiêu chuẩn vàng:
+\begin{enumerate}
+  \item \textbf{Tài Liệu README Chuẩn Mực}: Sơ đồ kiến trúc Mermaid, Động cơ dự án (Why/What), và bảng so sánh Benchmark định lượng.
+  \item \textbf{Khởi Chạy Một Lệnh (One-Command Quickstart)}: File \code{docker-compose.yml} chạy trọn vẹn cụm dịch vụ (FastAPI + vLLM + Qdrant + Redis).
+  \item \textbf{Tài Liệu Quyết Định Kiến Trúc (ADR - Architecture Decision Records)}: Thư mục \code{docs/adr/} giải thích tại sao chọn công nghệ A thay vì B với số liệu đo lường.
+  \item \textbf{Kiểm Thử Tự Động (Automated Testing)}: Bộ test Pytest với độ bao phủ $> 80\%$, có Mocking API ngoại vi và integration tests.
+  \item \textbf{CI/CD Pipeline}: Tệp cấu hình \code{.github/workflows/ci.yml} tự động chạy linter (Ruff) và pytest khi mở Pull Request.
+\end{enumerate}
 
 ---
 
@@ -119,34 +119,43 @@ Quy trình phỏng vấn AI Engineer tại các công ty công nghệ hàng đ�
 
 \begin{figure}[htbp]
 \centering
-\begin{tikzpicture}[node distance=0.6cm, auto,
-    vong/.style={rectangle, draw=primarycolor, thick, fill=boxbg, text width=12.5cm, rounded corners=2pt, minimum height=0.7cm, font=\small},
-    arrow/.style={draw=primarycolor, -Stealth, thick}
-]
-    \node[vong] (v1) {\textbf{Vòng 1: Coding \& Thuật Toán Nền Tảng (Python Data Structures \& Algorithms)}\\
-    \footnotesize Cấu trúc dữ liệu, đệ quy, Heap, Hash Table, thao tác mảng Vectorized (NumPy), Asyncio Event Loop.};
-    
-    \node[vong, below=0.3cm of v1] (v2) {\textbf{Vòng 2: Khoa Học Máy Tính Cốt Lõi \& Backend (Systems \& OS Fundamentals)}\\
-    \footnotesize Quản lý bộ nhớ Stack/Heap, Linux processes, Socket TCP, Virtual Memory, Concurrency, PostgreSQL ACID.};
-    
-    \node[vong, below=0.3cm of v2] (v3) {\textbf{Vòng 3: Toán Học, Machine Learning \& Kiến Trúc Transformer (Deep-Dive Core)}\\
-    \footnotesize Chứng minh đạo hàm ma trận, Scaled Dot-Product Attention, RoPE, KV Cache memory math, Backprop.};
-    
-    \node[vong, below=0.3cm of v3] (v4) {\textbf{Vòng 4: Kỹ Nghệ LLM Thực Chiến: RAG \& Autonomous Agents}\\
-    \footnotesize Xử lý Lost-in-the-middle, Hybrid Search RRF, LangGraph cyclic traps, Tool Calling Schema, Human-in-the-Loop.};
-    
-    \node[vong, below=0.3cm of v4] (v5) {\textbf{Vòng 5: Thiết Kế Kiến Trúc Hệ Thống AI Quy Mô Lớn (AI System Design)}\\
-    \footnotesize Back-of-the-envelope 10M DAU, Two-Tier Semantic Caching, Prefix Affinity Load Balancer, GPU Sizing.};
-    
-    \node[vong, below=0.3cm of v5] (v6) {\textbf{Vòng 6: Bảo Vệ Đồ Án \& Phỏng Vấn Văn Hóa / Phản Biện (Project Defense \& Behavioral)}\\
-    \footnotesize Phản biện quyết định kiến trúc trước Hội đồng Kỹ thuật, phân tích Post-Mortem sự cố, giải quyết xung đột kỹ thuật.};
-
-    \path[arrow] (v1) -- (v2);
-    \path[arrow] (v2) -- (v3);
-    \path[arrow] (v3) -- (v4);
-    \path[arrow] (v4) -- (v5);
-    \path[arrow] (v5) -- (v6);
-\end{tikzpicture}
+\small
+\begin{verbatim}
++------------------------------------------------------------------------+
+| VÒNG 1: Coding & Thuật Toán Nền Tảng (Python Data Structures & Algos)  |
+| Cấu trúc dữ liệu, Heap, Hash Table, mảng Vectorized (NumPy), Asyncio.  |
++------------------------------------------------------------------------+
+                                   |
+                                   v
++------------------------------------------------------------------------+
+| VÒNG 2: Khoa Học Máy Tính Cốt Lõi & Backend (Systems & OS Fundamentals)|
+| Quản lý bộ nhớ Stack/Heap, Linux processes, Socket TCP, ACID Database. |
++------------------------------------------------------------------------+
+                                   |
+                                   v
++------------------------------------------------------------------------+
+| VÒNG 3: Toán Học, ML & Kiến Trúc Transformer (Deep-Dive Core)          |
+| Đạo hàm ma trận, Attention Math, RoPE, KV Cache memory, Backprop.      |
++------------------------------------------------------------------------+
+                                   |
+                                   v
++------------------------------------------------------------------------+
+| VÒNG 4: Kỹ Nghệ LLM Thực Chiến: RAG & Autonomous Agents                |
+| Lost-in-the-middle, Hybrid Search RRF, LangGraph cycles, Tool Schema.  |
++------------------------------------------------------------------------+
+                                   |
+                                   v
++------------------------------------------------------------------------+
+| VÒNG 5: Thiết Kế Kiến Trúc Hệ Thống AI Quy Mô Lớn (AI System Design)   |
+| Back-of-the-envelope 10M DAU, Two-Tier Caching, Load Balancing, vLLM.  |
++------------------------------------------------------------------------+
+                                   |
+                                   v
++------------------------------------------------------------------------+
+| VÒNG 6: Bảo Vệ Đồ Án & Phỏng Vấn Văn Hóa (Project Defense & Leadership)|
+| Phản biện quyết định kiến trúc, Post-Mortem sự cố, giải quyết xung đột.|
++------------------------------------------------------------------------+
+\end{verbatim}
 \caption{Bản đồ 6 vòng phỏng vấn kỹ thuật chuẩn quốc tế cho Kỹ sư AI Cấp cao}
 \label{fig:interview-map}
 \end{figure}
@@ -156,42 +165,40 @@ Quy trình phỏng vấn AI Engineer tại các công ty công nghệ hàng đ�
 \section{Ngân Hàng Câu Hỏi Phỏng Vấn Thực Chiến \& Kịch Bản Đối Đáp}
 \label{sec:ch15-questions-bank}
 
-Dưới đây là các câu hỏi phỏng vấn kinh điển được chọn lọc kèm hướng dẫn cách trả lời phân định đẳng cấp:
+\paragraph{Câu Hỏi 1: Giải Thích Bản Chất Của KV Cache \& Điểm Nghẽn Bộ Nhớ}
+\begin{itemize}
+  \item \textbf{Người phỏng vấn}: ``Tại sao khi sinh token trong mô hình LLM, chúng ta cần cơ chế KV Cache? Hãy viết công thức tính dung lượng VRAM mà KV Cache tiêu thụ cho một batch gồm $B$ câu hỏi, độ dài ngữ cảnh $L$, mô hình 70B tham số.''
+  \item \textbf{Kịch bản trả lời chuẩn Senior}:
+  \begin{enumerate}
+    \item \textbf{Bản chất bài toán}: Trong giai đoạn tự hồi quy (\textit{Autoregressive Decode}), để sinh token $t$, mô hình cần tính ma trận Attention với tất cả các token từ $1$ đến $t-1$. Nếu không lưu lại, ta phải thực hiện phép nhân ma trận $W_K$ và $W_V$ cho toàn bộ lịch sử quá khứ ở mỗi bước sinh, khiến độ phức tạp tính toán tăng thành cấp số cộng $\mathcal{O}(L^2)$ và lãng phí GPU Compute. Bằng cách lưu trữ các vector Key và Value của các bước trước trên VRAM (KV Cache), mỗi bước decode chỉ cần tính toán cho đúng 1 token mới ($\mathcal{O}(1)$ FLOPs).
+    \item \textbf{Công thức tính dung lượng bộ nhớ}:
+    Mỗi token trong bộ nhớ KV Cache lưu 2 ma trận (Key và Value) qua $n_{\text{layers}}$ tầng, mỗi tầng có $n_{\text{heads}}$ đầu chú ý (hoặc $n_{\text{kv\_heads}}$ nếu dùng GQA), kích thước mỗi chiều đầu chú ý là $d_k$, và định dạng số thực $P_{\text{bytes}}$ (ví dụ 2 bytes cho FP16):
+    \begin{equation}
+    \text{Memory}_{\text{KV}} = 2 \times B \times L \times n_{\text{layers}} \times n_{\text{kv\_heads}} \times d_k \times P_{\text{bytes}} \text{ (bytes)}
+    \end{equation}
+    \item \textbf{Đánh đổi kỹ nghệ}: Điểm nghẽn ở đây là bộ nhớ VRAM bị chiếm đóng tăng tuyến tính theo độ dài ngữ cảnh $L$ và kích thước batch $B$. Đây là lý do kiến trúc Grouped-Query Attention (GQA) và công nghệ quản lý bộ nhớ trang PagedAttention của vLLM ra đời để triệt tiêu hiện tượng phân mảnh bộ nhớ ngoài.
+  \end{enumerate}
+\end{itemize}
 
-\begin{interviewbox}[Câu Hỏi 1: Giải Thích Bản Chất Của KV Cache \& Điểm Nghẽn Bộ Nhớ]
-\textbf{Người phỏng vấn}: ``Tại sao khi sinh token trong mô hình LLM, chúng ta cần cơ chế KV Cache? Hãy viết công thức tính dung lượng VRAM mà KV Cache tiêu thụ cho một batch gồm $B$ câu hỏi, độ dài ngữ cảnh $L$, mô hình 70B tham số.''
-
-\textbf{Kịch bản trả lời chuẩn Senior}:
-\begin{enumerate}
-  \item \textbf{Bản chất bài toán}: Trong giai đoạn tự hồi quy (\textit{Autoregressive Decode}), để sinh token $t$, mô hình cần tính ma trận Attention với tất cả các token từ $1$ đến $t-1$. Nếu không lưu lại, ta phải thực hiện phép nhân ma trận $W_K$ và $W_V$ cho toàn bộ lịch sử quá khứ ở mỗi bước sinh, khiến độ phức tạp tính toán tăng thành cấp số cộng $O(L^2)$ và lãng phí GPU Compute. Bằng cách lưu trữ các vector Key và Value của các bước trước trên VRAM (KV Cache), mỗi bước decode chỉ cần tính toán cho đúng 1 token mới ($O(1)$ FLOPs).
-  \item \textbf{Công thức tính dung lượng bộ nhớ}:
-  Mỗi token trong bộ nhớ KV Cache lưu 2 ma trận (Key và Value) qua $n_{\text{layers}}$ tầng, mỗi tầng có $n_{\text{heads}}$ đầu chú ý (hoặc $n_{\text{kv\_heads}}$ nếu dùng GQA), kích thước mỗi chiều đầu chú ý là $d_k$, và định dạng số thực $P_{\text{bytes}}$ (ví dụ 2 byte cho FP16):
-  \begin{equation}
-  \text{Memory}_{\text{KV}} = 2 \times B \times L \times n_{\text{layers}} \times n_{\text{kv\_heads}} \times d_k \times P_{\text{bytes}} \text{ (bytes)}
-  \end{equation}
-  \item \textbf{Đánh đổi kỹ nghệ}: Điểm nghẽn ở đây là bộ nhớ VRAM bị chiếm đóng tăng tuyến tính theo độ dài ngữ cảnh $L$ và kích thước batch $B$. Đây là lý do kiến trúc Grouped-Query Attention (GQA) và công nghệ quản lý bộ nhớ trang PagedAttention của vLLM ra đời để triệt tiêu hiện tượng phân mảnh bộ nhớ ngoài.
-\end{enumerate}
-\end{interviewbox}
-
-\begin{interviewbox}[Câu Hỏi 2: Xử Lý Hiện Tượng Ảo Giác (Hallucination) Trong RAG Doanh Nghiệp]
-\textbf{Người phỏng vấn}: ``Hệ thống RAG của bạn thỉnh thoảng vẫn bịa đặt thông tin dù tài liệu nội bộ đã được truy xuất vào prompt. Bạn sẽ chẩn đoán và khắc phục sự cố này theo những bước nào?''
-
-\textbf{Kịch bản trả lời chuẩn Senior}:
-\begin{enumerate}
-  \item \textbf{Phân lập lỗi}: Ta phải xác định ảo giác bắt nguồn từ tầng Truy Xuất (\textit{Retrieval Failure}) hay tầng Sinh (\textit{Generation Failure}). Sử dụng framework RAG Triad để đo 3 chỉ số độc lập: Context Relevance, Groundedness (Faithfulness), và Answer Relevance.
-  \item \textbf{Nếu lỗi do Retrieval (Context Pollution hoặc Lost-in-the-Middle)}:
-  \begin{itemize}
-    \item Thay thế fixed-chunking thô thiển bằng \textbf{Semantic Chunking} hoặc \textbf{Parent-Document Retrieval} để giữ trọn ngữ cảnh đoạn văn.
-    \item Triển khai \textbf{Cross-Encoder Reranker} (như BGE-Reranker-Large) để loại bỏ các đoạn văn rác có vector gần nhưng nội dung không liên quan, chỉ giữ lại top-3 đoạn quan trọng nhất.
-  \end{itemize}
-  \item \textbf{Nếu lỗi do Generation (Mô hình tự suy diễn ngoài tài liệu)}:
-  \begin{itemize}
-    \item Áp dụng kỹ thuật \textbf{Strict Grounding Prompting}: Buộc mô hình trích dẫn trực tiếp số trang và câu văn gốc (Citations). Nếu thông tin không có trong tài liệu, mô hình bắt buộc phải trả lời: ``Tài liệu không cung cấp đủ căn cứ''.
-    \item Thiết lập \textbf{Sampling Temperature $= 0.0$} để triệt tiêu tính ngẫu nhiên.
-    \item Bổ sung một mô hình kiểm định độc lập (\textbf{Critic / Guard LLM}) để chấm điểm Faithfulness trước khi trả kết quả về cho người dùng.
-  \end{itemize}
-\end{enumerate}
-\end{interviewbox}
+\paragraph{Câu Hỏi 2: Xử Lý Hiện Tượng Ảo Giác (Hallucination) Trong RAG Doanh Nghiệp}
+\begin{itemize}
+  \item \textbf{Người phỏng vấn}: ``Hệ thống RAG của bạn thỉnh thoảng vẫn bịa đặt thông tin dù tài liệu nội bộ đã được truy xuất vào prompt. Bạn sẽ chẩn đoán và khắc phục sự cố này theo những bước nào?''
+  \item \textbf{Kịch bản trả lời chuẩn Senior}:
+  \begin{enumerate}
+    \item \textbf{Phân lập lỗi}: Ta phải xác định ảo giác bắt nguồn từ tầng Truy Xuất (\textit{Retrieval Failure}) hay tầng Sinh (\textit{Generation Failure}). Sử dụng framework RAG Triad để đo 3 chỉ số độc lập: Context Relevance, Groundedness (Faithfulness), và Answer Relevance.
+    \item \textbf{Nếu lỗi do Retrieval (Context Pollution hoặc Lost-in-the-Middle)}:
+    \begin{itemize}
+      \item Thay thế fixed-chunking thô thiển bằng \textbf{Semantic Chunking} hoặc \textbf{Parent-Document Retrieval} để giữ trọn ngữ cảnh đoạn văn.
+      \item Triển khai \textbf{Cross-Encoder Reranker} (như BGE-Reranker-Large) để loại bỏ các đoạn văn rác có vector gần nhưng nội dung không liên quan, chỉ giữ lại top-3 đoạn quan trọng nhất.
+    \end{itemize}
+    \item \textbf{Nếu lỗi do Generation (Mô hình tự suy diễn ngoài tài liệu)}:
+    \begin{itemize}
+      \item Áp dụng kỹ thuật \textbf{Strict Grounding Prompting}: Buộc mô hình trích dẫn trực tiếp số trang và câu văn gốc (Citations). Nếu thông tin không có trong tài liệu, mô hình bắt buộc phải trả lời: ``Tài liệu không cung cấp đủ căn cứ''.
+      \item Thiết lập \textbf{Sampling Temperature $= 0.0$} để triệt tiêu tính ngẫu nhiên.
+      \item Bổ sung một mô hình kiểm định độc lập (\textbf{Critic / Guard LLM}) để chấm điểm Faithfulness trước khi trả kết quả về cho người dùng.
+    \end{itemize}
+  \end{enumerate}
+\end{itemize}
 
 ---
 
@@ -200,7 +207,6 @@ Dưới đây là các câu hỏi phỏng vấn kinh điển được chọn l�
 
 Dưới đây là mã nguồn Python của công cụ \code{ATSResumeValidator} giúp tự động phân tích CV, tính điểm tương đồng với bản mô tả công việc (Job Description), và phát hiện các lỗi định dạng khiến CV bị loại:
 
-\begin{workedexamplebox}[Module Phân Tích \& Chấm Điểm CV Tự Động Bằng Python]
 \begin{lstlisting}[language=Python]
 import re
 import math
@@ -209,19 +215,17 @@ from typing import Dict, Any, List, Set, Tuple
 class ATSResumeValidator:
     """Bo kiem tra va cham diem CV theo chuan he thong ATS quoc te."""
     
-    # Tap tu khoa bat buoc doi voi Senior AI Engineer
     CORE_KEYWORDS: Set[str] = {
         "python", "pytorch", "transformer", "attention", "llm", "rag",
         "langgraph", "vllm", "docker", "redis", "qdrant", "guardrails",
         "latency", "qps", "throughput", "kv cache", "system design"
     }
 
-    # Mau nhan dien thanh tuu dinh luong (Google XYZ metrics)
     QUANT_PATTERNS = [
-        re.compile(r"\b\d+%"),                       # Ti le phan tram (vd: 65%)
-        re.compile(r"\b\d+\s*(ms|s|giay)\b"),        # Do tre (vd: 450ms)
-        re.compile(r"\$\s*\d+([,\.]\d+)?\s*(k|m|usd)?\b", re.IGNORECASE), # Chi phi ($150k)
-        re.compile(r"\b\d+\s*(qps|tokens/s)\b", re.IGNORECASE) # Thong luong
+        re.compile(r"\b\d+%"),
+        re.compile(r"\b\d+\s*(ms|s|giay)\b"),
+        re.compile(r"\$\s*\d+([,\.]\d+)?\s*(k|m|usd)?\b", re.IGNORECASE),
+        re.compile(r"\b\d+\s*(qps|tokens/s)\b", re.IGNORECASE)
     ]
 
     def __init__(self, job_description: str):
@@ -269,7 +273,6 @@ class ATSResumeValidator:
             "is_ats_ready": ats_score >= 80.0
         }
 \end{lstlisting}
-\end{workedexamplebox}
 
 ---
 
@@ -277,38 +280,47 @@ class ATSResumeValidator:
 \label{sec:ch15-exercises}
 
 \subsection{Nhóm A: Câu Hỏi Tư Duy Bản Chất (Deep Intuition)}
-\begin{enumerate}
-  \item \textbf{Câu A.1}: Tại sao các mẫu CV định dạng hai cột (\textit{Two-Column Resume Templates}) với nhiều hình khối đồ họa sặc sỡ thường bị các hệ thống ATS loại bỏ ngay từ vòng đọc văn bản thô?
-  \item \textbf{Câu A.2}: Trong vòng phỏng vấn thiết kế hệ thống AI (AI System Design), sự khác biệt lớn nhất giữa một ứng viên Middle và một ứng viên Senior khi nhận được đề bài mở (Open-ended prompt) là gì?
-  \item \textbf{Câu A.3}: Phân tích tầm quan trọng của việc trình bày thất bại (\textit{Failure Modes}) và các đánh đổi kỹ thuật (\textit{Engineering Trade-offs}) trong phần bảo vệ đồ án trước Hội đồng Kỹ thuật.
+
+\begin{enumerate}[label=\textbf{A\arabic*.}]
+  \item \textbf{Cơ chế phân tích cú pháp của hệ thống ATS}: Tại sao các mẫu CV định dạng hai cột (\textit{Two-Column Resume Templates}) với nhiều hình khối đồ họa sặc sỡ thường bị các hệ thống ATS loại bỏ ngay từ vòng đọc văn bản thô?
+  \item \textbf{Tư duy phân định đẳng cấp trong System Design}: Trong vòng phỏng vấn thiết kế hệ thống AI (AI System Design), sự khác biệt lớn nhất giữa một ứng viên Middle và một ứng viên Senior khi nhận được đề bài mở (Open-ended prompt) là gì?
+  \item \textbf{Phân tích sự đánh đổi kỹ thuật (Engineering Trade-offs)}: Phân tích tầm quan trọng của việc trình bày thất bại (\textit{Failure Modes}) và các đánh đổi kỹ thuật trong phần bảo vệ đồ án trước Hội đồng Kỹ thuật.
+  \item \textbf{Chiến lược đàm phán Total Compensation}: Khi nhận được đề nghị làm việc (Offer) từ một công ty khởi nghiệp AI có mức lương cơ bản (Base) thấp nhưng lượng cổ phần (Equity / Stock Options) rất lớn, một kỹ sư AI cần định giá và phân tích rủi ro tài chính này như thế nào?
 \end{enumerate}
 
 \subsection{Nhóm B: Tính Toán Giải Tích \& Số Học Bằng Tay}
-\begin{enumerate}
-  \item \textbf{Bài B.1 (Tính Điểm ATS \& Độ Tương Đồng Từ Khóa)}: \\
+
+\begin{enumerate}[label=\textbf{B\arabic*.}]
+  \item \textbf{Tính điểm ATS \& Độ tương đồng từ khóa}:
   Bản mô tả công việc (JD) chứa $80$ từ khóa kỹ thuật độc nhất.
   Một ứng viên nộp CV chứa $240$ từ khóa độc nhất. Số lượng từ khóa trùng khớp giữa CV và JD là $60$ từ khóa.
   Hãy tính toán bằng tay:
-  \begin{enumerate}
-    \item Chỉ số Jaccard Similarity giữa CV và JD:
+  \begin{itemize}
+    \item[a)] Chỉ số Jaccard Similarity giữa CV và JD:
     \begin{equation*}
     J(\text{CV}, \text{JD}) = \frac{|\text{CV} \cap \text{JD}|}{|\text{CV} \cup \text{JD}|}
     \end{equation*}
-    \item Độ nhạy (Recall) của CV đối với tập từ khóa của JD.
-    \item Độ chính xác (Precision) của tập từ khóa xuất hiện trong CV.
-  \end{enumerate}
+    \item[b)] Độ nhạy (Recall) của CV đối với tập từ khóa của JD.
+    \item[c)] Độ chính xác (Precision) của tập từ khóa xuất hiện trong CV.
+  \end{itemize}
+
+  \item \textbf{Tính toán giá trị kỳ vọng của gói đãi ngộ Equity}:
+  Một công ty khởi nghiệp AI đưa ra gói chào mời: Lương cơ bản $\$120.000\text{ USD/năm}$ cộng với $50.000$ cổ phần quyền chọn (Options) với giá thực hiện (Strike Price) là $\$2.00\text{ USD}$. Thời gian phân bổ cổ phần (Vesting) là 4 năm với thời hạn cliff 1 năm.
+  Chuyên gia tài chính ước tính xác suất công ty IPO thành công sau 4 năm ở mức giá $\$20.00\text{ USD/cổ phần}$ là $25\%$, và xác suất công ty phá sản là $75\%$. Tính giá trị kỳ vọng hàng năm (\textit{Expected Annual Value}) của gói cổ phần này.
 \end{enumerate}
 
 \subsection{Nhóm C: Thực Hành Kỹ Nghệ \& Lập Trình (Implementation Labs)}
-\begin{enumerate}
-  \item \textbf{Bài C.1 (Bộ So Sánh Bằng Vector Embeddings Cho CV \& JD)}: \\
+
+\begin{enumerate}[label=\textbf{C\arabic*.}]
+  \item \textbf{Bộ so sánh bằng Vector Embeddings cho CV \& JD}:
   Hãy mở rộng lớp Python để tính điểm tương đồng ngữ nghĩa bằng Cosine Similarity giữa vector embedding của toàn bộ CV và vector embedding của JD, sử dụng công thức tích vô hướng chuẩn hóa.
 \end{enumerate}
 
 \subsection{Nhóm D: Phân Tích Thất Bại Thực Tế (Post-Mortem Analysis)}
-\begin{enumerate}
-  \item \textbf{Tình huống sự cố}: Một ứng viên tài năng trượt vòng phỏng vấn System Design vì đề xuất triển khai cụm Kubernetes phân tán với 64 GPU H100 cho một ứng dụng nội bộ chỉ có 200 người dùng truy vấn mỗi ngày!
-  Hãy viết báo cáo phân tích sự cố: Phân tích cặn kẽ sai lầm ``Over-Engineering'', và thiết kế lại kiến trúc phù hợp với quy mô thực tế giúp tiết kiệm $98\%$ chi phí.
+
+\begin{enumerate}[label=\textbf{D\arabic*.}]
+  \item \textbf{Sự cố phỏng vấn: Lỗi thiết kế thừa thãi (Over-Engineering)}:
+  Một ứng viên tài năng trượt vòng phỏng vấn System Design vì đề xuất triển khai cụm Kubernetes phân tán với 64 GPU H100 cho một ứng dụng nội bộ chỉ có 200 người dùng truy vấn mỗi ngày! Hãy viết báo cáo phân tích sự cố: Phân tích cặn kẽ sai lầm ``Over-Engineering'', và thiết kế lại kiến trúc phù hợp với quy mô thực tế giúp tiết kiệm $98\%$ chi phí.
 \end{enumerate}
 
 ---
@@ -316,85 +328,75 @@ class ATSResumeValidator:
 \section{Hướng Dẫn Lời Giải \& Bình Luận Kỹ Thuật Chi Tiết}
 \label{sec:ch15-solutions}
 
-\subsection{Lời Giải Nhóm A: Câu Hỏi Tư Duy Bản Chất}
-\begin{itemize}
-  \item \textbf{Lời giải Câu A.1}:
-  Các bộ phân tích cú pháp ATS thế hệ cũ và trung cấp đọc tài liệu PDF theo luồng ngang tuần tự từ trái qua phải (Linear Horizontal Parsing).
-  Khi gặp layout hai cột, bộ parser sẽ đọc dòng 1 của cột trái rồi nối liền vào dòng 1 của cột phải. Kết quả là toàn bộ câu văn bị xáo trộn cú pháp vô nghĩa (ví dụ: ``Kinh nghiệm làm việc 5 năm Python Đạt giải nhất lập trình''), khiến bộ trích xuất thực thể không thể nhận dạng được học vấn hay kinh nghiệm làm việc, dẫn đến việc hồ sơ bị loại tự động.
+\paragraph{Lời giải Câu A1 (Cơ chế phân tích cú pháp của ATS)}:
+Các bộ phân tích cú pháp ATS thế hệ cũ và trung cấp đọc tài liệu PDF theo luồng ngang tuần tự từ trái qua phải (Linear Horizontal Parsing).
+Khi gặp layout hai cột, bộ parser sẽ đọc dòng 1 của cột trái rồi nối liền vào dòng 1 của cột phải. Kết quả là toàn bộ câu văn bị xáo trộn cú pháp vô nghĩa (ví dụ: ``Kinh nghiệm làm việc 5 năm Python Đạt giải nhất lập trình''), khiến bộ trích xuất thực thể không thể nhận dạng được học vấn hay kinh nghiệm làm việc, dẫn đến việc hồ sơ bị loại tự động.
 
-  \item \textbf{Lời giải Câu A.2}:
-  Ứng viên Middle khi nhận đề bài mở thường ngay lập tức nhảy vào vẽ các hộp công nghệ (Kafka, Redis, vLLM, Qdrant) mà không hỏi rõ yêu cầu.
-  Ngược lại, ứng viên Senior luôn dành 5 đến 7 phút đầu tiên để \textbf{Làm rõ yêu cầu (Requirements Clarification)}: Hỏi về quy mô DAU, tỷ lệ đọc/ghi, SLA độ trễ P99, ngân sách phần cứng GPU tối đa, và các ràng buộc về an ninh thông tin trước khi vẽ bất kỳ thành phần nào.
+\paragraph{Lời giải Câu A2 (Tư duy phân định đẳng cấp trong System Design)}:
+Ứng viên Middle khi nhận đề bài mở thường ngay lập tức nhảy vào vẽ các hộp công nghệ (Kafka, Redis, vLLM, Qdrant) mà không hỏi rõ yêu cầu.
+Ngược lại, ứng viên Senior luôn dành 5 đến 7 phút đầu tiên để \textbf{Làm rõ yêu cầu (Requirements Clarification)}: Hỏi về quy mô DAU, tỷ lệ đọc/ghi, SLA độ trễ P99, ngân sách phần cứng GPU tối đa, và các ràng buộc về an ninh thông tin trước khi vẽ bất kỳ thành phần nào.
 
-  \item \textbf{Lời giải Câu A.3}:
-  Trong kỹ thuật thực tế, không có một kiến trúc nào là hoàn hảo tuyệt đối; mọi giải pháp đều là một sự đánh đổi (\textit{There are no solutions, only trade-offs}).
-  Khi một ứng viên dũng cảm phân tích điểm yếu của hệ thống (ví dụ: ``Hệ thống này đạt throughput cao nhưng chấp nhận độ trễ tăng nhẹ khi VRAM chạm ngưỡng 90\%''), Hội đồng Kỹ thuật sẽ đánh giá cực kỳ cao tính trung thực khoa học và sự thấu hiểu sâu sắc của ứng viên.
-\end{itemize}
+\paragraph{Lời giải Câu A3 (Phân tích sự đánh đổi kỹ thuật)}:
+Trong kỹ thuật thực tế, không có một kiến trúc nào là hoàn hảo tuyệt đối; mọi giải pháp đều là một sự đánh đổi (\textit{There are no solutions, only trade-offs}).
+Khi một ứng viên dũng cảm phân tích điểm yếu của hệ thống (ví dụ: ``Hệ thống này đạt throughput cao nhưng chấp nhận độ trễ tăng nhẹ khi VRAM chạm ngưỡng 90\%''), Hội đồng Kỹ thuật sẽ đánh giá cực kỳ cao tính trung thực khoa học và sự thấu hiểu sâu sắc của ứng viên.
 
-\subsection{Lời Giải Nhóm B: Tính Toán Giải Tích \& Số Học Bằng Tay}
-\begin{itemize}
-  \item \textbf{Lời giải Bài B.1}:
-  \begin{enumerate}
-    \item Tập giao $|\text{CV} \cap \text{JD}| = 60$.
-    Tập hợp:
-    \begin{equation*}
-    |\text{CV} \cup \text{JD}| = |\text{CV}| + |\text{JD}| - |\text{CV} \cap \text{JD}| = 240 + 80 - 60 = 260 \text{ từ khóa}
-    \end{equation*}
-    Chỉ số tương đồng Jaccard:
-    \begin{equation*}
-    J(\text{CV}, \text{JD}) = \frac{60}{260} = \frac{3}{13} \approx \mathbf{0.2308} \quad (\mathbf{23.08\%})
-    \end{equation*}
-    \item Độ nhạy (Recall) của CV đối với JD:
-    \begin{equation*}
-    \text{Recall} = \frac{|\text{CV} \cap \text{JD}|}{|\text{JD}|} = \frac{60}{80} = \mathbf{0.75} \quad (\mathbf{75\%})
-    \end{equation*}
-    CV đã bao phủ được $75\%$ các yêu cầu từ khóa của nhà tuyển dụng.
-    \item Độ chính xác (Precision) của CV đối với JD:
-    \begin{equation*}
-    \text{Precision} = \frac{|\text{CV} \cap \text{JD}|}{|\text{CV}|} = \frac{60}{240} = \mathbf{0.25} \quad (\mathbf{25\%})
-    \end{equation*}
-  \end{enumerate}
-\end{itemize}
+\paragraph{Lời giải Câu A4 (Định giá gói Equity)}:
+Kỹ sư cần tính toán theo công thức giá trị thực nhận: $\text{Net Value} = (\text{Fair Market Value} - \text{Strike Price}) \times \text{Shares}$. Đồng thời, phải kiểm tra các điều khoản: Thời hạn thực hiện quyền sau khi nghỉ việc (PTE window), điều khoản chống pha loãng (Anti-dilution), và ưu tiên thanh lý (Liquidation Preference). Không bao giờ coi giá trị cổ phiếu chưa niêm yết tương đương với tiền mặt.
 
-\subsection{Lời Giải Nhóm C: Thực Hành Kỹ Nghệ \& Lập Trình}
-\begin{lstlisting}[language=Python]
-import math
-from typing import List
+\paragraph{Lời giải Bài B1 (Tính điểm ATS \& Độ tương đồng từ khóa)}:
+\begin{enumerate}
+  \item Tập giao $|\text{CV} \cap \text{JD}| = 60$.
+  Tập hợp:
+  \begin{equation*}
+  |\text{CV} \cup \text{JD}| = |\text{CV}| + |\text{JD}| - |\text{CV} \cap \text{JD}| = 240 + 80 - 60 = 260 \text{ từ khóa}
+  \end{equation*}
+  Chỉ số tương đồng Jaccard:
+  \begin{equation*}
+  J(\text{CV}, \text{JD}) = \frac{60}{260} = \frac{3}{13} \approx \mathbf{0.2308} \quad (\mathbf{23.08\%})
+  \end{equation*}
+  \item Độ nhạy (Recall) của CV đối với JD:
+  \begin{equation*}
+  \text{Recall} = \frac{|\text{CV} \cap \text{JD}|}{|\text{JD}|} = \frac{60}{80} = \mathbf{0.75} \quad (\mathbf{75\%})
+  \end{equation*}
+  CV đã bao phủ được $75\%$ các yêu cầu từ khóa của nhà tuyển dụng.
+  \item Độ chính xác (Precision) của CV đối với JD:
+  \begin{equation*}
+  \text{Precision} = \frac{|\text{CV} \cap \text{JD}|}{|\text{CV}|} = \frac{60}{240} = \mathbf{0.25} \quad (\mathbf{25\%})
+  \end{equation*}
+\end{enumerate}
 
-class SemanticResumeMatcher:
-    """Tinh toan do tuong dong ngu nghia giua CV va JD bang Vector Cosine."""
-    @staticmethod
-    def cosine_similarity(v_cv: List[float], v_jd: List[float]) -> float:
-        dot_product = sum(a * b for a, b in zip(v_cv, v_jd))
-        norm_cv = math.sqrt(sum(a * a for a in v_cv))
-        norm_jd = math.sqrt(sum(b * b for b in v_jd))
-        if norm_cv == 0.0 or norm_jd == 0.0:
-            return 0.0
-        return dot_product / (norm_cv * norm_jd)
+\paragraph{Lời giải Bài B2 (Tính toán giá trị kỳ vọng của Equity)}:
+Lợi nhuận ròng trên mỗi cổ phần nếu IPO thành công:
+\begin{equation*}
+\text{Gain per share} = \$20.00 - \$2.00 = \$18.00\text{ USD}
+\end{equation*}
+Tổng giá trị nếu IPO thành công:
+\begin{equation*}
+\text{Total Gain} = 50.000 \times \$18.00 = \$900.000\text{ USD}
+\end{equation*}
+Giá trị kỳ vọng tổng thể tính theo xác suất:
+\begin{equation*}
+\mathbb{E}[\text{Equity}] = 0.25 \times \$900.000 + 0.75 \times \$0 = \$225.000\text{ USD}
+\end{equation*}
+Giá trị kỳ vọng phân bổ hàng năm (trong 4 năm):
+\begin{equation*}
+\text{Expected Annual Value} = \frac{\$225.000}{4} = \mathbf{\$56.250\text{ USD/năm}}
+\end{equation*}
+Như vậy, tổng thu nhập kỳ vọng hàng năm (\textit{Expected Total Compensation}) là $\$120.000 + \$56.250 = \$176.250\text{ USD/năm}$.
 
-    def evaluate_fit(self, v_cv: List[float], v_jd: List[float], threshold: float = 0.82) -> bool:
-        score = self.cosine_similarity(v_cv, v_jd)
-        return score >= threshold
-\end{lstlisting}
+\paragraph{Lời giải Bài C1 (Semantic Resume Matcher)}:
+Mã nguồn cài đặt lớp \code{SemanticResumeMatcher} được cung cấp và kiểm thử tự động trong tệp \code{tests/test_ch15_career.py}.
 
-\subsection{Lời Giải Nhóm D: Phân Tích Thất Bại Thực Tế (Post-Mortem Analysis)}
-\begin{debugbox}[Báo Cáo Sự Cố Phỏng Vấn: Lỗi Thiết Kế Thừa Thãi (Over-Engineering)]
-\textbf{1. Sai lầm của ứng viên}: Khi đối mặt với bài toán phục vụ 200 người dùng nội bộ mỗi ngày (tương đương QPS trung bình $\approx 0.002$), ứng viên đã thiết kế một cụm Kubernetes phân tán với hàng chục GPU H100 chạy vLLM và Kafka message queue.
+\paragraph{Lời giải Bài D1 (Báo cáo sự cố phỏng vấn Over-Engineering)}:
+\begin{enumerate}
+  \item \textbf{Sai lầm}: Khi đối mặt với bài toán phục vụ 200 người dùng nội bộ mỗi ngày (tương đương QPS trung bình $\approx 0.002$), ứng viên đã thiết kế một cụm Kubernetes phân tán với hàng chục GPU H100 chạy vLLM và Kafka message queue.
+  \item \textbf{Hậu quả}: Tiêu tốn hơn $\$100.000\text{/tháng}$ tiền thuê GPU trong khi $99.9\%$ thời gian các máy chủ đều ở trạng thái rảnh rỗi.
+  \item \textbf{Kiến trúc sửa đổi tối ưu}:
+  \begin{itemize}
+    \item Sử dụng Serverless Cloud API (OpenAI / Anthropic / Gemini API) trả tiền theo số lượng token thực tế.
+    \item Với 200 truy vấn/ngày, chi phí API hàng tháng chỉ khoảng $\$30 - \$50\text{/tháng}$, tiết kiệm hơn $99.9\%$ so với việc duy trì cụm máy chủ GPU riêng!
+  \end{itemize}
+\end{enumerate}
 
-\textbf{2. Hậu quả}: Kiến trúc này tiêu tốn hơn $\$100.000\text{/tháng}$ tiền thuê GPU trong khi $99.9\%$ thời gian các máy chủ đều ở trạng thái rảnh rỗi (\textit{Idle}).
-
-\textbf{3. Kiến trúc sửa đổi tối ưu (Right-Sized Architecture)}:
-\begin{itemize}
-  \item Sử dụng \textbf{Serverless Cloud API} (OpenAI / Anthropic / Gemini API) trả tiền theo số lượng token thực tế (\textit{Pay-as-you-go}).
-  \item Với 200 truy vấn/ngày, chi phí API hàng tháng chỉ khoảng $\mathbf{\$30 - \$50\text{/tháng}}$, tiết kiệm hơn $99.9\%$ so với việc duy trì cụm máy chủ GPU riêng!
-\end{itemize}
-\end{debugbox}
-
-\begin{checkpointbox}[Tiêu Chuẩn Đạt Yêu Cầu Tốt Nghiệp Toàn Bộ Giáo Trình AI Engineer]
-Bạn chính thức hoàn thành xuất sắc toàn bộ công trình chuyên khảo khi:
-\begin{itemize}
-  \item Nắm vững toàn bộ chuỗi mắt xích từ toán học, mã nguồn Python, kiến trúc Transformer, hệ thống RAG, Agent, serving vLLM, an ninh Guardrails đến thiết kế hệ thống.
-  \item Sở hữu một bộ CV định lượng đạt chuẩn Google XYZ và một GitHub Portfolio chuyên nghiệp với Đồ án Kỳ hạm AI-NetSecOps.
-  \item Sẵn sàng bước vào các vòng phỏng vấn kỹ thuật cấp cao với tâm thế tự tin của một Senior AI Engineer thực thụ!
-\end{itemize}
-\end{checkpointbox}
+\paragraph{Lời kết công trình chuyên khảo}:
+Bạn chính thức hoàn thành xuất sắc toàn bộ công trình chuyên khảo AI Engineer Monograph khi đã làm chủ toàn diện chuỗi mắt xích từ toán học ma trận, lập trình CPython, kiến trúc Transformer, hệ thống RAG, Agent tự hành, serving vLLM, an ninh Guardrails đến thiết kế hệ thống quy mô lớn. Với một bộ CV định lượng chuẩn Google XYZ và một GitHub Portfolio chuyên nghiệp sở hữu Đồ án Kỳ hạm AI-NetSecOps, bạn hoàn toàn tự tin bước vào các vòng phỏng vấn kỹ thuật cấp cao với tâm thế của một Senior AI Engineer thực thụ.

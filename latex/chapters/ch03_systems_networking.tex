@@ -1,14 +1,13 @@
 % ==============================================================================
-% CH03_SYSTEMS_NETWORKING.TEX — CHƯƠNG 3: CS, LINUX, MẠNG & HẠ TẦNG BACKEND
-% ==============================================================================
-% Định dạng: Sách chuyên khảo kinh điển (Classic Engineering Monograph)
-% Chuẩn mực: Không dùng hộp đóng khung 4 phía, toán học 5 bước, bài tập đa tầng
+% CH03_SYSTEMS_NETWORKING.TEX — CHƯƠNG 3: KHOA HỌC MÁY TÍNH, LINUX, MẠNG & HẠ TẦNG BACKEND
 % ==============================================================================
 
 \chapter{Khoa Học Máy Tính, Linux, Mạng \& Hạ Tầng Backend}
 \label{ch:systems-networking}
 
-Một hệ thống AI trong thế giới thực không vận hành trong chân không. Nó tồn tại trên các máy chủ phần cứng vật lý, được điều phối bởi nhân hệ điều hành Linux, giao tiếp với người dùng qua hàng chục nghìn kết nối mạng TCP/IP và được che chắn bởi các cổng API Gateway chịu tải cao. Một kỹ sư AI nếu thiếu nền tảng vững chắc về hệ thống và mạng máy tính sẽ bất lực khi đối mặt với các sự cố phân mảnh bộ nhớ ảo, tắc nghẽn socket kết nối, hoặc suy giảm thông lượng do cấu hình sai máy chủ web.
+Một hệ thống AI trong thế giới thực không vận hành trong chân không. Nó tồn tại trên các máy chủ phần cứng vật lý, được điều phối bởi nhân hệ điều hành Linux, giao tiếp với người dùng qua hàng chục nghìn kết nối mạng TCP/IP và được che chắn bởi các cổng API Gateway chịu tải cao. Một kỹ sư AI nếu thiếu nền tảng vững chắc về hệ thống và mạng máy tính sẽ hoàn toàn bất lực khi đối mặt với các sự cố phân mảnh bộ nhớ ảo, tắc nghẽn socket kết nối, hoặc suy giảm thông lượng do cấu hình sai máy chủ web.
+
+Chương này dẫn dắt bạn đi từ những nguyên lý căn bản nhất của khoa học máy tính: Từ sự vận động của từng byte dữ liệu trong kim tự tháp bộ nhớ, bản chất của bảng phân trang ảo (\textit{Page Tables}), kiến trúc mạng máy tính từ con số 0 (Mô hình OSI, giao thức TCP/IP, địa chỉ IP và Subnetting), đến kỹ thuật lập trình Socket tầng thấp, thiết kế cổng API hiệu năng cao với FastAPI, và giải thuật kiểm soát tốc độ truy vấn (\textit{Rate Limiting}) bằng Redis.
 
 ---
 
@@ -16,8 +15,7 @@ Một hệ thống AI trong thế giới thực không vận hành trong chân k
 \label{sec:memory-hierarchy-paging}
 
 \subsection{Kim Tự Tháp Phân Cấp Bộ Nhớ \& Các Con Số Độ Trễ Cốt Lõi}
-
-Trong thiết kế phần cứng máy tính, có một sự đánh đổi vật lý bất biến: **Bộ nhớ càng nhanh thì càng đắt đỏ và có dung lượng càng nhỏ**. Ngược lại, bộ nhớ càng rẻ và dung lượng càng lớn thì tốc độ truy xuất càng chậm.
+Trong thiết kế phần cứng máy tính, có một sự đánh đổi vật lý bất biến: \textbf{Bộ nhớ càng nhanh thì càng đắt đỏ và có dung lượng càng nhỏ}. Ngược lại, bộ nhớ càng rẻ và dung lượng càng lớn thì tốc độ truy xuất càng chậm.
 
 \begin{table}[htbp]
 \centering
@@ -50,55 +48,66 @@ Trong thiết kế phần cứng máy tính, có một sự đánh đổi vật 
   \item Gửi một gói tin mạng Internet xuyên quốc gia tương đương hơn $1\text{ năm}$!
 \end{itemize}
 
-Quy luật vật lý này giải thích tại sao mọi kỹ thuật tối ưu hóa trong AI Engineering (từ Caching hai tầng trong RAG đến PagedAttention trong vLLM) đều xoay quanh một mục tiêu duy nhất: **Đưa dữ liệu cần tính toán lên tầng bộ nhớ cao nhất có thể và hạn chế tối đa việc di chuyển dữ liệu qua các đường bus băng thông thấp**.
+Quy luật vật lý này giải thích tại sao mọi kỹ thuật tối ưu hóa trong AI Engineering (từ Caching hai tầng trong RAG đến PagedAttention trong vLLM) đều xoay quanh một mục tiêu duy nhất: \textbf{Đưa dữ liệu cần tính toán lên tầng bộ nhớ cao nhất có thể và hạn chế tối đa việc di chuyển dữ liệu qua các đường bus băng thông thấp}.
 
 \subsection{Cơ Chế Bộ Nhớ Ảo (Virtual Memory) \& Phân Trang (Paging)}
+Trong hệ điều hành hiện đại, các tiến trình không bao giờ tương tác trực tiếp với địa chỉ vật lý của thanh RAM. Thay vào đó, mỗi tiến trình sở hữu một \textbf{Không Gian Địa Chỉ Ảo (Virtual Address Space)} liên tục từ $0$ đến $2^{64}-1$.
 
-Trong hệ điều hành hiện đại, các tiến trình không bao giờ tương tác trực tiếp với địa chỉ vật lý của thanh RAM. Thay vào đó, mỗi tiến trình sở hữu một **Không Gian Địa Chỉ Ảo (Virtual Address Space)** liên tục từ $0$ đến $2^{64}-1$.
-
-Bộ xử lý trung tâm (CPU) thông qua đơn vị quản lý bộ nhớ phần cứng (\textit{Memory Management Unit -- MMU}) phối hợp với nhân hệ điều hành Linux để ánh xạ các địa chỉ ảo này thành các địa chỉ vật lý rời rạc thông qua **Bảng Phân Trang (Page Table)**:
+Bộ xử lý trung tâm (CPU) thông qua đơn vị quản lý bộ nhớ phần cứng (\textit{Memory Management Unit -- MMU}) phối hợp với nhân hệ điều hành Linux để ánh xạ các địa chỉ ảo này thành các địa chỉ vật lý rời rạc thông qua \textbf{Bảng Phân Trang (Page Table)}:
 \begin{itemize}
-  \item Bộ nhớ được chia thành các khối cố định gọi là **Trang Ảo (Pages)** và **Khung Trang Vật Lý (Page Frames)**, thường có kích thước $4\text{ KiB}$ (hoặc Huge Pages $2\text{ MiB}$ đến $1\text{ GiB}$).
-  \item Khi tiến trình truy xuất một địa chỉ ảo, MMU tra cứu bảng trang. Nếu trang dữ liệu đang nằm trên RAM, việc truy xuất diễn ra bình thường nhờ bộ đệm dịch địa chỉ phần cứng (\textit{Translation Lookaside Buffer -- TLB}).
-  \item Nếu trang đó chưa được cấp phát vật lý hoặc đã bị đẩy xuống ổ cứng hoán đổi (Swap), hiện tượng **Lỗi Trang (Page Fault)** xảy ra. Hệ điều hành phải dừng tiến trình, nạp dữ liệu từ đĩa vào RAM rồi mới cho tiến trình tiếp tục.
+  \item Bộ nhớ được chia thành các khối cố định gọi là \term{Trang Bộ Nhớ (Page)}, mặc định có kích thước $4\text{ KiB}$ trên kiến trúc x86-64.
+  \item Khi một tiến trình truy xuất một địa chỉ ảo chưa được nạp vào RAM vật lý, CPU sẽ kích hoạt một ngắt phần cứng gọi là \term{Lỗi Trang (Page Fault)}. Nhân Linux sẽ tạm dừng tiến trình, nạp dữ liệu từ đĩa hoặc cấp phát một khung trang trống (\textit{Page Frame}), cập nhật bảng phân trang rồi mới cho tiến trình tiếp tục chạy.
+  \item \textbf{Cơ chế PagedAttention của vLLM}: Thuật toán PagedAttention mô phỏng chính xác cơ chế phân trang này trên VRAM của GPU. Thay vì cấp phát một khối VRAM liên tục khổng lồ cho KV Cache (dẫn đến phân mảnh bộ nhớ khi người dùng hỏi các câu có độ dài bất định), vLLM chia KV Cache thành các khối nhỏ (Block 16 token) và dùng một bảng khối ảo (\textit{Block Table}) để ánh xạ, triệt tiêu $96\%$ lãng phí bộ nhớ GPU!
 \end{itemize}
-
-\begin{definition}[Mối Liên Hệ Giữa Phân Trang Hệ Điều Hành \& PagedAttention Trong vLLM]
-Trong các hệ thống suy luận LLM truyền thống, bộ nhớ đệm KV Cache của mỗi người dùng bắt buộc phải được cấp phát liên tục trong VRAM. Vì không thể biết trước người dùng sẽ nói bao nhiêu từ, hệ thống phải dự phòng trước cho kích thước tối đa ($4.096$ tokens), khiến hơn $70\%$ VRAM bị lãng phí do phân mảnh nội vi (\textit{Internal Fragmentation}). 
-
-Thuật toán **PagedAttention** (Kwon et al., 2023) đã áp dụng chính xác nguyên lý phân trang bộ nhớ ảo của hệ điều hành vào VRAM của GPU: chia nhỏ KV Cache thành các khối trang bộ nhớ $16$ hoặc $32$ tokens không cần liên tục về mặt vật lý, loại bỏ $100\%$ sự lãng phí phân mảnh và cho phép phục vụ số lượng request đồng thời tăng vọt gấp 4 đến 8 lần.
-\end{definition}
 
 ---
 
-\section{Quản Trị Linux Nâng Cao: Cgroups, Namespaces \& Daemons}
-\label{sec:linux-advanced}
+\section{Linux Chuyên Sâu: Quản Lý Tài Nguyên, Cgroups v2 \& Systemd}
+\label{sec:linux-internals}
 
-\subsection{Bản Chất Cốt Lõi Của Container: Cgroups \& Namespaces}
+\subsection{Cách Ly Tài Nguyên Với Cgroups v2 (Control Groups)}
+Khi triển khai các mô hình ngôn ngữ lớn trên máy chủ sản xuất, nếu không giới hạn tài nguyên, một tiến trình suy luận gặp lỗi rò rỉ bộ nhớ (Memory Leak) có thể ngốn sạch toàn bộ RAM của máy chủ, khiến hệ điều hành kích hoạt cơ chế \term{OOM-Killer (Out of Memory Killer)} và bắn hạ nhầm các tiến trình cốt lõi như Database hay SSH Daemon.
 
-Nhiều người lầm tưởng Docker là một chiếc máy ảo chạy một hệ điều hành thu nhỏ. Trong thực tế, **không có cái gì gọi là ``Docker Container'' trong nhân Linux**. Container thực chất chỉ là một tiến trình Linux thông thường được cách ly bởi hai cơ chế cốt lõi của Linux Kernel:
+\begin{figure}[htbp]
+\centering
+\begin{tikzpicture}[node distance=1.0cm, auto,
+    box/.style={rectangle, draw=primarycolor, thick, fill=boxbg, text centered, rounded corners=2pt, minimum height=0.8cm, font=\small},
+    cgroup/.style={rectangle, draw=secondarycolor, thick, fill=accentcolor!15, text centered, rounded corners=2pt, minimum height=0.8cm, font=\small\bfseries},
+    arrow/.style={draw=primarycolor, -Stealth, thick}
+]
+    \node[box] (root) {Root Cgroup (\code{/sys/fs/cgroup})};
+    \node[cgroup, below left=0.8cm and 0.5cm of root] (vllm) {Cgroup: \code{ai-serving.slice}};
+    \node[cgroup, below right=0.8cm and 0.5cm of root] (db) {Cgroup: \code{database.slice}};
+    
+    \node[box, below=0.6cm of vllm, text width=4.5cm] (vllm-limits) {\footnotesize $\bullet$ \code{memory.max = 32G}\\ $\bullet$ \code{cpu.max = 800000 100000}\\ (Tối đa 8 CPU Cores)};
+    \node[box, below=0.6cm of db, text width=4.5cm] (db-limits) {\footnotesize $\bullet$ \code{memory.max = 16G}\\ $\bullet$ \code{cpu.max = 400000 100000}\\ (Tối đa 4 CPU Cores)};
 
-\paragraph{1. Linux Namespaces (Cô lập tầm nhìn)}
-Namespaces giới hạn những gì một tiến trình có thể **nhìn thấy**:
-\begin{itemize}
-  \item \textbf{PID Namespace}: Tiến trình trong container nhìn thấy nó là PID 1, hoàn toàn không thấy các tiến trình khác của máy chủ mẹ.
-  \item \textbf{NET Namespace}: Cung cấp giao diện mạng ảo, bảng định tuyến và danh sách cổng riêng biệt.
-  \item \textbf{MNT Namespace}: Cô lập cây thư mục hệ thống tệp tin (kết hợp với \code{chroot} và \code{overlayfs}).
-  \item \textbf{IPC / UTS / User Namespaces}: Cách ly hàng đợi thông điệp, tên máy chủ (\textit{hostname}) và ánh xạ định danh người dùng.
-\end{itemize}
+    \path[arrow] (root) -- (vllm);
+    \path[arrow] (root) -- (db);
+    \path[arrow] (vllm) -- (vllm-limits);
+    \path[arrow] (db) -- (db-limits);
+\end{tikzpicture}
+\caption{Cấu trúc phân bổ tài nguyên với Cgroups v2 trên máy chủ Linux}
+\label{fig:cgroups-v2}
+\end{figure}
 
-\paragraph{2. Control Groups -- cgroups v2 (Giới hạn tài nguyên)}
-Nếu Namespaces cô lập những gì tiến trình nhìn thấy, thì Cgroups giới hạn lượng tài nguyên mà tiến trình đó được phép **sử dụng**:
-\begin{itemize}
-  \item \textbf{Memory Cgroup}: Giới hạn dung lượng RAM tối đa (vd: \code{memory.max = 16G}). Nếu tiến trình AI xử lý một tệp PDF quá lớn và tiêu tốn vượt quá $16\text{ GB}$, nhân Linux sẽ kích hoạt cơ chế \textbf{OOM-Killer (Out of Memory Killer)} để bắn hạ tiến trình đó ngay lập tức nhằm bảo vệ an toàn cho toàn bộ máy chủ mẹ.
-  \item \textbf{CPU Cgroup}: Giới hạn tỷ lệ phần trăm chu kỳ CPU mà tiến trình được phép sử dụng (\code{cpu.max = 200000 100000} tương đương tối đa 2 lõi CPU).
-\end{itemize}
+Cgroups v2 cung cấp giao diện quản lý dạng cây thống nhất thông qua hệ thống tệp tin ảo \file{/sys/fs/cgroup}. Để giới hạn một cụm worker vLLM không được vượt quá $32\text{ GiB}$ RAM và tối đa 8 nhân CPU:
+\begin{lstlisting}[language=bash]
+# 1. Tao nhom cgroup moi
+sudo mkdir -p /sys/fs/cgroup/ai-serving
 
-\subsection{Vận Hành Dịch Vụ Nền Tảng Với Systemd Chuẩn Doanh Nghiệp}
+# 2. Thiet lap han muc bo nho tran (Hard limit)
+echo "34359738368" | sudo tee /sys/fs/cgroup/ai-serving/memory.max
 
-Trong môi trường sản xuất không dùng Kubernetes, các thành phần như máy chủ vLLM, API Gateway hoặc Worker xử lý hàng đợi bắt buộc phải được quản trị bằng hệ thống khởi động và dịch vụ chuẩn của Linux: **systemd**.
+# 3. Thiet lap han muc CPU: 800000 / 100000 = 8 cores
+echo "800000 100000" | sudo tee /sys/fs/cgroup/ai-serving/cpu.max
 
-Dưới đây là một tệp cấu hình dịch vụ mẫu (\code{/etc/systemd/system/vllm-serving.service}) đạt chuẩn vận hành:
+# 4. Dua tien trinh Python vao cgroup
+echo $PID | sudo tee /sys/fs/cgroup/ai-serving/cgroup.procs
+\end{lstlisting}
+
+\subsection{Đóng Gói Dịch Vụ Với Systemd Service Đạt Chuẩn Sản Xuất}
+Trong môi trường doanh nghiệp, các máy chủ mô hình không bao giờ được chạy bằng lệnh \code{python main.py} thủ công trên terminal. Chúng bắt buộc phải được đóng gói thành một \textbf{Systemd Service} có khả năng tự khởi động cùng hệ điều hành, tự khởi động lại khi gặp sự cố sập nguồn, và giới hạn số lượng tệp mở (\textit{File Descriptors}):
 
 \begin{lstlisting}[language=bash]
 [Unit]
@@ -128,7 +137,6 @@ LimitNOFILE=65536
 LimitNPROC=32768
 LimitMEMLOCK=infinity
 
-# Ghi nhat ky he thong qua journald
 StandardOutput=journal
 StandardError=journal
 
@@ -136,47 +144,173 @@ StandardError=journal
 WantedBy=multi-user.target
 \end{lstlisting}
 
-Để kích hoạt và theo dõi nhật ký dịch vụ trong thời gian thực:
-\begin{lstlisting}[language=bash]
-sudo systemctl daemon-reload
-sudo systemctl enable --now vllm-serving.service
-# Theo doi 100 dong log moi nhat va stream lien tuc
-journalctl -u vllm-serving.service -f -n 100
-\end{lstlisting}
-
 ---
 
-\section{Mạng Máy Tính Chuyên Sâu Cho Hạ Tầng AI: TCP, TLS \& Streaming}
-\label{sec:networking-deepdive}
+\section{Mạng Máy Tính Từ Con Số 0 Cho Kỹ Sư AI}
+\label{sec:networking-from-scratch}
 
-\subsection{Bản Chất Bắt Tay TCP \& TLS 1.3: Độ Trễ Mạng Tích Lũy}
+Một trong những sai lầm phổ biến của các lập trình viên AI là coi mạng máy tính như một hàm thư viện có sẵn: Gọi \code{requests.post("https://api.openai.com")} và chờ kết quả. Khi hệ thống gặp lỗi \code{Connection refused}, \code{Time out}, hoặc \code{Address already in use}, họ hoàn toàn bế tắc vì không hiểu cơ chế di chuyển của các electron hay photon trên đường truyền.
 
-Một yêu cầu API gọi LLM không thể truyền đi nếu không thiết lập kênh truyền tin cậy qua mạng. Quá trình thiết lập kết nối trải qua ba giai đoạn độc lập:
+\subsection{Mô Hình 7 Tầng OSI \& Mô Hình 4 Tầng TCP/IP}
+Để các máy tính khác nhau về phần cứng và hệ điều hành có thể giao tiếp được với nhau, Tổ chức Tiêu chuẩn hóa Quốc tế (ISO) đã định nghĩa mô hình \term{OSI (Open Systems Interconnection)} gồm 7 tầng. Trong kỹ nghệ thực tế, mô hình rút gọn \term{TCP/IP 4 tầng} là giao thức chi phối toàn bộ mạng Internet toàn cầu:
 
 \begin{figure}[htbp]
 \centering
-\begin{tcolorbox}[blanker,left=12pt,top=6pt,bottom=6pt,borderline west={2.5pt}{0pt}{primarycolor}]
+\begin{tikzpicture}[node distance=0.7cm, auto,
+    layerosi/.style={rectangle, draw=primarycolor, thick, fill=boxbg, text width=6cm, rounded corners=2pt, minimum height=0.65cm, font=\small},
+    layertcp/.style={rectangle, draw=secondarycolor, thick, fill=accentcolor!20, text width=6cm, rounded corners=2pt, minimum height=0.65cm, font=\small\bfseries}
+]
+    \node[layerosi] (o7) {7. Application (HTTP, DNS, SSH)};
+    \node[layerosi, below=0.2cm of o7] (o6) {6. Presentation (TLS/SSL, JSON)};
+    \node[layerosi, below=0.2cm of o6] (o5) {5. Session (Sockets)};
+    \node[layerosi, below=0.2cm of o5] (o4) {4. Transport (TCP, UDP)};
+    \node[layerosi, below=0.2cm of o4] (o3) {3. Network (IPv4, IPv6, Routing)};
+    \node[layerosi, below=0.2cm of o3] (o2) {2. Data Link (Ethernet, MAC, ARP)};
+    \node[layerosi, below=0.2cm of o2] (o1) {1. Physical (Cáp đồng, Cáp quang, Bits)};
+
+    \node[layertcp, right=1.2cm of o6] (t4) {Application Layer\\ \footnotesize (HTTP/1.1, HTTP/2, DNS, SSE)};
+    \node[layertcp, right=1.2cm of o4] (t3) {Transport Layer\\ \footnotesize (TCP, UDP, Port Numbers)};
+    \node[layertcp, right=1.2cm of o3] (t2) {Internet Layer\\ \footnotesize (IP, ICMP, Routing)};
+    \node[layertcp, right=1.2cm of o1.5] (t1) {Network Interface Layer\\ \footnotesize (Ethernet Frame, MAC, Physical)};
+
+    \draw[dotted, thick, gray] (o7.east) -- (t4.north west);
+    \draw[dotted, thick, gray] (o5.east) -- (t4.south west);
+    \draw[dotted, thick, gray] (o4.east) -- (t3.west);
+    \draw[dotted, thick, gray] (o3.east) -- (t2.west);
+    \draw[dotted, thick, gray] (o2.east) -- (t1.north west);
+    \draw[dotted, thick, gray] (o1.east) -- (t1.south west);
+\end{tikzpicture}
+\caption{Đối chiếu giữa Mô hình 7 tầng OSI và Mô hình 4 tầng TCP/IP}
+\label{fig:osi-vs-tcpip}
+\end{figure}
+
+\subsection{Bản Chất Của Quá Trình Đóng Gói (Encapsulation) \& Mở Gói (Decapsulation)}
+Khi một ứng dụng AI gửi một câu prompt \code{"Xin chao"} tới máy chủ:
+\begin{enumerate}
+  \item \textbf{Tầng Ứng dụng}: Chuỗi văn bản được bọc trong một HTTP Request Body:
+  \begin{center}
+  \code{POST /v1/completions HTTP/1.1\textbackslash r\textbackslash nHost: ...\textbackslash r\textbackslash n\textbackslash r\textbackslash n\{"prompt": "Xin chao"\}}
+  \end{center}
+  \item \textbf{Tầng Giao vận (Transport)}: Thêm \textbf{TCP Header} (chứa Source Port, Destination Port 8000, Sequence Number) $\implies$ Tạo thành \term{TCP Segment}.
+  \item \textbf{Tầng Mạng (Internet)}: Thêm \textbf{IPv4 Header} (chứa Source IP, Destination IP, TTL, Checksum) $\implies$ Tạo thành \term{IP Packet}.
+  \item \textbf{Tầng Liên kết dữ liệu (Data Link)}: Thêm \textbf{Ethernet Header} (chứa Source MAC, Destination MAC) và đuôi kiểm tra lỗi CRC $\implies$ Tạo thành \term{Ethernet Frame}.
+  \item \textbf{Tầng Vật lý}: Khung Ethernet được điều chế thành các xung điện áp hoặc xung ánh sáng phát qua cáp mạng.
+\end{enumerate}
+Ở đầu máy chủ nhận, quá trình diễn ra ngược lại (\textit{Decapsulation}): Card mạng bóc tách MAC, nhân Linux bóc tách IP, tầng Socket bóc tách TCP Port và chuyển đúng Payload dữ liệu vào bộ nhớ đệm của tiến trình Python!
+
+\subsection{Địa Chỉ IP, Mặt Nạ Mạng (Subnet Mask) \& Ký Hiệu CIDR}
+\begin{definition}[Địa Chỉ IPv4 \& Ký Hiệu CIDR]
+Một địa chỉ IPv4 là một số nguyên không dấu 32-bit, được chia thành 4 nhóm 8-bit (gọi là Octet), phân tách bằng dấu chấm:
+\begin{equation*}
+\text{192.168.1.10} \iff \underbrace{11000000}_{192} . \underbrace{10101000}_{168} . \underbrace{00000001}_{1} . \underbrace{00001010}_{10}
+\end{equation*}
+Địa chỉ IP gồm hai phần: \textbf{Network ID} (định danh mạng) và \textbf{Host ID} (định danh thiết bị trong mạng).
+Ký hiệu CIDR (Classless Inter-Domain Routing) dùng cú pháp \code{/n}, trong đó $n$ là số lượng bit 1 liên tục từ trái sang phải của \textbf{Mặt Nạ Mạng (Subnet Mask)}.
+\end{definition}
+
+\begin{workedexamplebox}[Cách Tính Số Lượng Máy Chủ Khả Dụng Trong Dải Mạng CIDR]
+Xét một dải mạng cụm GPU: \code{10.0.1.0/24}:
+\begin{itemize}
+  \item Số bit dành cho Network ID: $n = 24$.
+  \item Số bit còn lại dành cho Host ID: $32 - 24 = 8$ bits.
+  \item Tổng số địa chỉ IP trong dải: $2^8 = 256$ địa chỉ (từ \code{10.0.1.0} đến \code{10.0.1.255}).
+  \item Theo quy chuẩn kỹ thuật RFC 791, có 2 địa chỉ không bao giờ được gán cho thiết bị:
+    \begin{itemize}
+      \item Địa chỉ đầu tiên (\code{10.0.1.0}): Địa chỉ Định danh Mạng (\textit{Network Address}).
+      \item Địa chỉ cuối cùng (\code{10.0.1.255}): Địa chỉ Quảng bá (\textit{Broadcast Address}).
+    \end{itemize}
+  \item Số lượng máy chủ GPU tối đa có thể cắm vào dải mạng này là:
+  \begin{equation}
+  N_{\text{hosts}} = 2^{32 - n} - 2 = 2^8 - 2 = \mathbf{254 \text{ máy chủ}}
+  \end{equation}
+\end{itemize}
+\end{workedexamplebox}
+
+\begin{table}[htbp]
+\centering
 \small
-\textbf{Chu Trình Bắt Tay Mạng Hoàn Chỉnh (Network Handshake Flow)}:\\[0.1cm]
-\textbf{1. Phân giải DNS}: Client $\longleftrightarrow$ DNS Server (Tốn 1 Round-Trip Time -- RTT nếu không có cache).\\
-$\downarrow$\\
-\textbf{2. Bắt tay 3 bước TCP (Three-Way Handshake)}:
+\caption{Dải Địa Chỉ IP Riêng (Private IP) Được Dùng Trong Mạng Nội Bộ (RFC 1918)}
+\label{tab:private-ip-ranges}
+\begin{tabular}{p{2.8cm}p{3.2cm}p{3.0cm}p{4.0cm}}
+\toprule
+\textbf{Lớp Mạng} & \textbf{Dải Địa Chỉ IP} & \textbf{Mặt Nạ CIDR} & \textbf{Ứng Dụng Điển Hình} \\
+\midrule
+\textbf{Class A} & \code{10.0.0.0 -- 10.255.255.255} & \code{10.0.0.0/8} & Trung tâm dữ liệu đám mây lớn (AWS VPC, GCP VPC). \\
+\textbf{Class B} & \code{172.16.0.0 -- 172.31.255.255} & \code{172.16.0.0/12} & Mạng nội bộ cụm máy chủ Docker mặc định (\code{docker0}). \\
+\textbf{Class C} & \code{192.168.0.0 -- 192.168.255.255} & \code{192.168.0.0/16} & Mạng gia đình, phòng Lab, văn phòng nhỏ. \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\subsection{Cổng Dịch Vụ (Port Numbers) \& Khái Niệm Socket Tuple}
+Một máy chủ chỉ có một địa chỉ IP duy nhất, nhưng có thể chạy đồng thời nhiều dịch vụ: Web API, Database, SSH, Cache. Để phân biệt gói tin gửi tới dịch vụ nào, hệ điều hành sử dụng \term{Cổng Dịch Vụ (Port Number)}:
 \begin{itemize}
-  \item Client $\longrightarrow$ Server: \texttt{SYN}
-  \item Server $\longrightarrow$ Client: \texttt{SYN-ACK}
-  \item Client $\longrightarrow$ Server: \texttt{ACK} (Hoàn tất 1 RTT).
+  \item Port là một số nguyên không dấu 16-bit, có giá trị từ $0$ đến $65535$.
+  \item Các cổng chuẩn (\textit{Well-known Ports: 0 -- 1023}): Cổng 80 (HTTP), 443 (HTTPS), 22 (SSH), 53 (DNS). Yêu cầu quyền root để lắng nghe.
+  \item Các cổng đăng ký (\textit{Registered Ports: 1024 -- 49151}): Cổng 5432 (PostgreSQL), 6379 (Redis), 8000/8080 (FastAPI/vLLM).
+  \item Các cổng tạm thời (\textit{Dynamic / Ephemeral Ports: 49152 -- 65535}): Được hệ điều hành tự động cấp phát ngẫu nhiên cho Client khi mở kết nối ra ngoài.
 \end{itemize}
-$\downarrow$\\
-\textbf{3. Bắt tay mã hóa bảo mật TLS 1.3}:
+
+Một kết nối mạng trên toàn thế giới được định danh duy nhất bởi bộ 5 tham số (\term{5-Tuple}):
+\begin{equation}
+\text{Connection Tuple} = (\text{Source IP}, \text{Source Port}, \text{Dest IP}, \text{Dest Port}, \text{Protocol})
+\end{equation}
+
+---
+
+\section{Hai Trụ Cột Tầng Giao Vận: UDP vs. TCP}
+\label{sec:tcp-vs-udp}
+
+\subsection{Giao Thức UDP (User Datagram Protocol): Tốc Độ Tối Thượng}
+UDP là giao thức \textbf{Không Kết Nối (Connectionless)} và \textbf{Không Đảm Bảo (Unreliable)}. Gói tin UDP được gửi đi mà không cần bắt tay, không kiểm tra xem gói tin có tới đích hay không, và không gửi lại nếu bị mất.
 \begin{itemize}
-  \item Client $\longrightarrow$ Server: \texttt{ClientHello + KeyShare}
-  \item Server $\longrightarrow$ Client: \texttt{ServerHello + KeyShare + Encrypted Certificate} (Hoàn tất thêm 1 RTT).
+  \item \textbf{Cấu trúc Header siêu nhẹ}: Chỉ có đúng 8 byte (Source Port 2B, Dest Port 2B, Length 2B, Checksum 2B).
+  \item \textbf{Ứng dụng trong AI}: UDP là xương sống của giao thức DNS, giao thức thời gian thực RTP/WebRTC trong các hệ thống \textbf{Voice AI đàm thoại thời gian thực} (nơi việc mất 1 gói âm thanh nhỏ tốt hơn là bị trễ hàng trăm mili-giây để chờ gửi lại).
 \end{itemize}
-$\downarrow$\\
-\textbf{4. Gửi yêu cầu HTTP Request đầu tiên}: Client $\longrightarrow$ Server: \texttt{POST /v1/chat/completions} (Tốn thêm 1/2 RTT để tới nơi).
-\end{tcolorbox}
-\caption{Luồng thiết lập kết nối mạng an toàn từ Client tới máy chủ AI}
-\label{fig:tcp-tls-handshake}
+
+\subsection{Giao Thức TCP (Transmission Control Protocol): Sự Tin Cậy Tuyệt Đối}
+Ngược lại với UDP, TCP biến một kênh truyền mạng vật lý đầy rủi ro mất gói thành một \textbf{Dòng Byte Đáng Tin Cậy (Reliable Byte Stream)}:
+\begin{itemize}
+  \item Đảm bảo dữ liệu đến đích đủ $100\%$ không mất mát (qua cơ chế \code{ACK} và tự động gửi lại khi timeout).
+  \item Đảm bảo dữ liệu đến đúng thứ tự phát đi (qua số thứ tự tuần tự \code{Sequence Number}).
+  \item Kiểm soát tắc nghẽn đường truyền (Congestion Control).
+\end{itemize}
+
+\subsection{Bắt Tay 3 Bước TCP (Three-Way Handshake) \& Bắt Tay TLS 1.3}
+Để bắt đầu truyền dữ liệu qua TCP, hai máy tính phải hoàn tất chu trình bắt tay 3 bước:
+\begin{enumerate}
+  \item \textbf{SYN}: Client gửi gói tin có cờ \code{SYN=1} kèm số thứ tự ngẫu nhiên ban đầu $ISN_C$.
+  \item \textbf{SYN-ACK}: Server phản hồi gói tin có cờ \code{SYN=1, ACK=1}, xác nhận đã nhận được $ISN_C$ ($ACK\_NUM = ISN_C + 1$) và gửi số thứ tự của server $ISN_S$.
+  \item \textbf{ACK}: Client gửi lại cờ \code{ACK=1} với $ACK\_NUM = ISN_S + 1$. Kết nối chính thức được xác lập!
+\end{enumerate}
+
+\begin{figure}[htbp]
+\centering
+\begin{tikzpicture}[node distance=2.5cm, auto,
+    host/.style={rectangle, draw=primarycolor, thick, fill=boxbg, text centered, rounded corners=2pt, minimum height=0.7cm, minimum width=2.5cm, font=\small\bfseries},
+    arrow/.style={draw=primarycolor, -Stealth, thick},
+    arrowsec/.style={draw=secondarycolor, -Stealth, thick}
+]
+    \node[host] (client) {Client (Browser/App)};
+    \node[host, right=5cm of client] (server) {Server (vLLM / Gateway)};
+
+    \draw[thick, gray] (client.south) -- ++(0,-5.2);
+    \draw[thick, gray] (server.south) -- ++(0,-5.2);
+
+    % TCP 3-way
+    \draw[arrow] ([yshift=-0.6cm]client.south) -- node[above, font=\scriptsize] {1. SYN ($seq=x$)} ([yshift=-1.2cm]server.south);
+    \draw[arrow] ([yshift=-1.4cm]server.south) -- node[above, font=\scriptsize] {2. SYN-ACK ($seq=y, ack=x+1$)} ([yshift=-2.0cm]client.south);
+    \draw[arrow] ([yshift=-2.2cm]client.south) -- node[above, font=\scriptsize] {3. ACK ($ack=y+1$)} ([yshift=-2.8cm]server.south);
+
+    % TLS 1.3
+    \draw[arrowsec] ([yshift=-3.2cm]client.south) -- node[above, font=\scriptsize\color{secondarycolor}] {4. TLS ClientHello + KeyShare} ([yshift=-3.8cm]server.south);
+    \draw[arrowsec] ([yshift=-4.0cm]server.south) -- node[above, font=\scriptsize\color{secondarycolor}] {5. TLS ServerHello + Encrypted Cert} ([yshift=-4.6cm]client.south);
+    
+    % Application Data
+    \draw[draw=dangercolor, ultra thick, -Stealth] ([yshift=-4.8cm]client.south) -- node[above, font=\scriptsize\bfseries\color{dangercolor}] {6. HTTP POST /v1/chat/completions (Encrypted)} ([yshift=-5.4cm]server.south);
+\end{tikzpicture}
+\caption{Toàn bộ quá trình bắt tay TCP và mã hóa bảo mật TLS 1.3 trước khi gửi dữ liệu AI}
+\label{fig:tcp-tls-handshake-detail}
 \end{figure}
 
 Tổng thời gian chỉ để máy chủ bắt đầu nhận được byte đầu tiên của yêu cầu nếu tạo kết nối mới hoàn toàn là:
@@ -184,14 +318,75 @@ Tổng thời gian chỉ để máy chủ bắt đầu nhận được byte đ�
 T_{\text{Connect}} = \text{RTT}_{\text{DNS}} + \text{RTT}_{\text{TCP}} + \text{RTT}_{\text{TLS}} \approx 3 \times \text{RTT}
 \label{eq:handshake-latency}
 \end{equation}
-
 Nếu máy chủ đặt tại Mỹ ($\text{RTT} \approx 180\text{ms}$ từ Việt Nam), người dùng phải chờ **hơn $540\text{ms}$** trước khi mô hình AI thậm chí bắt đầu đọc prompt! 
 
 \begin{definition}[Quy Tắc Vàng Về Tái Sử Dụng Kết Nối (Connection Pooling)]
-Trong hạ tầng AI, các ứng dụng Backend tuyệt đối không bao giờ được khởi tạo phiên HTTP mới cho mỗi câu hỏi. Hệ thống bắt buộc phải duy trì một **Hồ bơi kết nối (HTTP Connection Pool)** với cơ chế \code{TCP Keep-Alive}. Nhờ đó, các yêu cầu tiếp theo sẽ tái sử dụng kênh truyền đã được xác thực mã hóa sẵn, triệt tiêu $100\%$ thời gian bắt tay và gửi request đi trong đúng $0\text{ ms}$ phụ trội!
+Trong hạ tầng AI, các ứng dụng Backend tuyệt đối không bao giờ được khởi tạo phiên HTTP mới cho mỗi câu hỏi. Hệ thống bắt buộc phải duy trì một \textbf{Hồ bơi kết nối (HTTP Connection Pool)} với cơ chế \code{TCP Keep-Alive}. Nhờ đó, các yêu cầu tiếp theo sẽ tái sử dụng kênh truyền đã được xác thực mã hóa sẵn, triệt tiêu $100\%$ thời gian bắt tay và gửi request đi trong đúng $0\text{ ms}$ phụ trội!
 \end{definition}
 
-\subsection{So Sánh Toàn Diện Các Giao Thức Streaming Token}
+---
+
+\section{Lập Trình Socket Từ Con Số 0 Bằng Python}
+\label{sec:socket-programming-python}
+
+Để thấu hiểu bản chất cách một Web Server như Uvicorn hay vLLM tiếp nhận request, chúng ta hãy tự tay xây dựng một máy chủ TCP Server thuần túy bằng thư viện chuẩn \code{socket} của Python mà không sử dụng bất kỳ framework bên ngoài nào:
+
+\begin{workedexamplebox}[Xây Dựng Máy Chủ Web HTTP/1.1 Thuần Túy Bằng Python Socket]
+\begin{lstlisting}[language=Python]
+import socket
+import threading
+
+def handle_client(client_socket: socket.socket, client_address: tuple):
+    """Xu ly mot ket noi TCP tu nguoi dung."""
+    try:
+        # 1. Nhan du lieu tho tu Socket Buffer (toi da 4096 bytes)
+        raw_request = client_socket.recv(4096).decode("utf-8")
+        if not raw_request:
+            return
+
+        # 2. Parse don gian dong dau tien cua HTTP Request Line
+        first_line = raw_request.splitlines()[0]
+        method, path, _ = first_line.split()
+
+        # 3. Tao HTTP Response theo chuan text RFC 7230
+        body = f'{{"status": "HEALTHY", "path": "{path}", "method": "{method}"}}'
+        response = (
+            "HTTP/1.1 200 OK\r\n"
+            "Content-Type: application/json\r\n"
+            f"Content-Length: {len(body)}\r\n"
+            "Connection: close\r\n"
+            "\r\n"
+            f"{body}"
+        )
+        # 4. Gui byte du lieu nguoc lai qua Socket
+        client_socket.sendall(response.encode("utf-8"))
+    finally:
+        client_socket.close()
+
+def start_tcp_server(host: str = "0.0.0.0", port: int = 8080):
+    # Tao Socket TCP: AF_INET (IPv4), SOCK_STREAM (TCP)
+    server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    # Cho phep tai su dung cong ngay lap tuc sau khi tat server (chong loi Address already in use)
+    server.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+    
+    server.bind((host, port))
+    server.listen(128) # Hang doi backlog cho phep 128 ket noi cho
+    print(f"[*] Server dang lang nghe tai {host}:{port}...")
+
+    while True:
+        # Ham accept() se chan (block) luong cho den khi co client moi ket noi
+        client_sock, client_addr = server.accept()
+        # Tao luong Thread xu ly song song khong lam nghen vong lap chinh
+        thread = threading.Thread(target=handle_client, args=(client_sock, client_addr))
+        thread.daemon = True
+        thread.start()
+\end{lstlisting}
+\end{workedexamplebox}
+
+---
+
+\section{So Sánh Toàn Diện Các Giao Thức Streaming Token}
+\label{sec:streaming-protocols}
 
 Khi xây dựng giao diện tương tác với mô hình ngôn ngữ lớn, việc chọn sai giao thức truyền tải sẽ làm tăng độ phức tạp kiến trúc và tiêu tốn tài nguyên máy chủ. Bảng~\ref{tbl:streaming-protocols} so sánh 4 giao thức phổ biến nhất.
 
@@ -222,12 +417,11 @@ Khi xây dựng giao diện tương tác với mô hình ngôn ngữ lớn, vi�
 \label{sec:fastapi-ratelimiting}
 
 \subsection{Thuật Toán Cửa Sổ Trượt Nguyên Tử (Atomic Sliding Window Counter)}
-
-Để bảo vệ các dịch vụ AI đắt đỏ trước các cuộc tấn công từ chối dịch vụ (DDoS) hoặc việc một khách hàng vô tình gửi hàng nghìn truy vấn cùng lúc làm kiệt quệ tài nguyên GPU, API Gateway bắt buộc phải triển khai cơ chế **Giới hạn Tốc độ (Rate Limiter)**.
+Để bảo vệ các dịch vụ AI đắt đỏ trước các cuộc tấn công từ chối dịch vụ (DDoS) hoặc việc một khách hàng vô tình gửi hàng nghìn truy vấn cùng lúc làm kiệt quệ tài nguyên GPU, API Gateway bắt buộc phải triển khai cơ chế \textbf{Giới hạn Tốc độ (Rate Limiter)}.
 
 Thuật toán cửa sổ cố định (\textit{Fixed Window}) truyền thống có một lỗ hổng bảo mật nghiêm trọng: Nếu người dùng gửi toàn bộ hạn mức vào giây cuối cùng của phút thứ nhất, và gửi tiếp toàn bộ hạn mức vào giây đầu tiên của phút thứ hai, hệ thống sẽ phải chịu tải gấp đôi hạn mức an toàn trong vòng 2 giây!
 
-Thuật toán chuẩn mực nhất là **Cửa sổ trượt dùng Sorted Set của Redis (Redis Sliding Window Counter)**:
+Thuật toán chuẩn mực nhất là \textbf{Cửa sổ trượt dùng Sorted Set của Redis (Redis Sliding Window Counter)}:
 \begin{enumerate}
   \item Lưu trữ các mốc thời gian truy vấn dưới dạng điểm số (\textit{Score}) trong cấu trúc Sorted Set (\code{ZSET}) của Redis với khóa là mã người dùng hoặc IP.
   \item Khi có request mới tại thời điểm $t$:
@@ -239,7 +433,7 @@ Thuật toán chuẩn mực nhất là **Cửa sổ trượt dùng Sorted Set c�
     \end{itemize}
 \end{enumerate}
 
-Để đảm bảo toàn bộ chuỗi thao tác trên diễn ra **nguyên tử (Atomic)** mà không bị tranh chấp dữ liệu giữa hàng trăm worker phân tán, mã logic phải được đóng gói bên trong một kịch bản **Redis Lua Script**:
+Để đảm bảo toàn bộ chuỗi thao tác trên diễn ra \textbf{nguyên tử (Atomic)} mà không bị tranh chấp dữ liệu giữa hàng trăm worker phân tán, mã logic phải được đóng gói bên trong một kịch bản \textbf{Redis Lua Script}:
 
 \begin{lstlisting}[language=Python]
 # Kich ban Lua chay truc tiep trong nhan Redis de dam bao tinh nguyen tu
@@ -318,9 +512,10 @@ Thời gian truyền tín hiệu mạng hai chiều (\textit{Round-Trip Time -- 
 
 Dưới đây là một mô đun Python hoàn chỉnh triển khai thuật toán Cửa sổ trượt kiểm soát tốc độ truy vấn kết hợp bộ đo độ trễ mạng có kiểm định chặt chẽ:
 
+\begin{workedexamplebox}[Mô Đun Đo Độ Trễ Mạng \& Rate Limiter Bằng Python]
 \begin{lstlisting}[language=Python]
 import time
-from typing import Dict, Any, List
+from typing import Dict, Any, List, Optional
 
 class InMemorySlidingWindowRateLimiter:
     """Mo phong Rate Limiter cua so truot nguyen tu su dung bo nho cuc bo."""
@@ -328,7 +523,6 @@ class InMemorySlidingWindowRateLimiter:
     def __init__(self, limit: int = 10, window_seconds: float = 60.0):
         self.limit = limit
         self.window = window_seconds
-        # Luu tru danh sach timestamp theo user_id
         self.storage: Dict[str, List[float]] = {}
 
     def is_allowed(self, user_id: str, current_time: Optional[float] = None) -> bool:
@@ -338,11 +532,9 @@ class InMemorySlidingWindowRateLimiter:
         if user_id not in self.storage:
             self.storage[user_id] = []
             
-        # 1. Loai bo cac timestamp cu nam ngoai cua so truot
         timestamps = self.storage[user_id]
         self.storage[user_id] = [t for t in timestamps if t > clear_before]
         
-        # 2. Kiem tra han muc
         if len(self.storage[user_id]) < self.limit:
             self.storage[user_id].append(now)
             return True
@@ -375,41 +567,81 @@ class NetworkLatencyBreakdownCalculator:
             "network_percentage": round(network_percentage, 1),
             "connection_reused": is_connection_reused
         }
+
+class CIDRSubnetCalculator:
+    """Tinh toan thong so mang CIDR cho cum may chu GPU."""
+    @staticmethod
+    def calculate_usable_hosts(cidr_prefix: int) -> int:
+        if not (0 <= cidr_prefix <= 32):
+            raise ValueError("CIDR prefix phai nam trong khoang 0 den 32")
+        if cidr_prefix >= 31:
+            return 0
+        return (2 ** (32 - cidr_prefix)) - 2
 \end{lstlisting}
+\end{workedexamplebox}
 
 ---
 
 \section{Hệ Thống Bài Tập \& Câu Hỏi Tư Duy Đa Tầng}
 \label{sec:ch03-exercises}
 
-\subsection{Nhóm A: Câu Hỏi Tư Duy Bản Chất (Conceptual Reasoning)}
+\subsection{Nhóm A: Câu Hỏi Tư Duy Bản Chất (Deep Intuition)}
 
-\begin{enumerate}[label=\textbf{A\arabic*.}]
-  \item \textbf{SSE vs WebSocket cho Chatbot AI}: Phân tích lý do tại sao các nền tảng hàng đầu thế giới như ChatGPT, Claude và Gemini đều lựa chọn Server-Sent Events (SSE) trên nền HTTP/2 thay vì WebSockets để truyền luồng token văn bản tới trình duyệt? Những lợi thế kiến trúc nào về Caching, Load Balancing và tự động kết nối lại đã quyết định sự lựa chọn này?
-  \item \textbf{Cơ chế OOM-Killer của Linux}: Khi bộ nhớ RAM của máy chủ bị cạn kiệt, nhân Linux sẽ dựa vào thuật toán nào để quyết định tiến trình nào sẽ bị tiêu diệt (\textit{Killed}) trước? Làm thế nào một kỹ sư hệ thống có thể cấu hình thông số \code{oom_score_adj} để bảo vệ tiến trình phục vụ mô hình AI không bị hệ điều hành bắn hạ nhầm khi xảy ra khủng hoảng bộ nhớ?
-  \item \textbf{Ý nghĩa của File Descriptors (NOFILE)}: Trong Linux, tại sao câu lệnh cấu hình \code{LimitNOFILE=65536} trong tệp systemd lại là yêu cầu sống còn cho các máy chủ API Gateway phục vụ mô hình ngôn ngữ lớn? Điều gì sẽ xảy ra ở tầng mạng nếu giữ nguyên giá trị mặc định (\code{1024}) khi có $2.000$ người dùng đồng thời mở kết nối streaming SSE?
+\begin{enumerate}
+  \item \textbf{Câu A.1 (SSE vs WebSocket Cho Chatbot AI)}: Phân tích lý do tại sao các nền tảng hàng đầu thế giới như ChatGPT, Claude và Gemini đều lựa chọn Server-Sent Events (SSE) trên nền HTTP/2 thay vì WebSockets để truyền luồng token văn bản tới trình duyệt? Những lợi thế kiến trúc nào về Caching, Load Balancing và tự động kết nối lại đã quyết định sự lựa chọn này?
+  \item \textbf{Câu A.2 (Cơ Chế OOM-Killer Của Linux)}: Khi bộ nhớ RAM của máy chủ bị cạn kiệt, nhân Linux sẽ dựa vào thuật toán nào để quyết định tiến trình nào sẽ bị tiêu diệt (\textit{Killed}) trước? Làm thế nào một kỹ sư hệ thống có thể cấu hình thông số \code{oom_score_adj} để bảo vệ tiến trình phục vụ mô hình AI không bị hệ điều hành bắn hạ nhầm khi xảy ra khủng hoảng bộ nhớ?
+  \item \textbf{Câu A.3 (Ý Nghĩa Của File Descriptors)}: Trong Linux, tại sao câu lệnh cấu hình \code{LimitNOFILE=65536} trong tệp systemd lại là yêu cầu sống còn cho các máy chủ API Gateway phục vụ mô hình ngôn ngữ lớn? Điều gì sẽ xảy ra ở tầng mạng nếu giữ nguyên giá trị mặc định (\code{1024}) khi có $2.000$ người dùng đồng thời mở kết nối streaming SSE?
+  \item \textbf{Câu A.4 (TCP Slow Start \& Ảnh Hưởng Lên TTFT)}: Giải thích hiện tượng khởi động chậm (TCP Slow Start) trong giao thức TCP. Khi một client kết nối tới cụm vLLM qua đường truyền có độ trễ lớn (BDP cao), tại sao một câu prompt dài 8000 tokens ($\approx 32\text{ KB}$) lại mất nhiều hơn 1 RTT để truyền tới máy chủ ngay cả khi băng thông mạng còn dư thừa?
+  \item \textbf{Câu A.5 (Jumbo Frames Trong Cụm GPU Multi-Node)}: Tại sao trong các cụm huấn luyện AI phân tán liên kết qua card mạng RoCE v2, kỹ sư mạng luôn cấu hình kích thước gói tin tối đa Jumbo Frames ($\text{MTU} = 9000\text{ bytes}$) thay vì chuẩn thông thường $\text{MTU} = 1500\text{ bytes}$?
 \end{enumerate}
 
-\subsection{Nhóm B: Bài Toán Tính Toán Giải Tích Bằng Tay (Analytical Problems)}
+\subsection{Nhóm B: Bài Toán Tính Toán Giải Tích Bằng Tay}
 
-\begin{enumerate}[label=\textbf{B\arabic*.}]
-  \item \textbf{Tính toán Băng thông Socket Máy chủ}: Một máy chủ AI Gateway phục vụ đồng thời $N = 5.000$ kết nối người dùng đang streaming câu trả lời. Giả sử tốc độ sinh token của mô hình là $R = 25\text{ tokens/giây}$ cho mỗi người dùng, và mỗi token được đóng gói trong một gói tin SSE tiêu tốn trung bình $60\text{ bytes}$ (bao gồm cả overhead tiêu đề \code{data: \{...\}}\textbackslash n\textbackslash n và TCP/IP header).
+\begin{enumerate}
+  \item \textbf{Bài B.1 (Tính Toán Băng Thông Socket Máy Chủ)}: \\
+  Một máy chủ AI Gateway phục vụ đồng thời $N = 5.000$ kết nối người dùng đang streaming câu trả lời. Giả sử tốc độ sinh token của mô hình là $R = 25\text{ tokens/giây}$ cho mỗi người dùng, và mỗi token được đóng gói trong một gói tin SSE tiêu tốn trung bình $60\text{ bytes}$ (bao gồm cả overhead tiêu đề \code{data: \{...\}}\textbackslash n\textbackslash n và TCP/IP header).
+  \begin{enumerate}
+    \item Tính tổng băng thông mạng xuất ra (\textit{Egress Network Bandwidth}) mà cổng mạng của máy chủ phải đáp ứng (tính bằng Megabits per second -- Mbps).
+    \item Nếu card mạng của máy chủ chỉ có băng thông $1\text{ Gbps}$ ($1.000\text{ Mbps}$), hỏi máy chủ có thể phục vụ tối đa bao nhiêu người dùng đồng thời trước khi đường truyền mạng bị bão hòa?
+  \end{enumerate}
+
+  \item \textbf{Bài B.2 (Thiết Kế Dải Mạng Con CIDR Cho Cụm 128 Máy Chủ GPU)}: \\
+  Bạn là kiến trúc sư hạ tầng mạng cho một trung tâm dữ liệu AI gồm 128 máy chủ GPU. Mỗi máy chủ yêu cầu 4 địa chỉ IP tĩnh độc lập:
   \begin{itemize}
-    \item[a)] Tính tổng băng thông mạng xuất ra (\textit{Egress Network Bandwidth}) mà cổng mạng của máy chủ phải đáp ứng (tính bằng Megabits per second -- Mbps).
-    \item[b)] Nếu card mạng của máy chủ chỉ có băng thông $1\text{ Gbps}$ ($1.000\text{ Mbps}$), hỏi máy chủ có thể phục vụ tối đa bao nhiêu người dùng đồng thời trước khi đường truyền mạng bị bão hòa?
+    \item 1 IP cho cổng quản trị từ xa Out-of-Band (IPMI / iDRAC).
+    \item 1 IP cho cổng mạng quản trị hệ điều hành (Host Management).
+    \item 2 IP cho 2 card mạng tốc độ cao phục vụ liên kết dữ liệu cụm (RoCE v2 RDMA Fabric).
   \end{itemize}
+  Hãy tính toán:
+  \begin{enumerate}
+    \item Tổng số lượng địa chỉ IP cần thiết cho toàn bộ 128 máy chủ.
+    \item Mặt nạ mạng con CIDR nhỏ nhất (\code{/n}) thuộc dải mạng riêng Class A (\code{10.0.0.0/8}) đủ để chứa toàn bộ các máy chủ này và còn dư dự phòng ít nhất $20\%$ địa chỉ cho mở rộng tương lai.
+    \item Xác định số địa chỉ host khả dụng thực tế của dải CIDR đã chọn.
+  \end{enumerate}
 \end{enumerate}
 
 \subsection{Nhóm C: Thực Hành Kỹ Nghệ \& Lập Trình (Implementation Labs)}
 
-\begin{enumerate}[label=\textbf{C\arabic*.}]
-  \item \textbf{Viết Kịch Bản Bash Phân Tích Độ Trễ Bằng \code{curl}}: Viết một đoạn mã shell script sử dụng tiện ích \code{curl} kết hợp tệp định dạng \code{--write-out} để đo lường chi tiết 5 mốc thời gian của một yêu cầu HTTP POST gửi tới máy chủ AI: \code{time_namelookup}, \code{time_connect}, \code{time_appconnect} (TLS), \code{time_starttransfer} (TTFT), và \code{time_total}.
+\begin{enumerate}
+  \item \textbf{Bài C.1 (Bộ Kiểm Tra Trạng Thái Sức Khỏe Mạng Cho Cụm AI)}: \\
+  Xây dựng một công cụ Python \code{AINetworkHealthChecker} sử dụng mô-đun chuẩn \code{socket} để:
+  \begin{itemize}
+    \item Đo độ trễ bắt tay TCP thực tế tới máy chủ suy luận vLLM (cổng 8000) và máy chủ cơ sở dữ liệu vector Qdrant (cổng 6333).
+    \item Phát hiện xem cổng dịch vụ đang mở (\code{OPEN}), bị đóng (\code{CLOSED}), hay bị tường lửa drop (\code{TIMEOUT}).
+  \end{itemize}
+
+  \item \textbf{Bài C.2 (Viết Kịch Bản Bash Phân Tích Độ Trễ Bằng \code{curl})}: \\
+  Viết một đoạn mã shell script sử dụng tiện ích \code{curl} kết hợp tệp định dạng \code{--write-out} để đo lường chi tiết 5 mốc thời gian của một yêu cầu HTTP POST gửi tới máy chủ AI: \code{time_namelookup}, \code{time_connect}, \code{time_appconnect} (TLS), \code{time_starttransfer} (TTFT), và \code{time_total}.
 \end{enumerate}
 
 \subsection{Nhóm D: Phân Tích Thất Bại \& Debugging Thực Tế (Post-Mortem Analysis)}
 
-\begin{enumerate}[label=\textbf{D\arabic*.}]
-  \item \textbf{Sự Cố Cạn Kiệt Cổng Ephemeral Sockets \& Trạng Thái TIME\_WAIT}: Một dịch vụ Agent tự hành thực hiện hàng trăm nghìn truy vấn HTTP kiểm tra thông tin nội bộ trong thời gian ngắn. Sau 15 phút vận hành, toàn bộ hệ thống sụp đổ với lỗi \code{Cannot assign requested address}. Khi chạy lệnh \code{ss -s}, kỹ sư phát hiện có hơn $60.000$ socket đang nằm ở trạng thái \code{TIME_WAIT}. Giải thích bản chất của trạng thái \code{TIME_WAIT} trong giao thức TCP và đưa ra 2 giải pháp kỹ thuật ở tầng hệ điều hành và tầng ứng dụng để khắc phục triệt để sự cố.
+\begin{enumerate}
+  \item \textbf{Sự Cố D.1 (Cạn Kiệt Cổng Ephemeral \& Trạng Thái TIME\_WAIT)}: \\
+  Một dịch vụ Agent tự hành thực hiện hàng trăm nghìn truy vấn HTTP kiểm tra thông tin nội bộ trong thời gian ngắn. Sau 15 phút vận hành, toàn bộ hệ thống sụp đổ với lỗi \code{Cannot assign requested address}. Khi chạy lệnh \code{ss -s}, kỹ sư phát hiện có hơn $60.000$ socket đang nằm ở trạng thái \code{TIME_WAIT}. Giải thích bản chất của trạng thái \code{TIME_WAIT} trong giao thức TCP và đưa ra 2 giải pháp kỹ thuật ở tầng hệ điều hành và tầng ứng dụng để khắc phục triệt để sự cố.
+
+  \item \textbf{Sự Cố D.2 (Hiện Tượng Silent Packet Drop Do Sai Lệch Kích Thước MTU)}: \\
+  Trong một cụm huấn luyện phân tán 2 máy chủ GPU, quá trình khởi tạo diễn ra bình thường. Tuy nhiên, khi bắt đầu vòng lặp huấn luyện đầu tiên tại bước \code{all_reduce}, tiến trình Python bị treo vĩnh viễn không có thông báo lỗi. Sau khi phân tích gói tin bằng \code{tcpdump}, kỹ sư phát hiện máy chủ A gửi gói tin kích thước $8900\text{ bytes}$ (do cấu hình $\text{MTU} = 9000$), nhưng switch mạng trung gian chỉ hỗ trợ $\text{MTU} = 1500$. Hãy phân tích nguyên nhân tại sao lỗi không được thông báo và đề xuất phương pháp chẩn đoán bằng lệnh \code{ping -M do}.
 \end{enumerate}
 
 ---
@@ -417,35 +649,117 @@ class NetworkLatencyBreakdownCalculator:
 \section{Hướng Dẫn Lời Giải \& Bình Luận Kỹ Thuật Chi Tiết}
 \label{sec:ch03-solutions}
 
-\paragraph{Lời giải Bài A1 (Tại sao chọn SSE thay vì WebSocket)}:
-\begin{enumerate}
-  \item \textbf{Tương thích hoàn hảo với hạ tầng HTTP có sẵn}: SSE là giao thức chạy trực tiếp trên nền HTTP chuẩn. Do đó, các bộ cân bằng tải (Nginx, AWS ALB, Cloudflare), cổng WAF và tường lửa doanh nghiệp đều hỗ trợ nguyên bản mà không cần cấu hình đặc biệt hay gặp lỗi ngắt kết nối như WebSocket.
-  \item \textbf{Hỗ trợ HTTP/2 Multiplexing}: Trên nền HTTP/2, nhiều luồng SSE có thể được ghép kênh trên một kết nối TCP duy nhất, tiết kiệm tài nguyên mạng vượt trội.
-  \item \textbf{Cơ chế tự động kết nối lại (Native Reconnection)}: Giao thức SSE có sẵn trường \code{Last-Event-ID}. Khi kết nối mạng bị gián đoạn, trình duyệt tự động kết nối lại và gửi kèm ID của token cuối cùng đã nhận, cho phép máy chủ tiếp tục stream mà không làm gián đoạn trải nghiệm người dùng.
-  \item \textbf{Bản chất luồng dữ liệu một chiều}: Quá trình suy luận LLM chỉ cần luồng dữ liệu 1 chiều (Client gửi 1 câu hỏi, Server sinh ra hàng nghìn token liên tục). Việc dùng WebSocket (giao tiếp 2 chiều toàn phần) là dư thừa và làm tăng độ phức tạp quản lý kết nối.
-\end{enumerate}
-
-\paragraph{Lời giải Bài B1 (Tính toán Băng thông Mạng Egress)}:
+\subsection{Lời Giải Nhóm A: Câu Hỏi Tư Duy Bản Chất}
 \begin{itemize}
-  \item[a)] Số lượng token sinh ra mỗi giây trên toàn hệ thống:
+  \item \textbf{Lời giải Câu A.1}:
+  \begin{enumerate}
+    \item \textbf{Tương thích hoàn hảo với hạ tầng HTTP có sẵn}: SSE là giao thức chạy trực tiếp trên nền HTTP chuẩn. Do đó, các bộ cân bằng tải (Nginx, AWS ALB, Cloudflare), cổng WAF và tường lửa doanh nghiệp đều hỗ trợ nguyên bản mà không cần cấu hình đặc biệt hay gặp lỗi ngắt kết nối như WebSocket.
+    \item \textbf{Hỗ trợ HTTP/2 Multiplexing}: Trên nền HTTP/2, nhiều luồng SSE có thể được ghép kênh trên một kết nối TCP duy nhất, tiết kiệm tài nguyên mạng vượt trội.
+    \item \textbf{Cơ chế tự động kết nối lại (Native Reconnection)}: Giao thức SSE có sẵn trường \code{Last-Event-ID}. Khi kết nối mạng bị gián đoạn, trình duyệt tự động kết nối lại và gửi kèm ID của token cuối cùng đã nhận, cho phép máy chủ tiếp tục stream mà không làm gián đoạn trải nghiệm người dùng.
+    \item \textbf{Bản chất luồng dữ liệu một chiều}: Quá trình suy luận LLM chỉ cần luồng dữ liệu 1 chiều (Client gửi 1 câu hỏi, Server sinh ra hàng nghìn token liên tục). Việc dùng WebSocket (giao tiếp 2 chiều toàn phần) là dư thừa và làm tăng độ phức tạp quản lý kết nối.
+  \end{enumerate}
+
+  \item \textbf{Lời giải Câu A.2}:
+  Khi RAM cạn kiệt, OOM-Killer tính điểm \code{oom_score} cho từng tiến trình: Tiến trình nào chiếm nhiều RAM nhất và có thời gian chạy ngắn nhất thường bị chấm điểm cao nhất để tiêu diệt nhằm giải phóng nhiều bộ nhớ nhất.
+  Để bảo vệ tiến trình AI phục vụ không bị bắn hạ nhầm, kỹ sư cấu hình điểm ưu tiên qua tệp ảo:
   \begin{equation*}
-  \text{Total Tokens/s} = 5.000\text{ users} \times 25\text{ tokens/s} = 125.000\text{ tokens/giây}
+  \text{\code{echo -1000 > /proc/<PID>/oom_score_adj}}
   \end{equation*}
-  Lưu lượng dữ liệu thô xuất ra mỗi giây:
-  \begin{equation*}
-  \text{Bytes/s} = 125.000 \times 60\text{ bytes} = 7.500.000\text{ bytes/s} = 7.5\text{ MB/s}
-  \end{equation*}
-  Chuyển đổi sang băng thông mạng Megabits per second (Mbps):
-  \begin{equation*}
-  \text{Bandwidth}_{\text{Mbps}} = \frac{7.5 \times 10^6 \times 8\text{ bits}}{10^6} = 60.0\text{ Mbps}
-  \end{equation*}
-  \item[b)] Nếu card mạng có băng thông $1\text{ Gbps} = 1.000\text{ Mbps}$, giả sử hiệu suất sử dụng mạng an toàn là $80\%$ ($800\text{ Mbps}$), số lượng người dùng tối đa có thể phục vụ là:
-  \begin{equation*}
-  N_{\max} = \frac{800\text{ Mbps}}{\frac{25 \times 60 \times 8}{10^6}\text{ Mbps/user}} = \frac{800}{0.012} \approx 66.666\text{ concurrent users!}
-  \end{equation*}
+  Giá trị $-1000$ là mức miễn trừ tuyệt đối, nhân Linux sẽ không bao giờ tiêu diệt tiến trình này trừ khi hệ thống sập hoàn toàn.
+
+  \item \textbf{Lời giải Câu A.3}:
+  Mỗi kết nối mạng TCP tương ứng với một tệp tin ảo (\textit{Socket File Descriptor}) trong Linux.
+  Nếu giữ nguyên mức mặc định $1024$, khi có $2000$ người dùng đồng thời kết nối, hệ điều hành sẽ từ chối kết nối thứ $1025$ và trả về lỗi nghiêm trọng: \code{EMFILE: Too many open files}. Việc nâng lên $65536$ đảm bảo máy chủ có đủ dung lượng bảng mô tả tệp để duy trì hàng chục ngàn kết nối streaming đồng thời.
+
+  \item \textbf{Lời giải Câu A.4}:
+  Trong thuật toán TCP Slow Start, cửa sổ tắc nghẽn ban đầu (\textit{Initial Congestion Window - initcwnd}) thường mặc định là $10\text{ MSS}$ ($\approx 14.6\text{ KB}$).
+  Khi client gửi một prompt $32\text{ KB}$, TCP không được phép gửi toàn bộ $32\text{ KB}$ ngay lập tức:
+  Nó gửi đợt 1 ($14.6\text{ KB}$) và phải dừng lại chờ gói tin ACK từ máy chủ quay về (mất 1 RTT).
+  Sau khi nhận được ACK, cửa sổ nhân đôi thành $20\text{ MSS}$ và gửi tiếp phần còn lại ($17.4\text{ KB}$).
+  Do đó, việc truyền tải prompt mất ít nhất 2 RTT chỉ riêng cho việc truyền dữ liệu, làm tăng đáng kể chỉ số TTFT trên các đường truyền WAN độ trễ cao.
+
+  \item \textbf{Lời giải Câu A.5}:
+  Khi truyền tải hàng Gigabyte tensor giữa các GPU qua mạng trong thao tác All-Reduce:
+  \begin{itemize}
+    \item Nếu dùng $\text{MTU} = 1500$, để truyền $9\text{ KB}$ cần 6 gói tin Ethernet, CPU/NIC phải xử lý 6 lần ngắt (Interrupts) và tiêu tốn $6 \times 40\text{ bytes} = 240\text{ bytes}$ overhead tiêu đề.
+    \item Nếu dùng Jumbo Frame $\text{MTU} = 9000$, toàn bộ $9\text{ KB}$ chỉ cần đúng 1 gói tin duy nhất, giảm 6 lần số lượng ngắt mạng và giảm 6 lần chi phí xử lý gói tin của card mạng, giúp giải phóng tối đa băng thông cho các thuật toán huấn luyện phân tán.
+  \end{itemize}
 \end{itemize}
 
-\paragraph{Lời giải Bài D1 (Giải mã sự cố TIME\_WAIT)}:
+\subsection{Lời Giải Nhóm B: Bài Toán Tính Toán Giải Tích Bằng Tay}
+\begin{itemize}
+  \item \textbf{Lời giải Bài B.1}:
+  \begin{enumerate}
+    \item Số lượng token sinh ra mỗi giây trên toàn hệ thống:
+    \begin{equation*}
+    \text{Total Tokens/s} = 5.000\text{ users} \times 25\text{ tokens/s} = 125.000\text{ tokens/giây}
+    \end{equation*}
+    Lưu lượng dữ liệu thô xuất ra mỗi giây:
+    \begin{equation*}
+    \text{Bytes/s} = 125.000 \times 60\text{ bytes} = 7.500.000\text{ bytes/s} = 7.5\text{ MB/s}
+    \end{equation*}
+    Chuyển đổi sang băng thông mạng Megabits per second (Mbps):
+    \begin{equation*}
+    \text{Bandwidth}_{\text{Mbps}} = \frac{7.5 \times 10^6 \times 8\text{ bits}}{10^6} = \mathbf{60.0\text{ Mbps}}
+    \end{equation*}
+    \item Nếu card mạng có băng thông $1\text{ Gbps} = 1.000\text{ Mbps}$, với ngưỡng sử dụng an toàn $80\%$ ($800\text{ Mbps}$):
+    \begin{equation*}
+    N_{\max} = \frac{800\text{ Mbps}}{\frac{25 \times 60 \times 8}{10^6}\text{ Mbps/user}} = \frac{800}{0.012} \approx \mathbf{66.666\text{ concurrent users!}}
+    \end{equation*}
+  \end{enumerate}
+
+  \item \textbf{Lời giải Bài B.2}:
+  \begin{enumerate}
+    \item Tổng số địa chỉ IP cần thiết cho 128 máy chủ:
+    \begin{equation*}
+    N_{\text{IP\_needed}} = 128\text{ máy chủ} \times 4\text{ IP/máy} = \mathbf{512\text{ địa chỉ IP}}
+    \end{equation*}
+    \item Dự phòng thêm ít nhất $20\%$ dung lượng cho tương lai:
+    \begin{equation*}
+    N_{\text{total\_required}} = 512 \times 1.2 = 614.4 \implies \text{Cần tối thiểu } 615\text{ IP}
+    \end{equation*}
+    \item Chọn mặt nạ CIDR \code{/n}:
+    Số lượng địa chỉ trong dải là $2^{32 - n}$. Ta cần $2^{32 - n} - 2 \ge 615$:
+    \begin{itemize}
+      \item Thử với $n = 23$: Số bit host là $32 - 23 = 9$ bits $\implies 2^9 - 2 = 512 - 2 = 510$ IP (chưa đủ).
+      \item Thử với $n = 22$: Số bit host là $32 - 22 = 10$ bits $\implies 2^{10} - 2 = 1024 - 2 = \mathbf{1022\text{ IP}}$ (thỏa mãn xuất sắc!).
+    \end{itemize}
+    Mặt nạ mạng con CIDR nhỏ nhất là \textbf{\code{10.0.0.0/22}} với \textbf{1022 địa chỉ host khả dụng}, đáp ứng hoàn toàn nhu cầu hiện tại và dự phòng tới $99.6\%$ cho việc cắm thêm 128 máy chủ mới!
+  \end{enumerate}
+\end{itemize}
+
+\subsection{Lời Giải Nhóm C: Thực Hành Kỹ Nghệ \& Lập Trình}
+\begin{lstlisting}[language=Python]
+import socket
+import time
+from typing import Dict, Any
+
+class AINetworkHealthChecker:
+    """Cong cu kiem tra ket noi va do tre mang toi cac dich vu AI."""
+    @staticmethod
+    def check_port(host: str, port: int, timeout_sec: float = 2.0) -> Dict[str, Any]:
+        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        sock.settimeout(timeout_sec)
+        start_time = time.time()
+        try:
+            sock.connect((host, port))
+            latency_ms = (time.time() - start_time) * 1000.0
+            return {
+                "host": host, "port": port,
+                "status": "OPEN", "latency_ms": round(latency_ms, 2)
+            }
+        except socket.timeout:
+            return {"host": host, "port": port, "status": "TIMEOUT", "latency_ms": -1.0}
+        except ConnectionRefusedError:
+            return {"host": host, "port": port, "status": "CLOSED", "latency_ms": -1.0}
+        except Exception as e:
+            return {"host": host, "port": port, "status": f"ERROR: {str(e)}", "latency_ms": -1.0}
+        finally:
+            sock.close()
+\end{lstlisting}
+
+\subsection{Lời Giải Nhóm D: Phân Tích Thất Bại Thực Tế (Post-Mortem Analysis)}
+\paragraph{Lời giải Sự Cố D.1 (Giải mã sự cố TIME\_WAIT)}:
 Khi một kết nối TCP đóng lại, đầu mối chủ động đóng kết nối bắt buộc phải duy trì socket ở trạng thái \code{TIME_WAIT} trong khoảng thời gian bằng $2 \times \text{MSL}$ (Maximum Segment Lifetime, thường là 60 giây). Mục đích là đảm bảo gói tin \code{ACK} cuối cùng đã tới đích an toàn và các gói tin lạc đường không làm nhiễu kết nối mới. 
 
 Tuy nhiên, dải cổng kết nối tạm thời (\textit{Ephemeral Ports}) của Linux chỉ có khoảng $28.000$ đến $60.000$ cổng (\code{/proc/sys/net/ipv4/ip_local_port_range}). Nếu ứng dụng Agent tạo kết nối mới cho mỗi request rồi đóng ngay lập tức, toàn bộ cổng mạng khả dụng sẽ bị kẹt trong trạng thái \code{TIME_WAIT}, khiến hệ điều hành không thể cấp phát cổng mới $\rightarrow$ Báo lỗi \code{Cannot assign requested address}.
@@ -458,3 +772,14 @@ Tuy nhiên, dải cổng kết nối tạm thời (\textit{Ephemeral Ports}) c�
   sudo sysctl -w net.ipv4.tcp_tw_reuse=1
   \end{lstlisting}
 \end{enumerate}
+
+\paragraph{Lời giải Sự Cố D.2 (Giải mã sự cố MTU Mismatch)}:
+Khi máy chủ gửi gói tin $8900\text{ bytes}$ với cờ không cho phép phân mảnh (\code{DF - Don't Fragment}), switch trung gian có $\text{MTU} = 1500$ không thể chuyển tiếp gói tin. Nếu switch bị cấu hình sai và không gửi lại gói tin báo lỗi \code{ICMP Fragmentation Needed}, máy chủ gửi sẽ không biết gói tin bị rơi và tiếp tục chờ đợi vô tận (\textit{Path MTU Black Hole}).
+
+\textbf{Chẩn đoán và khắc phục}:
+Sử dụng lệnh ping với cờ cấm phân mảnh để dò tìm chính xác kích thước MTU tối đa của đường truyền:
+\begin{lstlisting}[language=bash]
+# Do MTU: Gui goi tin 8972 bytes (+ 28 bytes header = 9000 bytes)
+ping -M do -s 8972 <IP_SERVER_B>
+\end{lstlisting}
+Nếu lệnh ping báo lỗi \code{Frag needed and DF set}, kỹ sư phải đồng bộ lại MTU trên toàn bộ các switch trung gian hoặc hạ MTU trên card mạng của máy chủ GPU xuống $1500$.

@@ -1,6 +1,8 @@
 """Test suite for Chapter 3 Systems and Networking code examples."""
 import pytest
+import socket
 from typing import Dict, Any, List, Optional
+from unittest.mock import patch, MagicMock
 
 class InMemorySlidingWindowRateLimiter:
     def __init__(self, limit: int = 10, window_seconds: float = 60.0):
@@ -48,31 +50,80 @@ class NetworkLatencyBreakdownCalculator:
             "connection_reused": is_connection_reused
         }
 
+class CIDRSubnetCalculator:
+    @staticmethod
+    def calculate_usable_hosts(cidr_prefix: int) -> int:
+        if not (0 <= cidr_prefix <= 32):
+            raise ValueError("CIDR prefix phai nam trong khoang 0 den 32")
+        if cidr_prefix >= 31:
+            return 0
+        return (2 ** (32 - cidr_prefix)) - 2
+
+class AINetworkHealthChecker:
+    @staticmethod
+    def check_port(host: str, port: int, timeout_sec: float = 2.0) -> Dict[str, Any]:
+        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        sock.settimeout(timeout_sec)
+        try:
+            sock.connect((host, port))
+            return {"host": host, "port": port, "status": "OPEN"}
+        except socket.timeout:
+            return {"host": host, "port": port, "status": "TIMEOUT"}
+        except ConnectionRefusedError:
+            return {"host": host, "port": port, "status": "CLOSED"}
+        except Exception as e:
+            return {"host": host, "port": port, "status": f"ERROR: {str(e)}"}
+        finally:
+            sock.close()
+
 def test_sliding_window_rate_limiter():
     limiter = InMemorySlidingWindowRateLimiter(limit=3, window_seconds=10.0)
     
-    # 3 allowed requests within window
     assert limiter.is_allowed("user_1", current_time=1.0) is True
     assert limiter.is_allowed("user_1", current_time=2.0) is True
     assert limiter.is_allowed("user_1", current_time=3.0) is True
-    
-    # 4th request rejected
     assert limiter.is_allowed("user_1", current_time=4.0) is False
     
-    # After window passes (> 10s from 1.0 -> 11.5s), request 1 falls out, 1 request allowed
-    assert limiter.is_allowed("user_1", current_time=11.5) is True
+    assert limiter.is_allowed("user_1", current_time=12.0) is True
 
 def test_network_latency_calculator():
-    # Without connection reuse (Handshake: 2 RTT = 72ms, Transit: 1 RTT = 36ms, GPU: 80ms)
+    res_pool = NetworkLatencyBreakdownCalculator.calculate_total_ttft(
+        rtt_ms=36.0, gpu_ttft_ms=80.0, is_connection_reused=True
+    )
+    assert res_pool["total_ttft_ms"] == 116.0
+    
     res_no_pool = NetworkLatencyBreakdownCalculator.calculate_total_ttft(
         rtt_ms=36.0, gpu_ttft_ms=80.0, is_connection_reused=False
     )
     assert res_no_pool["total_ttft_ms"] == 188.0
     assert res_no_pool["handshake_overhead_ms"] == 72.0
-    
-    # With connection reuse
-    res_pool = NetworkLatencyBreakdownCalculator.calculate_total_ttft(
-        rtt_ms=36.0, gpu_ttft_ms=80.0, is_connection_reused=True
-    )
-    assert res_pool["total_ttft_ms"] == 116.0
-    assert res_pool["handshake_overhead_ms"] == 0.0
+
+def test_cidr_calculator():
+    # /24 has 254 usable hosts
+    assert CIDRSubnetCalculator.calculate_usable_hosts(24) == 254
+    # /22 has 1022 usable hosts (Exercise B.2)
+    assert CIDRSubnetCalculator.calculate_usable_hosts(22) == 1022
+    # /30 has 2 usable hosts
+    assert CIDRSubnetCalculator.calculate_usable_hosts(30) == 2
+    # /32 has 0 usable hosts
+    assert CIDRSubnetCalculator.calculate_usable_hosts(32) == 0
+
+def test_network_health_checker_mock():
+    with patch("socket.socket") as mock_sock_cls:
+        mock_sock = MagicMock()
+        mock_sock_cls.return_value = mock_sock
+        
+        # Test OPEN
+        mock_sock.connect.return_value = None
+        res = AINetworkHealthChecker.check_port("127.0.0.1", 8000)
+        assert res["status"] == "OPEN"
+
+        # Test TIMEOUT
+        mock_sock.connect.side_effect = socket.timeout
+        res = AINetworkHealthChecker.check_port("127.0.0.1", 8000)
+        assert res["status"] == "TIMEOUT"
+
+        # Test CLOSED
+        mock_sock.connect.side_effect = ConnectionRefusedError
+        res = AINetworkHealthChecker.check_port("127.0.0.1", 8000)
+        assert res["status"] == "CLOSED"

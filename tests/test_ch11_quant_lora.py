@@ -8,7 +8,9 @@ Covers:
 - DPOLossEngine loss calculation, implicit rewards, and preference accuracy
 """
 
-from typing import Dict, Optional, Tuple
+from typing import Dict, Optional, Tuple, List, Any
+import math
+import re
 import numpy as np
 import pytest
 
@@ -380,4 +382,259 @@ def test_obs_quantizer_engine():
     assert w_q.shape == (d_out, d_in)
     # OBS must consistently achieve lower reconstruction MSE than RTN
     assert mse_obs < mse_rtn
+
+
+# ==============================================================================
+# GRPO & BITNET 1.58B SIMULATORS
+# ==============================================================================
+
+class GRPOAdvantageEstimator:
+    """
+    Simulates Group Relative Policy Optimization (GRPO) from DeepSeek-R1.
+    Eliminates the separate Critic network by normalizing rewards across
+    a group of G sampled rollouts for each prompt:
+    A_i = (r_i - mean(R)) / (std(R) + eps)
+    """
+
+    @staticmethod
+    def extract_boxed_answer(text: str) -> Optional[str]:
+        """Extracts the final answer enclosed in \\boxed{...}."""
+        pattern = r"\\boxed\{([^}]+)\}"
+        match = re.search(pattern, text)
+        if match:
+            return match.group(1).strip()
+        return None
+
+    @classmethod
+    def rule_based_verifier(
+        cls, completion: str, ground_truth: str, format_weight: float = 0.5
+    ) -> Dict[str, float]:
+        """
+        Rule-based reward verifier for reasoning models (DeepSeek-R1 style):
+        - Format reward: enforces <think>...</think> and \\boxed{...}
+        - Accuracy reward: checks if \\boxed{...} matches ground_truth exactly
+        """
+        has_think = bool(re.search(r"<think>.*?</think>", completion, re.DOTALL))
+        extracted_answer = cls.extract_boxed_answer(completion)
+        has_boxed = extracted_answer is not None
+
+        format_reward = 0.0
+        if has_think and has_boxed:
+            format_reward = 1.0
+        elif has_think or has_boxed:
+            format_reward = 0.5
+
+        acc_reward = 0.0
+        if extracted_answer is not None and extracted_answer.lower() == ground_truth.strip().lower():
+            acc_reward = 1.0
+
+        total_reward = acc_reward + format_weight * format_reward
+        return {
+            "format_reward": format_reward,
+            "accuracy_reward": acc_reward,
+            "total_reward": total_reward,
+        }
+
+    @staticmethod
+    def compute_group_advantages(rewards: List[float], eps: float = 1e-6) -> np.ndarray:
+        """
+        Normalizes rewards across a sampled group of G candidate answers:
+        A_i = (r_i - mean(R)) / (std(R) + eps)
+        If std(R) == 0 (all outputs receive identical reward), advantages are 0.
+        """
+        r = np.array(rewards, dtype=np.float64)
+        mean_r = np.mean(r)
+        std_r = np.std(r)
+        if std_r < 1e-8:
+            return np.zeros_like(r)
+        return (r - mean_r) / (std_r + eps)
+
+    @staticmethod
+    def compute_clipped_surrogate_loss(
+        pi_logps: np.ndarray,
+        old_logps: np.ndarray,
+        advantages: np.ndarray,
+        clip_eps: float = 0.2
+    ) -> Tuple[float, float]:
+        """
+        Computes the PPO clipped surrogate objective loss across tokens:
+        ratio = exp(pi_logps - old_logps)
+        loss = -min(ratio * A, clip(ratio, 1 - eps, 1 + eps) * A)
+        Returns (mean_loss, clip_fraction).
+        """
+        ratios = np.exp(pi_logps - old_logps)
+        surr1 = ratios * advantages
+        clipped_ratios = np.clip(ratios, 1.0 - clip_eps, 1.0 + clip_eps)
+        surr2 = clipped_ratios * advantages
+        obj = np.minimum(surr1, surr2)
+        loss = -float(np.mean(obj))
+        clip_fraction = float(np.mean(ratios != clipped_ratios))
+        return loss, clip_fraction
+
+    @staticmethod
+    def compute_kl_divergence_schulman(pi_logps: np.ndarray, ref_logps: np.ndarray) -> float:
+        """
+        Schulman unbiased KL estimator:
+        KL = exp(ref - pi) - 1 - (ref - pi)
+        """
+        log_ratio = ref_logps - pi_logps
+        kl = np.exp(log_ratio) - 1.0 - log_ratio
+        return float(np.mean(kl))
+
+
+class BitNetTernaryLinear:
+    """
+    Simulates BitNet b1.58 (1.58-bit Large Language Models).
+    Weights are quantized to {-1, 0, +1} using absmean scaling:
+    gamma = mean(|W|)
+    W_ternary = clip(round(W / (gamma + eps)), -1, 1)
+    Forward pass replaces FP16 multiply-adds with pure integer additions/subtractions.
+    """
+
+    def __init__(self, d_in: int, d_out: int):
+        self.d_in = d_in
+        self.d_out = d_out
+        self.w = np.random.standard_normal((d_out, d_in)).astype(np.float32)
+
+    @staticmethod
+    def quantize_weights(w: np.ndarray, eps: float = 1e-6) -> Tuple[np.ndarray, float]:
+        """
+        Quantizes continuous weights into ternary values {-1, 0, +1}.
+        Returns (W_ternary, gamma).
+        """
+        gamma = float(np.mean(np.abs(w)))
+        scale = max(gamma, eps)
+        w_scaled = w / scale
+        w_ternary = np.clip(np.round(w_scaled), -1, 1).astype(np.int8)
+        return w_ternary, scale
+
+    @staticmethod
+    def quantize_activations(x: np.ndarray, bits: int = 8) -> Tuple[np.ndarray, float]:
+        """Quantizes activation tensor into INT8 symmetric range [-127, 127]."""
+        q_max = (1 << (bits - 1)) - 1  # 127 for 8-bit
+        max_abs = float(np.max(np.abs(x)))
+        if max_abs < 1e-8:
+            return np.zeros_like(x, dtype=np.int8), 1.0
+        scale = max_abs / q_max
+        x_q = np.clip(np.round(x / scale), -q_max, q_max).astype(np.int8)
+        return x_q, scale
+
+    @staticmethod
+    def forward_pure_addition(x_q: np.ndarray, w_ternary: np.ndarray) -> np.ndarray:
+        """
+        Performs matrix multiplication y_q = x_q @ w_ternary.T WITHOUT multiplications.
+        x_q: shape (batch_size, d_in) of INT8
+        w_ternary: shape (d_out, d_in) of {-1, 0, +1}
+        Uses only conditional additions and subtractions.
+        """
+        batch_size, d_in = x_q.shape
+        d_out, w_din = w_ternary.shape
+        assert d_in == w_din, "Dimension mismatch in BitNet forward pass"
+
+        # Initialize output accumulator with INT32 to prevent overflow
+        y_acc = np.zeros((batch_size, d_out), dtype=np.int32)
+
+        # Pure addition/subtraction engine
+        for b in range(batch_size):
+            row_x = x_q[b].astype(np.int32)
+            for j in range(d_out):
+                row_w = w_ternary[j]
+                # Elements with +1 are added, elements with -1 are subtracted, 0 is ignored
+                plus_mask = (row_w == 1)
+                minus_mask = (row_w == -1)
+                accum = np.sum(row_x[plus_mask]) - np.sum(row_x[minus_mask])
+                y_acc[b, j] = accum
+
+        return y_acc
+
+
+# ==============================================================================
+# TESTS FOR GRPO & BITNET
+# ==============================================================================
+
+def test_grpo_rule_based_verifier():
+    sample_correct = (
+        "<think>Let x be the number of apples. 2x + 5 = 15 => 2x = 10 => x = 5.</think>\n"
+        "The answer is \\boxed{5}."
+    )
+    res_correct = GRPOAdvantageEstimator.rule_based_verifier(sample_correct, "5")
+    assert res_correct["format_reward"] == 1.0
+    assert res_correct["accuracy_reward"] == 1.0
+    assert pytest.approx(res_correct["total_reward"]) == 1.5
+
+    sample_wrong_answer = (
+        "<think>Calculating 2x + 5 = 15 => x = 7.</think>\n"
+        "The answer is \\boxed{7}."
+    )
+    res_wrong = GRPOAdvantageEstimator.rule_based_verifier(sample_wrong_answer, "5")
+    assert res_wrong["format_reward"] == 1.0
+    assert res_wrong["accuracy_reward"] == 0.0
+    assert pytest.approx(res_wrong["total_reward"]) == 0.5
+
+    sample_no_format = "5"
+    res_no_format = GRPOAdvantageEstimator.rule_based_verifier(sample_no_format, "5")
+    assert res_no_format["format_reward"] == 0.0
+    assert res_no_format["accuracy_reward"] == 0.0
+    assert res_no_format["total_reward"] == 0.0
+
+
+def test_grpo_group_advantages_zero_mean_unit_variance():
+    rewards = [1.5, 0.5, 0.5, 1.5, 0.0, 1.5, 0.5, 1.0]
+    advantages = GRPOAdvantageEstimator.compute_group_advantages(rewards)
+
+    assert len(advantages) == len(rewards)
+    # Mean of advantages across the group should be approximately 0.0
+    assert pytest.approx(float(np.mean(advantages)), abs=1e-5) == 0.0
+    # Standard deviation should be approximately 1.0
+    assert pytest.approx(float(np.std(advantages)), abs=1e-4) == 1.0
+
+    # If all rewards are identical (e.g. all 1.0), advantage should be 0 without NaN
+    all_same = [1.0, 1.0, 1.0, 1.0]
+    adv_same = GRPOAdvantageEstimator.compute_group_advantages(all_same)
+    assert np.all(adv_same == 0.0)
+
+
+def test_grpo_clipped_surrogate_loss():
+    old_logps = np.array([-1.0, -2.0, -1.5, -0.5])
+    # Policy improves on positive advantage tokens
+    pi_logps = np.array([-0.8, -2.5, -1.0, -0.7])
+    advantages = np.array([1.2, -0.8, 0.5, -0.9])
+
+    loss, clip_frac = GRPOAdvantageEstimator.compute_clipped_surrogate_loss(
+        pi_logps, old_logps, advantages, clip_eps=0.2
+    )
+    assert isinstance(loss, float)
+    assert 0.0 <= clip_frac <= 1.0
+
+    # Test Schulman KL
+    ref_logps = np.array([-1.0, -2.0, -1.5, -0.5])
+    kl = GRPOAdvantageEstimator.compute_kl_divergence_schulman(pi_logps, ref_logps)
+    assert kl >= 0.0
+
+
+def test_bitnet_ternary_quantization_and_forward():
+    d_in, d_out = 16, 8
+    layer = BitNetTernaryLinear(d_in, d_out)
+
+    # 1. Test ternary weight quantization
+    w_ternary, gamma = layer.quantize_weights(layer.w)
+    unique_vals = set(np.unique(w_ternary))
+    assert unique_vals.issubset({-1, 0, 1})
+    assert gamma > 0.0
+
+    # 2. Test INT8 activation quantization
+    x = np.random.standard_normal((4, d_in)).astype(np.float32)
+    x_q, scale_x = layer.quantize_activations(x)
+    assert x_q.dtype == np.int8
+    assert np.all(x_q >= -127) and np.all(x_q <= 127)
+
+    # 3. Test pure addition forward pass equivalence with standard matmul
+    y_pure_add = layer.forward_pure_addition(x_q, w_ternary)
+    y_matmul = np.matmul(x_q.astype(np.int32), w_ternary.T.astype(np.int32))
+
+    np.testing.assert_array_equal(y_pure_add, y_matmul)
+
+    # 4. End-to-end dequantized float output
+    y_float_approx = y_pure_add.astype(np.float32) * (scale_x * gamma)
+    assert y_float_approx.shape == (4, d_out)
 

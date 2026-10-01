@@ -1,31 +1,27 @@
 # CURRENT_TASK.md — CONTRACT CÔNG VIỆC HIỆN TẠI
 
-**TASK ID**: TASK-CURRICULUM-COMPLETE  
-**TASK TYPE**: Full End-to-End Curriculum Implementation & Publishing  
-**OBJECTIVE**: Hoàn thành toàn bộ 10 Giai đoạn (Phase 0 đến Phase 9) và Phụ lục tra cứu của Giáo trình Kỹ sư AI Thực chiến, bao gồm đặc tả kiến trúc, mã nguồn mẫu runnable, bộ kiểm thử tự động Pytest, biên dịch 2-pass pdfLaTeX và kiểm định QA không có lỗi/cảnh báo.
+**TASK ID**: TASK-NETWORKING-SECURITY-APPLIED-AI  
+**TASK TYPE**: Comprehensive Ground-Zero Expansion (Systems Networking, Cryptography & Security, Real-World Applied AI Projects)  
+**OBJECTIVE**: Nâng cấp toàn diện các chủ đề Mạng máy tính & An ninh mạng từ con số 0 tuyệt đối (Tầng vật lý, Tầng Data Link, ARP, Switch CAM, Subnetting Bitwise, IPv4 Header, ICMP Traceroute, NAT/PAT conntrack, DNS phân giải đệ quy, TCP FSM 11 trạng thái, Mật mã học AES-GCM/ECC/SHA/HMAC/PKI X.509, SSRF, SQLi, Multi-Tenancy IAM RBAC/RLS) và bổ sung 2 Đồ án thực chiến Đỉnh cao cho Doanh nghiệp & Cá nhân (Enterprise SRE Copilot & Executive Chief of Staff).
 
 ---
 
-## SCOPE (HOÀN TẤT 100%)
-- **Phase 0**: Định hướng nghề nghiệp & Toàn cảnh hệ thống AI (`chapters/phase0_orientation.tex`)
-- **Phase 1 (Python)**: Kỹ nghệ Python chuyên sâu cho AI (`chapters/phase1_python.tex`)
-- **Phase 1 (Systems)**: Nền tảng Khoa học máy tính, Linux & Backend (`chapters/phase1_systems.tex`)
-- **Phase 2**: Toán học, Machine Learning & Deep Learning (`chapters/phase2_aiml.tex`)
-- **Phase 3**: Transformer Internals & Mô hình Ngôn ngữ Lớn (`chapters/phase3_llm.tex`)
-- **Phase 4**: Hệ thống RAG & AI Agent Tự hành với LangGraph (`chapters/phase4_rag_agent.tex`)
-- **Phase 5**: Đưa AI vào Vận hành Production & MLOps (`chapters/phase5_production.tex`)
-- **Phase 6**: Giao thoa Mạng máy tính & An ninh mạng AI (`chapters/phase6_security.tex`)
-- **Phase 7**: Thiết kế Kiến trúc Hệ thống AI Quy mô lớn (`chapters/phase7_system_design.tex`)
-- **Phase 8**: Dự án Thực chiến & Đồ án Đỉnh cao AI-NetSecOps (`chapters/phase8_capstone.tex`)
-- **Phase 9**: Phát triển Sự nghiệp, Portfolio & 6 Vòng Phỏng vấn (`chapters/phase9_career.tex`)
-- **Appendix**: Bảng thuật ngữ song ngữ Anh - Việt & Sổ tay lệnh (`appendices/glossary_and_cheatsheets.tex`)
-- **Tests**: Bộ 35 unit tests bao phủ toàn bộ code mẫu (`tests/test_*.py`)
-- **Build & QA Scripts**: `./scripts/build.sh` và `./scripts/check.sh`
-
-## VALIDATION RESULTS
-- `pytest tests/`: **35 passed in 0.25s** (100% test passing).
-- `./scripts/build.sh`: **PASS** (Exit 0, 68 trang A4, 512KB).
-- `./scripts/check.sh`: **QA RESULT: PASS** (0 Errors, 0 Warnings, 0 Broken refs).
+## SCOPE ĐÃ HOÀN TẤT (100%)
+1. **Chương 3 (Mạng Máy Tính Từ Con Số 0 Tuyệt Đối)**:
+   - Tầng Vật lý: Cáp đồng xoắn đôi Cat6/7, Cáp quang Single-mode/Multi-mode, Cáp DAC gắn trực tiếp cụm GPU, Băng thông, RTT, Jitter, Packet loss.
+   - Tầng Liên kết dữ liệu (Data Link): Cấu trúc khung Ethernet IEEE 802.3 từng byte, Địa chỉ MAC 48-bit OUI, Giao thức ARP (Request/Reply/Bảng ARP Cache/Nguy cơ ARP Spoofing), Thiết bị Switch & Bảng CAM (MAC Learning, Full Duplex, Collision Domain vs Broadcast Domain, phân tách mạng ảo VLAN 802.1Q).
+   - Tầng Mạng: Phép toán bitwise AND subnetting, Longest Prefix Match (LPM) trong routing table, Giải phẫu IPv4 Header 20-byte (IHL, TTL, Protocol, Checksum, Flags), Giao thức ICMP & Thuật toán hoạt động của `traceroute` qua cờ TTL, Kỹ thuật NAT/PAT & Bảng theo dõi kết nối `nf_conntrack` trong nhân Linux, DNS phân giải đệ quy (Root $\to$ TLD $\to$ Authoritative $\to$ Local Cache).
+   - Tầng Giao vận: Cấu trúc TCP Header, Máy trạng thái hữu hạn TCP 11 trạng thái (`CLOSED` tới `TIME_WAIT` $2\times\text{MSL}$ và `CLOSE_WAIT`), Điều khiển luồng Cửa sổ trượt (Sliding Window `rwnd`), Tắt giải thuật Nagle (`TCP_NODELAY`) cho streaming token LLM.
+2. **Chương 12 (An Ninh Mạng & Bảo Mật Từ Con Số 0)**:
+   - Nền tảng mật mã học: Mã hóa đối xứng AES-256-GCM AEAD, Mã hóa bất đối xứng RSA & ECC Curve25519, Hàm băm một chiều SHA-256, Mã xác thực thông điệp HMAC (xác thực Webhook an toàn), Hạ tầng khóa công khai PKI & Chứng chỉ số X.509 (Chain of Trust, OCSP).
+   - Kỹ thuật tấn công tầng ứng dụng & AI: Quét cổng Nmap (TCP Connect vs SYN Stealth scan), SQL Injection trong Text-to-SQL & Parameterized Queries, Server-Side Request Forgery (SSRF) trong AI browsing agents & Kiến trúc phòng thủ 3 lớp (DNS Pinning, IMDSv2).
+   - Multi-Tenancy IAM: Băm mật khẩu Argon2id kèm Salt ngẫu nhiên, Giải phẫu chuẩn mực JWT (`Header.Payload.Signature`) và các lỗ hổng thường gặp, Phân quyền RBAC vs ABAC, Bảo vệ cơ sở dữ liệu Vector với Row-Level Security (RLS) trong PostgreSQL pgvector.
+3. **Phụ lục E (Tuyển tập Đồ án Thực chiến Capstone)**:
+   - **Đồ Án 7 (Doanh Nghiệp)**: Nền Tảng Hỗ Trợ Kỹ Thuật & Tự Động Hóa Vận Hành IT / SRE Cho Doanh Nghiệp (Enterprise Autonomous IT Helpdesk & SRE Copilot) - Phân loại ITIL P1-P4, Chẩn đoán Pod Crash (OOMKilled vs Upstream DB), Human-in-the-Loop và Tự động sinh báo cáo Post-Mortem.
+   - **Đồ Án 8 (Cá Nhân / SME)**: Trợ Lý Giám Đốc Điều Hành Cá Nhân & Tự Động Hóa Quy Trình (Executive AI Chief of Staff & Workflow Automation) - Email Inbox Zero Triage, Thuật toán phát hiện xung đột lịch trình, Đối soát hóa đơn VAT và kiểm tra mã số thuế tự động.
+4. **Kiểm Thử & Đảm Bảo Chất Lượng (QA)**:
+   - Unit tests mở rộng từ 159 lên **167 tests** (`pytest tests/`) - PASS 100% (0.94s).
+   - Biên dịch tài liệu pdfLaTeX: **367 trang A4**, kích thước 1.9 MB, đạt chuẩn **0 Errors, 0 Warnings, 0 Overfull Hbox**.
 
 ## STATUS
 - **TRẠNG THÁI**: HOÀN THÀNH TOÀN DIỆN (COMPLETED).

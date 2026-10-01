@@ -52,6 +52,71 @@ Mọi quyết định thiết kế an ninh trong khoa học máy tính đều xo
 \end{tabular}
 \end{table}
 
+\subsection{Nền Tảng Mật Mã Học Cốt Lõi Từ Con Số 0 (Cryptographic Foundations)}
+\label{subsec:cryptography-foundations}
+Nền tảng của toàn bộ ngành an ninh mạng hiện đại được xây dựng trên mật mã học (\textit{Cryptography}). Mọi cơ chế bảo vệ kênh truyền, xác thực danh tính mô hình AI hay lưu trữ khóa API đều phụ thuộc vào ba trụ cột toán học:
+
+\subsubsection{1. Mã Hóa Đối Xứng (Symmetric Encryption) \& Chuẩn Vàng AES-GCM}
+Trong mã hóa đối xứng, cả bên gửi và bên nhận đều chia sẻ chung một khóa bí mật $K$. Quá trình mã hóa và giải mã được biểu diễn qua hai hàm toán học:
+\begin{equation}
+C = \mathcal{E}_K(P), \quad P = \mathcal{D}_K(C)
+\end{equation}
+trong đó $P$ là bản rõ (\textit{Plaintext}), $C$ là bản mã (\textit{Ciphertext}).
+
+Thuật toán chuẩn mực quốc tế là \term{AES (Advanced Encryption Standard)}, làm việc trên các khối dữ liệu $128\text{ bits}$ với các độ dài khóa $128$, $192$ hoặc $256\text{ bits}$. Hiệu quả bảo mật của AES phụ thuộc hoàn toàn vào \textbf{Chế độ hoạt động của khối (Block Cipher Modes)}:
+\begin{itemize}
+  \item \textbf{Chế độ ECB (Electronic Codebook) -- Lỗ hổng chết người}: Chia dữ liệu thành các khối 16-byte độc lập và mã hóa riêng rẽ. Nếu hai khối bản rõ có nội dung giống hệt nhau, chúng sẽ sinh ra hai khối bản mã giống hệt nhau! Khi mã hóa một bức ảnh hoặc file JSON cấu trúc lặp lại, hình dáng nguyên bản vẫn lộ rõ trong bản mã (thí nghiệm chim cánh cụt Tux nổi tiếng). \textbf{Tuyệt đối không bao giờ được dùng ECB!}
+  \item \textbf{Chế độ CBC (Cipher Block Chaining)}: Mỗi khối bản rõ trước khi mã hóa được \code{XOR} với khối bản mã liền trước, sử dụng một \term{Vector Khởi Tạo Ngẫu Nhiên (IV -- Initialization Vector)}. CBC yêu cầu đệm dữ liệu (\textit{Padding}) và dễ bị tấn công thám mã giải đệm (\textit{Padding Oracle Attack}).
+  \item \textbf{Chế độ GCM (Galois/Counter Mode) -- Chuẩn Vàng Hiện Đại}: Kết hợp chế độ đếm (Counter mode) với phép nhân trường hữu hạn Galois để tạo ra mã xác thực \term{GMAC}. GCM là cơ chế \term{AEAD (Authenticated Encryption with Associated Data)}: Nó không chỉ mã hóa dữ liệu mà còn sinh ra một thẻ xác thực (\textit{Authentication Tag}) $128\text{-bit}$. Nếu kẻ tấn công thay đổi dù chỉ một bit bản mã trên đường truyền, quá trình giải mã sẽ lập tức thất bại. Toàn bộ giao thức TLS 1.3 và lưu trữ khóa API an toàn đều bắt buộc dùng AES-256-GCM.
+\end{itemize}
+
+\subsubsection{2. Mã Hóa Bất Đối Xứng (Asymmetric Encryption) \& Đường Cong Elliptic}
+Bài toán hóc búa của mã hóa đối xứng là: \textit{Làm thế nào hai máy chủ chưa từng gặp nhau có thể chia sẻ khóa bí mật $K$ qua đường truyền Internet công cộng mà không bị kẻ trung gian nghe lén?}
+
+Mật mã khóa công khai (\textit{Public Key Cryptography}) giải quyết bài toán này bằng cách sử dụng một cặp khóa toán học bất đối xứng:
+\begin{itemize}
+  \item \textbf{Khóa Công Khai ($K_{\text{pub}}$)}: Được công bố rộng rãi cho toàn thế giới. Bất kỳ ai cũng có thể dùng $K_{\text{pub}}$ để mã hóa dữ liệu hoặc kiểm tra chữ ký.
+  \item \textbf{Khóa Bí Mật ($K_{\text{priv}}$)}: Được giữ bí mật tuyệt đối trên máy chủ. Chỉ có $K_{\text{priv}}$ mới có thể giải mã dữ liệu hoặc ký số.
+\end{itemize}
+
+Hai bài toán toán học làm nền tảng cho mật mã bất đối xứng:
+\begin{enumerate}
+  \item \textbf{Thuật toán RSA}: Dựa trên tính bất đối xứng của bài toán phân tích thừa số nguyên tố: Nhân hai số nguyên tố lớn $p, q$ thành hợp số $n = p \cdot q$ là phép toán cực nhanh $\mathcal{O}(\log^2 n)$, nhưng tìm lại $p, q$ từ $n$ đòi hỏi thời gian hàm mũ $\exp(\mathcal{O}(\sqrt[3]{\ln n}))$. Để an toàn hiện nay, RSA đòi hỏi kích thước khóa tối thiểu $2048$ hoặc $4096\text{ bits}$.
+  \item \textbf{Mật Mã Đường Cong Elliptic (ECC -- Elliptic Curve Cryptography)}: Dựa trên bài toán logarit rời rạc trên nhóm điểm của đường cong $y^2 = x^3 + ax + b \pmod{p}$. Đường cong tiêu chuẩn hiện đại \term{Curve25519 / Ed25519} do Daniel J. Bernstein thiết kế cung cấp mức độ an ninh 128-bit chỉ với khóa dài $256\text{ bits}$! Khóa ECC nhỏ hơn 8 lần so với RSA-2048, giúp giảm tiêu thụ băng thông mạng và tăng tốc độ bắt tay TLS lên gấp nhiều lần.
+\end{enumerate}
+
+\subsubsection{3. Hàm Băm Mật Mã Học (Cryptographic Hash) \& Mã Xác Thực HMAC}
+Hàm băm mật mã học là ánh xạ một chiều biến một chuỗi nhị phân có độ dài bất kỳ thành một chuỗi bit có độ dài cố định:
+\begin{equation}
+h = \mathcal{H}(M), \quad \text{với } \mathcal{H}: \{0, 1\}^* \to \{0, 1\}^n
+\end{equation}
+Một hàm băm chuẩn mực (như \term{SHA-256}) phải thỏa mãn 3 tính chất toán học sống còn:
+\begin{enumerate}
+  \item \textbf{Tính Kháng Tiền Ảnh (Pre-image Resistance)}: Cho trước giá trị băm $h$, về mặt tính toán là bất khả thi để tìm lại thông điệp gốc $M$ sao cho $\mathcal{H}(M) = h$.
+  \item \textbf{Tính Kháng Tiền Ảnh Thứ Hai (Second Pre-image Resistance)}: Cho trước $M_1$, bất khả thi để tìm thông điệp $M_2 \neq M_1$ sao cho $\mathcal{H}(M_1) = \mathcal{H}(M_2)$.
+  \item \textbf{Tính Kháng Xung Đột (Collision Resistance)}: Bất khả thi để tìm ra hai thông điệp bất kỳ $M_1 \neq M_2$ có cùng giá trị băm.
+  \item \textbf{Hiệu Ứng Tuyết Lở (Avalanche Effect)}: Thay đổi dù chỉ 1 bit duy nhất trong prompt 100.000 token, ít nhất $50\%$ số bit trong chuỗi băm 256-bit đầu ra sẽ bị đảo lộn hoàn toàn.
+\end{enumerate}
+
+\paragraph{Mã Xác Thực Thông Điệp HMAC (Keyed-Hash Message Authentication Code)}:
+Hàm băm thông thường chỉ kiểm tra được tính toàn vẹn (file có bị hỏng ngẫu nhiên hay không), nhưng không bảo vệ được trước kẻ tấn công có chủ đích vì kẻ tấn công có thể sửa thông điệp rồi tự tính lại hàm băm! Để chứng minh thông điệp thực sự xuất phát từ một đối tác tin cậy, giao thức \term{HMAC (RFC 2104)} kết hợp khóa bí mật $K$ với hàm băm:
+\begin{equation}
+\text{HMAC}(K, M) = \mathcal{H}\Big((K \oplus opad) \parallel \mathcal{H}((K \oplus ipad) \parallel M)\Big)
+\label{eq:hmac-formula}
+\end{equation}
+trong đó $opad = \text{0x5c5c...5c}$, $ipad = \text{0x3636...36}$ là các hằng số đệm cố định.
+Trong kỹ nghệ AI, khi bạn xây dựng hệ thống Agent nhận Webhook từ GitHub hay Stripe, ứng dụng bắt buộc phải tính HMAC của phần thân HTTP Body với Secret Key để loại bỏ $100\%$ các gói tin webhook giả mạo!
+
+\subsubsection{4. Hạ Tầng Khóa Công Khai PKI \& Chứng Chỉ Số X.509}
+Làm thế nào trình duyệt của bạn biết rằng khóa công khai $K_{\text{pub}}$ tải về từ máy chủ thực sự thuộc về \code{api.openai.com} chứ không phải của một hacker đang thực hiện ARP Spoofing?
+
+Giải pháp là \term{Hạ Tầng Khóa Công Khai (PKI -- Public Key Infrastructure)} và tiêu chuẩn chứng chỉ \term{X.509}:
+\begin{itemize}
+  \item Một tổ chức đáng tin cậy gọi là \term{Cơ Quan Cấp Chứng Chỉ (CA -- Certificate Authority)} (như Let's Encrypt, DigiCert) dùng khóa bí mật $K_{\text{priv}}^{\text{CA}}$ của mình để ký số lên một tập tin chứa: Tên miền (\code{CN=api.openai.com}), Khóa công khai của máy chủ, và Hạn sử dụng.
+  \item Hệ điều hành Linux và trình duyệt web cài đặt sẵn danh sách các \textbf{Root CA Certificates} đáng tin cậy trong thư mục \code{/etc/ssl/certs/}.
+  \item Trình duyệt xác minh chữ ký số theo một \term{Chuỗi Tin Cậy (Chain of Trust)} từ Server Cert $\to$ Intermediate CA $\to$ Root CA. Nếu chuỗi này liền mạch, kết nối HTTPS an toàn được xác lập!
+\end{itemize}
+
 \subsection{Giải Phẫu Gói Tin Từng Byte: Từ Khung Ethernet Tới TCP Segment}
 Khi một câu lệnh hoặc gói tin mạng truyền qua cáp quang hay sóng vô tuyến, nó không tồn tại dưới dạng chuỗi JSON trừu tượng, mà là một chuỗi các byte nhị phân được đóng gói tuần tự (Encapsulation). Hãy giải phẫu chính xác cấu trúc một gói tin dữ liệu trên đường truyền (Hình~\ref{fig:packet-anatomy}).
 
@@ -172,6 +237,92 @@ trong đó:
 \end{itemize}
 Khi máy khách gửi gói tin \code{ACK} hợp lệ cuối cùng, số xác nhận của nó chính là $ISN_s + 1$. Máy chủ chỉ việc trừ đi 1 và tính lại hàm băm $\mathcal{H}_K$. Nếu khớp, hệ điều hành mới chính thức cấp phát socket! Kỹ thuật này giúp máy chủ hoàn toàn miễn nhiễm với việc tràn bộ nhớ SYN Queue!
 \end{theorem}
+
+\subsubsection{3. Quét Cổng Mạng (Port Scanning) \& Cơ Chế Hoạt Động Của Nmap}
+Trước khi thực hiện bất kỳ cuộc tấn công nào vào cụm hạ tầng AI, kẻ tấn công luôn tiến hành trinh sát mạng (\textit{Reconnaissance}) bằng kỹ thuật quét cổng:
+\begin{itemize}
+  \item \textbf{TCP Connect Scan (\code{nmap -sT})}: Tiến trình quét hoàn tất đầy đủ 3 bước bắt tay TCP (SYN $\to$ SYN-ACK $\to$ ACK). Sau đó ngắt kết nối bằng cờ RST/FIN. Kỹ thuật này không đòi hỏi quyền root nhưng tạo ra dấu vết audit log rõ ràng trên máy chủ web.
+  \item \textbf{TCP SYN Stealth Scan (\code{nmap -sS}) -- Quét Cổng Tàng Hình}: Kẻ tấn công chỉ gửi gói \code{SYN}. Nếu cổng mở, máy chủ trả lời \code{SYN-ACK}. Thay vì gửi gói \code{ACK} để hoàn tất, kẻ tấn công lập tức gửi gói \code{RST} để hủy kết nối! Do kết nối chưa bao giờ đạt trạng thái \code{ESTABLISHED}, tầng ứng dụng (như FastAPI hay Nginx) hoàn toàn không hề ghi nhận phiên truy cập nào vào access log!
+  \item \textbf{UDP Scan (\code{nmap -sU})}: Gửi gói tin UDP rỗng tới cổng dịch vụ. Nếu cổng đóng, nhân Linux sẽ trả về bản tin \code{ICMP Type 3 Code 3 (Port Unreachable)}. Nếu không có phản hồi hoặc nhận lại dữ liệu UDP, cổng được xác định là mở hoặc bị tường lửa chặn.
+\end{itemize}
+
+\subsubsection{4. Tấn Công Tầng Ứng Dụng \& AI: SQL Injection \& Server-Side Request Forgery (SSRF)}
+Khi một hệ thống AI được tích hợp công cụ (\textit{Tool Use / Function Calling}), các lỗ hổng an ninh ứng dụng web cổ điển lập tức biến thành các nguy cơ thảm họa:
+
+\paragraph{A. Lỗ Hổng SQL Injection Trong Hệ Thống Text-to-SQL}:
+Nhiều kỹ sư AI thiết kế Agent Text-to-SQL bằng cách yêu cầu LLM sinh câu truy vấn SQL rồi ghép chuỗi trực tiếp:
+\begin{lstlisting}[language=Python]
+query = f"SELECT * FROM customers WHERE name = '{user_input}';"
+cursor.execute(query)
+\end{lstlisting}
+Nếu kẻ tấn công nhập: \code{"Nguyen'; DROP TABLE models; --"}, hệ thống sẽ thực thi lệnh xóa toàn bộ bảng dữ liệu! 
+\textbf{Giải pháp bắt buộc}: Tuyệt đối không bao giờ ghép chuỗi! Phải sử dụng \term{Parameterized Queries (Prepared Statements)}, đồng thời cấp tài khoản cơ sở dữ liệu chuyên biệt chỉ có quyền đọc (\code{SELECT}) trên các View giới hạn, cấm hoàn toàn quyền \code{DROP}, \code{ALTER}, \code{DELETE}.
+
+\paragraph{B. Server-Side Request Forgery (SSRF) -- Tử Huyệt Của AI Browsing Agent}:
+Lỗ hổng SSRF xảy ra khi Agent được trang bị công cụ duyệt web (\code{fetch_url}, \code{scrape_web}) để đọc nội dung theo URL do người dùng cung cấp. Kẻ tấn công có thể cung cấp các URL nội bộ nguy hiểm:
+\begin{center}
+\code{http://169.254.169.254/latest/meta-data/iam/security-credentials/}
+\end{center}
+Đây là địa chỉ Link-Local của dịch vụ AWS Metadata (IMDS). Khi máy chủ AI gửi request tới URL này, AWS sẽ trả về toàn bộ thông tin đăng nhập tạm thời (\textit{Temporary IAM Credentials}) của máy chủ. Kẻ tấn công lập tức chiếm đoạt toàn bộ hạ tầng đám mây của doanh nghiệp!
+
+\begin{securitybox}[Kiến Trúc Phòng Thủ SSRF 3 Lớp Cho Kỹ Sư AI]
+Để bảo vệ an toàn cho Agent có công cụ truy cập mạng bên ngoài:
+\begin{enumerate}
+  \item \textbf{Phân Giải DNS Trước \& Khóa IP (DNS Pinning)}: Phân giải tên miền ra địa chỉ IP trước khi gửi request. Kiểm tra IP đích có nằm trong các dải IP cấm (Private IP RFC 1918, Loopback \code{127.0.0.0/8}, Link-Local \code{169.254.0.0/16}) hay không.
+  \item \textbf{Chống Tấn Công DNS Rebinding}: Kẻ tấn công có thể cấu hình máy chủ DNS trả về IP công cộng ở lần phân giải thứ nhất, nhưng trả về IP nội bộ (\code{127.0.0.1}) ở lần kết nối thứ hai. Kỹ sư phải kết nối trực tiếp tới IP đã được kiểm duyệt và gán tiêu đề \code{Host} bằng tên miền gốc.
+  \item \textbf{Nâng Cấp IMDSv2}: Trên AWS, bắt buộc vô hiệu hóa IMDSv1 và kích hoạt IMDSv2 (yêu cầu tạo phiên bằng HTTP PUT kèm header \code{X-aws-ec2-metadata-token} trước khi đọc metadata).
+\end{enumerate}
+\end{securitybox}
+
+\subsection{Xác Thực Danh Tính, Phân Quyền \& Kiểm Soát Truy Cập Đa Khách Hàng (Multi-Tenancy IAM)}
+\label{subsec:multi-tenancy-iam}
+Một hệ thống AI phục vụ doanh nghiệp luôn phải đối mặt với bài toán đa khách hàng (\textit{Multi-Tenancy}): Nhiều phòng ban hoặc công ty khác nhau cùng chia sẻ một nền tảng RAG và cụm GPU, nhưng dữ liệu nhạy cảm của khách hàng $A$ tuyệt đối không được phép rò rỉ sang khách hàng $B$.
+
+\subsubsection{1. Lưu Trữ Khóa Bí Mật \& Mật Khẩu Chuẩn Công Nghiệp}
+Tuyệt đối không bao giờ lưu trữ mật khẩu ở dạng bản rõ hoặc sử dụng các hàm băm nhanh như MD5, SHA-1 hay SHA-256. Do các con chip ASIC và GPU hiện đại có thể tính toán hàng chục tỷ hàm băm SHA-256 mỗi giây, mật khẩu sẽ bị bẻ khóa (\textit{Brute-force}) trong vài phút.
+
+Chuẩn mực an ninh hiện đại bắt buộc sử dụng các hàm băm tiêu tốn bộ nhớ (\textit{Memory-hard Password Hashing Functions}):
+\begin{itemize}
+  \item \textbf{Argon2id}: Thuật toán tiêu chuẩn tối thượng kết hợp tính kháng tấn công kênh kề (Side-channel attacks của Argon2d) và tính kháng tấn công GPU phân tán (của Argon2i). Nó đòi hỏi máy tính phải cấp phát dung lượng RAM lớn (ví dụ: $64\text{ MiB}$) và thực hiện nhiều vòng lặp tính toán để xác minh một mật khẩu.
+  \item \textbf{Muối Ngẫu Nhiên (Cryptographic Salt)}: Mỗi người dùng khi tạo mật khẩu đều được hệ thống cấp một chuỗi ngẫu nhiên $16\text{ bytes}$ gọi là Salt. Công thức băm trở thành:
+  \begin{equation}
+  H = \text{Argon2id}(\text{Password} \parallel \text{Salt})
+  \end{equation}
+  Nhờ có Salt, hai người dùng có mật khẩu giống hệt nhau vẫn sinh ra hai chuỗi băm hoàn toàn khác biệt, triệt tiêu $100\%$ kỹ thuật tấn công bằng Bảng Cầu Vồng tính toán sẵn (\textit{Rainbow Table}).
+\end{itemize}
+
+\subsubsection{2. Giải Phẫu Chuẩn Mực JSON Web Token (JWT -- RFC 7519)}
+Trong kiến trúc vi dịch vụ AI, \term{JWT (JSON Web Token)} là phương thức xác thực không lưu trạng thái (\textit{Stateless Authentication}) phổ biến nhất. Một chuỗi JWT gồm 3 phần phân tách bởi dấu chấm (\code{.}):
+\begin{center}
+\code{Header.Payload.Signature}
+\end{center}
+\begin{itemize}
+  \item \textbf{Header}: Chuỗi JSON mã hóa Base64URL chứa thuật toán ký (ví dụ: \code{\{"alg": "RS256", "typ": "JWT"\}}).
+  \item \textbf{Payload}: Chứa các thuộc tính định danh người dùng (\textit{Claims}) như \code{sub} (User ID), \code{tenant_id}, \code{role}, và thời gian hết hạn \code{exp}.
+  \item \textbf{Signature (Chữ Ký Số)}: Được tạo ra bằng cách ký số lên chuỗi kết hợp \code{Base64(Header)} và \code{Base64(Payload)} bằng khóa bí mật của Authentication Gateway.
+\end{itemize}
+
+\begin{securitybox}[Các Lỗ Hổng JWT Thường Gặp Trong Ứng Dụng AI]
+\begin{itemize}
+  \item \textbf{Lỗ hổng "alg": "none"}: Kẻ tấn công sửa trường \code{alg} thành \code{"none"} và xóa bỏ phần Signature. Nếu thư viện giải mã JWT cấu hình lỏng lẻo, nó sẽ chấp nhận token mà không kiểm tra chữ ký!
+  \item \textbf{Lỗ hổng nhầm lẫn thuật toán (Key Confusion)}: Máy chủ sử dụng thuật toán bất đối xứng RS256 (ký bằng khóa riêng, xác minh bằng khóa công khai). Kẻ tấn công tráo đổi sang thuật toán đối xứng HS256 và dùng chính Khóa Công Khai (vốn công khai cho mọi người) làm Secret Key để tự ký token độc hại!
+\end{itemize}
+\end{securitybox}
+
+\subsubsection{3. Kiểm Soát Quyền Hạn: RBAC vs. ABAC \& Row-Level Security (RLS)}
+\begin{itemize}
+  \item \textbf{RBAC (Role-Based Access Control)}: Phân quyền theo vai trò cố định: \code{Admin}, \code{DataEngineer}, \code{Auditor}, \code{Viewer}. Mỗi vai trò có danh sách quyền hạn tĩnh (\textit{Permissions}).
+  \item \textbf{ABAC (Attribute-Based Access Control)}: Phân quyền động dựa trên ngữ cảnh: Người dùng chỉ được phép truy vấn mô hình AI nếu: $(\text{Role} == \text{Analyst}) \land (\text{Tenant} == \text{"Finance"}) \land (\text{Time} \in [08:00, 18:00]) \land (\text{IP} \in \text{Company VPN})$.
+  \item \textbf{Bảo Vệ Vector Database Bằng Row-Level Security (RLS)}: Trong hệ thống RAG doanh nghiệp, toàn bộ tài liệu của mọi phòng ban đều được vector hóa vào bảng \code{document_embeddings} trong PostgreSQL. Để ngăn nhân viên Marketing xem tài liệu của phòng Nhân sự, các kỹ sư kích hoạt RLS:
+  \begin{lstlisting}[language=SQL]
+  ALTER TABLE document_embeddings ENABLE ROW LEVEL SECURITY;
+  
+  CREATE POLICY tenant_isolation_policy ON document_embeddings
+  FOR ALL
+  USING (tenant_id = current_setting('app.current_tenant_id'));
+  \end{lstlisting}
+  Khi ứng dụng AI truy vấn tìm kiếm tương đồng vector, nhân cơ sở dữ liệu PostgreSQL sẽ tự động chèn thêm điều kiện lọc \code{tenant_id} vào tầng đĩa, triệt tiêu mọi khả năng rò rỉ dữ liệu chéo ngay cả khi câu prompt của người dùng có chứa chỉ thị tấn công Jailbreak!
+\end{itemize}
 
 \subsection{Kiến Trúc Netfilter, iptables \& Bước Chuyển Sang nftables}
 Mặc dù công cụ dòng lệnh \code{iptables} rất phổ biến, bản thân nó chỉ là một giao diện người dùng cấu hình (\textit{Control Plane}). Cỗ máy thực thi chính (\textit{Data Plane}) nằm sâu trong nhân Linux mang tên \term{Netfilter}.

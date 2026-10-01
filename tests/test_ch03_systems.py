@@ -255,3 +255,122 @@ def test_exercise_b4_vlsm_subnetting():
     # Subnet 1: /26 -> 62 usable hosts (>= 50)
     assert CIDRSubnetCalculator.calculate_usable_hosts(26) == 62
 
+
+class BitwiseNetworkSubnetChecker:
+    @staticmethod
+    def ip_to_int(ip_str: str) -> int:
+        octets = [int(x) for x in ip_str.split(".")]
+        return (octets[0] << 24) | (octets[1] << 16) | (octets[2] << 8) | octets[3]
+
+    @staticmethod
+    def mask_from_prefix(prefix: int) -> int:
+        if prefix == 0:
+            return 0
+        return ((1 << 32) - 1) ^ ((1 << (32 - prefix)) - 1)
+
+    @classmethod
+    def is_in_same_subnet(cls, ip1: str, ip2: str, prefix: int) -> bool:
+        mask = cls.mask_from_prefix(prefix)
+        int1 = cls.ip_to_int(ip1)
+        int2 = cls.ip_to_int(ip2)
+        return (int1 & mask) == (int2 & mask)
+
+
+def test_bitwise_network_subnet_checker():
+    # In same subnet 192.168.1.0/24
+    assert BitwiseNetworkSubnetChecker.is_in_same_subnet("192.168.1.10", "192.168.1.50", 24) is True
+    # Different subnet
+    assert BitwiseNetworkSubnetChecker.is_in_same_subnet("192.168.1.10", "192.168.2.10", 24) is False
+    # In same subnet 10.0.0.0/16
+    assert BitwiseNetworkSubnetChecker.is_in_same_subnet("10.0.5.1", "10.0.99.200", 16) is True
+    # Different /24 in 10.0.x.x
+    assert BitwiseNetworkSubnetChecker.is_in_same_subnet("10.0.5.1", "10.0.99.200", 24) is False
+
+
+class TracerouteSimulator:
+    def __init__(self, route_hops: List[str]):
+        self.route_hops = route_hops  # list of router IPs ending with target IP
+
+    def trace(self, max_hops: int = 30) -> List[Dict[str, Any]]:
+        results = []
+        for ttl in range(1, max_hops + 1):
+            hop_idx = ttl - 1
+            if hop_idx < len(self.route_hops):
+                router_ip = self.route_hops[hop_idx]
+                is_target = (hop_idx == len(self.route_hops) - 1)
+                results.append({
+                    "ttl": ttl,
+                    "hop_ip": router_ip,
+                    "icmp_type": "EchoReply" if is_target else "TimeExceeded",
+                    "reached": is_target
+                })
+                if is_target:
+                    break
+            else:
+                break
+        return results
+
+
+def test_traceroute_simulator():
+    hops = ["192.168.1.1", "10.20.0.1", "203.0.113.1", "104.18.32.7"]
+    tracer = TracerouteSimulator(hops)
+    res = tracer.trace(max_hops=10)
+    assert len(res) == 4
+    assert res[0]["ttl"] == 1
+    assert res[0]["hop_ip"] == "192.168.1.1"
+    assert res[0]["icmp_type"] == "TimeExceeded"
+    assert res[0]["reached"] is False
+
+    assert res[3]["ttl"] == 4
+    assert res[3]["hop_ip"] == "104.18.32.7"
+    assert res[3]["icmp_type"] == "EchoReply"
+    assert res[3]["reached"] is True
+
+
+class TCPFiniteStateMachineSimulator:
+    VALID_TRANSITIONS = {
+        ("CLOSED", "ACTIVE_OPEN"): "SYN_SENT",
+        ("CLOSED", "PASSIVE_OPEN"): "LISTEN",
+        ("LISTEN", "RECV_SYN"): "SYN_RCVD",
+        ("SYN_SENT", "RECV_SYN_ACK"): "ESTABLISHED",
+        ("SYN_RCVD", "RECV_ACK"): "ESTABLISHED",
+        ("ESTABLISHED", "CLOSE_ACTIVE"): "FIN_WAIT_1",
+        ("ESTABLISHED", "RECV_FIN"): "CLOSE_WAIT",
+        ("FIN_WAIT_1", "RECV_ACK"): "FIN_WAIT_2",
+        ("FIN_WAIT_2", "RECV_FIN"): "TIME_WAIT",
+        ("CLOSE_WAIT", "CLOSE_PASSIVE"): "LAST_ACK",
+        ("LAST_ACK", "RECV_ACK"): "CLOSED",
+        ("TIME_WAIT", "TIMEOUT_2MSL"): "CLOSED"
+    }
+
+    def __init__(self, initial_state: str = "CLOSED"):
+        self.state = initial_state
+
+    def trigger(self, event: str) -> str:
+        key = (self.state, event)
+        if key not in self.VALID_TRANSITIONS:
+            raise ValueError(f"Khong the chuyen trang thai tu {self.state} qua su kien {event}")
+        self.state = self.VALID_TRANSITIONS[key]
+        return self.state
+
+
+def test_tcp_finite_state_machine_simulator():
+    # Client Active Handshake & Close
+    fsm_client = TCPFiniteStateMachineSimulator("CLOSED")
+    assert fsm_client.trigger("ACTIVE_OPEN") == "SYN_SENT"
+    assert fsm_client.trigger("RECV_SYN_ACK") == "ESTABLISHED"
+    assert fsm_client.trigger("CLOSE_ACTIVE") == "FIN_WAIT_1"
+    assert fsm_client.trigger("RECV_ACK") == "FIN_WAIT_2"
+    assert fsm_client.trigger("RECV_FIN") == "TIME_WAIT"
+    assert fsm_client.trigger("TIMEOUT_2MSL") == "CLOSED"
+
+    # Server Passive Handshake & Close
+    fsm_server = TCPFiniteStateMachineSimulator("CLOSED")
+    assert fsm_server.trigger("PASSIVE_OPEN") == "LISTEN"
+    assert fsm_server.trigger("RECV_SYN") == "SYN_RCVD"
+    assert fsm_server.trigger("RECV_ACK") == "ESTABLISHED"
+    assert fsm_server.trigger("RECV_FIN") == "CLOSE_WAIT"
+    assert fsm_server.trigger("CLOSE_PASSIVE") == "LAST_ACK"
+    assert fsm_server.trigger("RECV_ACK") == "CLOSED"
+
+

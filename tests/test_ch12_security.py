@@ -478,3 +478,141 @@ def test_automated_firewall_orchestrator():
     assert not success_inv
     assert "INVALID_IP" in err_inv
 
+
+# ==============================================================================
+# 8. HMAC WEBHOOK AUTHENTICATOR
+# ==============================================================================
+
+import hmac
+import hashlib
+
+class HMACWebhookAuthenticator:
+    @staticmethod
+    def sign_payload(secret_key: bytes, payload_bytes: bytes) -> str:
+        return hmac.new(secret_key, payload_bytes, hashlib.sha256).hexdigest()
+
+    @classmethod
+    def verify_signature(cls, secret_key: bytes, payload_bytes: bytes, signature_hex: str) -> bool:
+        expected = cls.sign_payload(secret_key, payload_bytes)
+        return hmac.compare_digest(expected, signature_hex)
+
+
+def test_hmac_webhook_authenticator():
+    secret = b"my_super_secret_ai_webhook_key_2026"
+    valid_payload = b'{"event": "model_trained", "accuracy": 0.99}'
+    tampered_payload = b'{"event": "model_trained", "accuracy": 0.50}'
+
+    sig = HMACWebhookAuthenticator.sign_payload(secret, valid_payload)
+    assert HMACWebhookAuthenticator.verify_signature(secret, valid_payload, sig) is True
+    assert HMACWebhookAuthenticator.verify_signature(secret, tampered_payload, sig) is False
+    assert HMACWebhookAuthenticator.verify_signature(b"wrong_secret", valid_payload, sig) is False
+
+
+# ==============================================================================
+# 9. SSRF PROTECTION FILTER FOR AI BROWSING AGENTS
+# ==============================================================================
+
+import ipaddress
+
+class SSRFProtectionFilter:
+    @staticmethod
+    def is_safe_ip(ip_str: str) -> bool:
+        try:
+            ip = ipaddress.ip_address(ip_str)
+            # Check loopback, private, link-local, multicast
+            if ip.is_loopback or ip.is_private or ip.is_link_local or ip.is_multicast or ip.is_reserved:
+                return False
+            # Check cloud metadata 169.254.169.254 specifically
+            if str(ip) == "169.254.169.254":
+                return False
+            return True
+        except ValueError:
+            return False
+
+
+def test_ssrf_protection_filter():
+    # Dangerous internal addresses
+    assert SSRFProtectionFilter.is_safe_ip("127.0.0.1") is False
+    assert SSRFProtectionFilter.is_safe_ip("10.0.1.5") is False
+    assert SSRFProtectionFilter.is_safe_ip("192.168.1.1") is False
+    assert SSRFProtectionFilter.is_safe_ip("172.16.0.1") is False
+    assert SSRFProtectionFilter.is_safe_ip("169.254.169.254") is False  # AWS Metadata
+
+    # Safe public addresses
+    assert SSRFProtectionFilter.is_safe_ip("8.8.8.8") is True
+    assert SSRFProtectionFilter.is_safe_ip("104.18.32.7") is True
+    assert SSRFProtectionFilter.is_safe_ip("invalid_ip") is False
+
+
+# ==============================================================================
+# 10. MULTI-TENANT JWT & ROLE-BASED ACCESS CONTROL
+# ==============================================================================
+
+import base64
+import json
+
+class SimpleJWTValidator:
+    @classmethod
+    def create_token(cls, secret_key: bytes, header: Dict[str, Any], payload: Dict[str, Any]) -> str:
+        h_b64 = base64.urlsafe_b64encode(json.dumps(header).encode()).rstrip(b'=').decode()
+        p_b64 = base64.urlsafe_b64encode(json.dumps(payload).encode()).rstrip(b'=').decode()
+        msg = f"{h_b64}.{p_b64}".encode()
+        sig = hmac.new(secret_key, msg, hashlib.sha256).digest()
+        s_b64 = base64.urlsafe_b64encode(sig).rstrip(b'=').decode()
+        return f"{h_b64}.{p_b64}.{s_b64}"
+
+    @classmethod
+    def verify_and_decode(cls, secret_key: bytes, token: str) -> Tuple[bool, Optional[Dict[str, Any]], str]:
+        parts = token.split(".")
+        if len(parts) != 3:
+            return False, None, "INVALID_FORMAT"
+        h_b64, p_b64, s_b64 = parts
+        msg = f"{h_b64}.{p_b64}".encode()
+        expected_sig = hmac.new(secret_key, msg, hashlib.sha256).digest()
+        expected_s_b64 = base64.urlsafe_b64encode(expected_sig).rstrip(b'=').decode()
+        
+        if not hmac.compare_digest(expected_s_b64, s_b64):
+            return False, None, "INVALID_SIGNATURE"
+            
+        # Decode payload
+        rem = len(p_b64) % 4
+        padded = p_b64 + ("=" * (4 - rem) if rem else "")
+        payload = json.loads(base64.urlsafe_b64decode(padded.encode()).decode())
+        
+        if "exp" in payload and payload["exp"] < time.time():
+            return False, None, "TOKEN_EXPIRED"
+            
+        return True, payload, "OK"
+
+
+def test_simple_jwt_validator():
+    secret = b"enterprise_ai_secret_key_12345"
+    header = {"alg": "HS256", "typ": "JWT"}
+    payload = {
+        "sub": "user_42",
+        "tenant_id": "dept_finance",
+        "role": "Analyst",
+        "exp": time.time() + 3600
+    }
+    
+    token = SimpleJWTValidator.create_token(secret, header, payload)
+    valid, decoded, msg = SimpleJWTValidator.verify_and_decode(secret, token)
+    assert valid is True
+    assert msg == "OK"
+    assert decoded["tenant_id"] == "dept_finance"
+    assert decoded["role"] == "Analyst"
+
+    # Expired token
+    expired_payload = dict(payload, exp=time.time() - 10)
+    exp_token = SimpleJWTValidator.create_token(secret, header, expired_payload)
+    valid_exp, _, msg_exp = SimpleJWTValidator.verify_and_decode(secret, exp_token)
+    assert valid_exp is False
+    assert msg_exp == "TOKEN_EXPIRED"
+
+    # Tampered token
+    tampered_token = token[:-5] + "AAAAA"
+    valid_tamp, _, msg_tamp = SimpleJWTValidator.verify_and_decode(secret, tampered_token)
+    assert valid_tamp is False
+    assert msg_tamp == "INVALID_SIGNATURE"
+
+

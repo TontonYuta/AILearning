@@ -198,6 +198,82 @@ Khi một ứng dụng AI gửi một câu prompt \code{"Xin chao"} tới máy c
 \end{enumerate}
 Ở đầu máy chủ nhận, quá trình diễn ra ngược lại (\textit{Decapsulation}): Card mạng bóc tách MAC, nhân Linux bóc tách IP, tầng Socket bóc tách TCP Port và chuyển đúng Payload dữ liệu vào bộ nhớ đệm của tiến trình Python!
 
+\subsection{Tầng Vật Lý \& Bản Chất Tín Hiệu (Physical Layer)}
+Ở tầng vật lý (Layer 1), mọi dữ liệu trừu tượng cuối cùng đều phải được chuyển hóa thành các hiện tượng vật lý có thể lan truyền trong không gian: Xung điện thế trên dây đồng, xung ánh sáng trong sợi thủy tinh hữu cơ, hoặc sóng điện từ trong không gian vô tuyến.
+
+\begin{itemize}
+  \item \textbf{Cáp Đồng Xoắn Đôi (Twisted Pair - UTP/STP)}: Các chuẩn cáp Cat5e, Cat6, Cat6a, Cat7 sử dụng các cặp dây đồng xoắn lại với nhau. Việc xoắn hai sợi dây dẫn điện theo tỷ lệ bước xoắn nhất định giúp triệt tiêu hiện tượng cảm ứng điện từ và nhiễu xuyên âm (\textit{Crosstalk}). Cáp đồng bị giới hạn vật lý nghiêm ngặt ở khoảng cách tối đa $100\text{ m}$ do hiện tượng suy hao tín hiệu (\textit{Attenuation}) và tán xạ điện trở.
+  \item \textbf{Cáp Quang (Fiber Optic)}: Sử dụng nguyên lý phản xạ toàn phần của ánh sáng bên trong lõi thủy tinh siêu tinh khiết. Gồm hai loại chính:
+    \begin{itemize}
+      \item \textit{Multi-mode Fiber (MMF)}: Lõi cáp lớn ($50\text{ -- }62.5\,\mu\text{m}$), ánh sáng truyền theo nhiều tia với các góc phản xạ khác nhau, cự ly ngắn (dưới $500\text{ m}$), chi phí bộ thu phát (\textit{Transceiver}) rẻ, dùng phổ biến trong mạng nội bộ Data Center.
+      \item \textit{Single-mode Fiber (SMF)}: Lõi cực nhỏ ($\approx 9\,\mu\text{m}$), ánh sáng chỉ truyền theo một trục tia duy nhất, hầu như không bị méo tín hiệu do tán sắc, có thể truyền tải tín hiệu xa hàng chục đến hàng trăm kilomet qua các tuyến cáp ngầm xuyên đại dương.
+    \end{itemize}
+  \item \textbf{Cáp Gắn Trực Tiếp DAC (Direct Attach Copper)}: Trong các tủ rack chứa các máy chủ GPU (NVIDIA DGX H100), để kết nối card mạng Mellanox ConnectX với Switch ToR (Top-of-Rack), các kỹ sư sử dụng cáp đồng DAC thụ động hoặc chủ động cự ly ngắn ($1\text{ -- }3\text{ m}$). Cáp DAC có độ trễ cực thấp (dưới $10\text{ ns}$) và tiết kiệm năng lượng hơn bộ thu phát quang quang học.
+\end{itemize}
+
+Bốn chỉ số vật lý quyết định chất lượng của mọi đường truyền mạng:
+\begin{enumerate}
+  \item \textbf{Băng thông (Bandwidth)}: Lượng dữ liệu tối đa có thể truyền qua kênh trong một đơn vị thời gian (tính bằng bps, Mbps, Gbps).
+  \item \textbf{Độ trễ khứ hồi (RTT -- Round Trip Time)}: Thời gian một gói tin đi từ nguồn tới đích và nhận phản hồi quay về (tính bằng ms hoặc $\mu\text{s}$).
+  \item \textbf{Độ biến thiên trễ (Jitter)}: Mức độ dao động bất ổn định của độ trễ giữa các gói tin liên tiếp. Jitter cao gây vỡ tiếng trong Voice AI hoặc làm lệch nhịp đồng bộ hóa tham số phân tán AllReduce.
+  \item \textbf{Tỷ lệ mất gói (Packet Loss Rate)}: Tỷ lệ phần trăm các gói tin bị đánh rơi trên đường truyền do nghẽn hàng đợi switch hoặc suy hao vật lý.
+\end{enumerate}
+
+\subsection{Tầng Liên Kết Dữ Liệu: Địa Chỉ MAC, Khung Ethernet \& Giao Thức ARP}
+\label{subsec:datalink-mac-arp}
+Khi các electron đã tạo thành chuỗi bit, tầng liên kết dữ liệu (Data Link - Layer 2) có nhiệm vụ gom các bit này thành cấu trúc có nghĩa gọi là \term{Khung Ethernet (Ethernet Frame)} và vận chuyển giữa các thiết bị cắm chung một mạng cục bộ (LAN).
+
+\subsubsection{Cấu Trúc Khung Ethernet (IEEE 802.3)}
+Mỗi khung Ethernet khi xuất hiện trên dây mạng có cấu trúc tiêu chuẩn như sau:
+\begin{center}
+\small
+\begin{tabular}{|c|c|c|c|c|c|c|}
+\hline
+\textbf{Preamble} & \textbf{SFD} & \textbf{Dest MAC} & \textbf{Source MAC} & \textbf{EtherType} & \textbf{Payload (Dữ liệu)} & \textbf{FCS (CRC-32)} \\
+7 Bytes & 1 Byte & 6 Bytes & 6 Bytes & 2 Bytes & 46 -- 1500 Bytes & 4 Bytes \\
+\hline
+\end{tabular}
+\end{center}
+\begin{itemize}
+  \item \textbf{Preamble \& SFD (Start of Frame Delimiter)}: Chuỗi các bit xen kẽ \code{10101010...10101011} giúp mạch đồng hồ của card mạng bên nhận khóa nhịp đồng bộ tần số tín hiệu.
+  \item \textbf{Địa chỉ MAC (Media Access Control)}: Địa chỉ vật lý dài 48 bit (6 octet), biểu diễn dưới dạng 12 ký tự thập lục phân (ví dụ: \code{08:00:27:B2:4C:1A}). Trong đó:
+    \begin{itemize}
+      \item 24 bit đầu tiên: \term{OUI (Organizationally Unique Identifier)} do tổ chức IEEE cấp cho nhà sản xuất card mạng (Intel, Broadcom, NVIDIA Mellanox).
+      \item 24 bit tiếp theo: Số định danh duy nhất do nhà sản xuất gán cho từng con chip mạng.
+    \end{itemize}
+  \item \textbf{EtherType}: Trường 16-bit chỉ định giao thức tầng trên được đóng gói trong Payload (ví dụ: \code{0x0800} cho IPv4, \code{0x86DD} cho IPv6, \code{0x0806} cho ARP).
+  \item \textbf{FCS (Frame Check Sequence)}: Mã kiểm tra dư thừa tuần hoàn \term{CRC-32} dài 4 byte. Khi card mạng nhận khung tin, nó tự tính lại mã CRC. Nếu kết quả không khớp với FCS, khung tin bị hỏng phần cứng và card mạng lập tức vứt bỏ mà không cần đánh thức CPU!
+\end{itemize}
+
+\subsubsection{Bản Chất Giao Thức ARP (Address Resolution Protocol)}
+Một bài toán nền tảng xuất hiện: Khi máy tính $A$ muốn gửi một gói tin tới máy tính $B$ có địa chỉ IP \code{192.168.1.50} trong cùng mạng LAN, tầng IP của máy $A$ biết IP của $B$, nhưng card mạng của máy $A$ chỉ có thể gửi khung tin tới địa chỉ MAC vật lý. Làm thế nào để biết IP \code{192.168.1.50} đang gắn vào card mạng có MAC là bao nhiêu?
+
+Giao thức \term{ARP (RFC 826)} giải quyết bài toán này qua hai bước:
+\begin{enumerate}
+  \item \textbf{ARP Request (Quảng bá -- Broadcast)}: Máy $A$ gửi một khung Ethernet có địa chỉ MAC đích là \code{FF:FF:FF:FF:FF:FF} (Địa chỉ Broadcast). Khung này được mọi thiết bị trong mạng LAN tiếp nhận với nội dung: ``\textit{Ai đang giữ IP 192.168.1.50, xin hãy trả lời cho MAC 08:00:27:A1:B2:C3 của tôi biết!}''.
+  \item \textbf{ARP Reply (Đơn bá -- Unicast)}: Tất cả các máy tính khác bỏ qua gói tin này. Riêng máy $B$ nhận ra IP của mình, lập tức gửi phản hồi trực tiếp (Unicast) về MAC của $A$: ``\textit{Tôi giữ IP 192.168.1.50 đây, địa chỉ MAC vật lý của tôi là 52:54:00:C8:D9:E0!}''.
+\end{enumerate}
+
+Sau khi nhận phản hồi, máy $A$ lưu kết quả vào một bảng đệm trong RAM hệ điều hành gọi là \term{Bảng ARP (ARP Cache)}. Các kỹ sư có thể xem bảng này trên Linux bằng lệnh:
+\begin{lstlisting}[language=bash]
+$ ip neigh show
+192.168.1.50 dev eth0 lladdr 52:54:00:c8:d9:e0 REACHABLE
+192.168.1.1 dev eth0 lladdr 00:11:32:88:99:aa REACHABLE
+\end{lstlisting}
+
+\begin{securitybox}[Nguy Cơ Tấn Công ARP Spoofing / ARP Poisoning Trong Mạng Nội Bộ]
+Giao thức ARP thuở sơ khai không hề có cơ chế xác thực danh tính. Kẻ tấn công trong mạng LAN có thể liên tục phát các bản tin ARP Reply giả mạo thông báo: ``\textit{Tôi là Default Gateway (192.168.1.1), MAC của tôi là MAC của kẻ tấn công}''. Máy tính nạn nhân sẽ ghi đè bảng ARP Cache, dẫn tới toàn bộ lưu lượng truy cập Internet hoặc gọi API AI của máy nạn nhân bị chuyển hướng qua máy kẻ tấn công trước khi đi ra ngoài, hoàn thành kỹ thuật tấn công trung gian (\textit{Man-in-the-Middle}) kinh điển!
+\end{securitybox}
+
+\subsubsection{Cơ Chế Học Địa Chỉ MAC Của Switch (CAM Table) \& Phân Tách VLAN}
+Khác với thiết bị Hub thô sơ gửi gói tin mù quáng ra tất cả các cổng (gây nghẽn mạng do xung đột tín hiệu), thiết bị \term{Switch} hoạt động thông minh ở Tầng 2:
+\begin{itemize}
+  \item \textbf{Quá trình học địa chỉ (MAC Learning)}: Khi một khung Ethernet đi vào cổng số 3 với Source MAC là $M_A$, Switch lập tức ghi nhớ vào bảng \term{CAM (Content Addressable Memory)}: Cổng 3 đang nối với thiết bị có MAC $M_A$.
+  \item \textbf{Chuyển tiếp chính xác (Forwarding)}: Khi có khung tin gửi tới Dest MAC là $M_A$, Switch chỉ đẩy tín hiệu ra duy nhất cổng 3.
+  \item \textbf{Miền Xung Đột (Collision Domain) vs Miền Quảng Bá (Broadcast Domain)}: Mỗi cổng của Switch tạo thành một Miền xung đột riêng biệt (cho phép truyền nhận song công toàn phần -- Full Duplex). Tuy nhiên, toàn bộ Switch vẫn là một Miền quảng bá duy nhất. Nếu có bão broadcast ARP hoặc DHCP, toàn bộ các máy trạm sẽ bị nghẽn.
+  \item \textbf{Mạng LAN Ảo (VLAN -- IEEE 802.1Q)}: Trong các trung tâm dữ liệu hạ tầng AI, các kỹ sư sử dụng VLAN để chèn thêm một thẻ định danh 4-byte (chứa VLAN ID từ 1 đến 4094) vào khung Ethernet. Điều này cho phép phân tách logic hoàn toàn giữa mạng cụm huấn luyện GPU, mạng lưu trữ cơ sở dữ liệu và mạng công cộng bên ngoài trên cùng một thiết bị switch vật lý.
+\end{itemize}
+
 \subsection{Địa Chỉ IP, Mặt Nạ Mạng (Subnet Mask) \& Ký Hiệu CIDR}
 \begin{definition}[Địa Chỉ IPv4 \& Ký Hiệu CIDR]
 Một địa chỉ IPv4 là một số nguyên không dấu 32-bit, được chia thành 4 nhóm 8-bit (gọi là Octet), phân tách bằng dấu chấm:
@@ -207,6 +283,17 @@ Một địa chỉ IPv4 là một số nguyên không dấu 32-bit, được chi
 Địa chỉ IP gồm hai phần: \textbf{Network ID} (định danh mạng) và \textbf{Host ID} (định danh thiết bị trong mạng).
 Ký hiệu CIDR (Classless Inter-Domain Routing) dùng cú pháp \code{/n}, trong đó $n$ là số lượng bit 1 liên tục từ trái sang phải của \textbf{Mặt Nạ Mạng (Subnet Mask)}.
 \end{definition}
+
+\subsubsection{Phép Toán Logic Bitwise: Xác Định Cùng Mạng Hay Khác Mạng}
+Làm thế nào ngăn xếp mạng của nhân Linux biết một gói tin có thể gửi trực tiếp qua switch trong mạng nội bộ, hay bắt buộc phải gửi tới Router (Default Gateway)? 
+
+Nhân Linux thực hiện phép toán logic nhị phân \code{AND} (\&) từng bit giữa địa chỉ IP đích ($IP_{\text{dest}}$) và Subnet Mask ($M$):
+\begin{equation}
+\text{Target Network} = IP_{\text{dest}} \mathbin{\&} M
+\end{equation}
+Nếu $\text{Target Network} == \text{Local Network}$: Gói tin nằm trong cùng mạng LAN $\implies$ Linux kích hoạt giao thức ARP để tìm MAC đích và gửi trực tiếp.
+
+Nếu $\text{Target Network} \neq \text{Local Network}$: Gói tin nằm ở mạng bên ngoài Internet $\implies$ Linux tra bảng định tuyến, tìm địa chỉ IP của \textbf{Default Gateway} (Router), kích hoạt ARP để lấy MAC của Router và đóng gói khung gửi tới Router!
 
 \begin{example}[Cách Tính Số Lượng Máy Chủ Khả Dụng Trong Dải Mạng CIDR]
 Xét một dải mạng cụm GPU: \code{10.0.1.0/24}:
@@ -241,6 +328,111 @@ Xét một dải mạng cụm GPU: \code{10.0.1.0/24}:
 \bottomrule
 \end{tabular}
 \end{table}
+
+\subsection{Giải Phẫu Từng Byte Của IPv4 Header, ICMP \& Kỹ Thuật Traceroute}
+\label{subsec:ipv4-header-icmp}
+Tầng Mạng (Layer 3) chịu trách nhiệm dẫn đường cho các gói tin đi qua hàng chục trạm trung chuyển router trên khắp thế giới để tới đích. Hãy giải phẫu chính xác cấu trúc 20 byte tối thiểu của một tiêu đề gói tin IPv4:
+
+\begin{figure}[htbp]
+\centering
+\begin{tikzpicture}[node distance=0.5cm, auto,
+    headercell/.style={rectangle, draw=primarycolor, thick, fill=boxbg, text centered, font=\scriptsize\ttfamily, minimum height=0.7cm}
+]
+    % Row 1
+    \node[headercell, text width=2.0cm] (ver) {Version (4b)};
+    \node[headercell, text width=1.8cm, right=0cm of ver] (ihl) {IHL (4b)};
+    \node[headercell, text width=2.8cm, right=0cm of ihl] (tos) {DSCP/ECN (8b)};
+    \node[headercell, text width=4.8cm, right=0cm of tos] (len) {Total Length (16 bits)};
+
+    % Row 2
+    \node[headercell, text width=5.7cm, below=0cm of ver.south west, anchor=north west] (id) {Identification (16 bits)};
+    \node[headercell, text width=1.5cm, right=0cm of id] (flags) {Flags (3b)};
+    \node[headercell, text width=4.2cm, right=0cm of flags] (frag) {Fragment Offset (13 bits)};
+
+    % Row 3
+    \node[headercell, text width=2.8cm, below=0cm of id.south west, anchor=north west] (ttl) {Time to Live (8 bits)};
+    \node[headercell, text width=2.9cm, right=0cm of ttl] (proto) {Protocol (8 bits)};
+    \node[headercell, text width=5.7cm, right=0cm of proto] (csum) {Header Checksum (16 bits)};
+
+    % Row 4
+    \node[headercell, text width=11.4cm, below=0cm of ttl.south west, anchor=north west] (srcip) {Source IP Address (32 bits / 4 Bytes)};
+
+    % Row 5
+    \node[headercell, text width=11.4cm, below=0cm of srcip.south west, anchor=north west] (dstip) {Destination IP Address (32 bits / 4 Bytes)};
+\end{tikzpicture}
+\caption{Cấu trúc từng trường dữ liệu trong IPv4 Header tiêu chuẩn (20 Bytes)}
+\label{fig:ipv4-header-detail}
+\end{figure}
+
+Các trường kỹ thuật then chốt:
+\begin{itemize}
+  \item \textbf{IHL (Internet Header Length)}: Độ dài của header tính theo đơn vị 32-bit word (giá trị chuẩn là 5, tương đương $5 \times 4 = 20\text{ bytes}$).
+  \item \textbf{Total Length}: Tổng độ dài của gói tin bao gồm cả Header và Payload (tối đa $65535\text{ bytes}$).
+  \item \textbf{Flags \& Fragment Offset}: Phục vụ việc phân mảnh (\textit{IP Fragmentation}). Cờ \code{DF (Don't Fragment)} báo cho Router không được cắt nhỏ gói tin. Cờ \code{MF (More Fragments)} báo còn mảnh phía sau. Kích thước tối đa của khung Ethernet là \term{MTU (Maximum Transmission Unit = 1500 bytes)}, do đó gói tin lớn hơn sẽ bị phân mảnh trừ khi sử dụng Jumbo Frames ($9000\text{ bytes}$) trong cụm GPU.
+  \item \textbf{TTL (Time To Live)}: Số nguyên 8-bit đại diện cho số trạm trung chuyển (Hop) tối đa gói tin được phép đi qua. Mỗi khi gói tin đi qua một Router, Router đó sẽ giảm giá trị TTL đi 1. Khi $\text{TTL} = 0$, Router lập tức hủy gói tin và gửi bản tin báo lỗi \code{ICMP Time Exceeded} quay lại máy nguồn.
+  \item \textbf{Protocol}: Số nguyên 8-bit chỉ định giao thức tầng Transport (\code{1}: ICMP, \code{6}: TCP, \code{17}: UDP).
+\end{itemize}
+
+\subsubsection{Giao Thức ICMP \& Cơ Chế Hoạt Động Kỳ Diệu Của Lệnh Traceroute}
+Giao thức \term{ICMP (Internet Control Message Protocol)} không dùng để truyền dữ liệu người dùng, mà dùng để chẩn đoán và thông báo lỗi mạng:
+\begin{itemize}
+  \item \textbf{Lệnh Ping}: Gửi một gói tin \code{ICMP Type 8 (Echo Request)}. Máy đích khi nhận được sẽ phản hồi gói tin \code{ICMP Type 0 (Echo Reply)}. Đo chênh lệch thời gian gửi và nhận ta tính được chỉ số RTT.
+  \item \textbf{Lệnh Traceroute}: Làm thế nào bạn biết một truy vấn từ Việt Nam tới cụm máy chủ OpenAI tại Bắc Mỹ đã đi qua những Router nào?
+  Thuật toán Traceroute hoạt động bằng cách chủ động khai thác cơ chế hết hạn của trường \textbf{TTL}:
+  \begin{enumerate}
+    \item Bước 1: Gửi gói tin với $\text{TTL} = 1$. Khi tới Router đầu tiên (Router nhà bạn), Router trừ TTL về 0, hủy gói tin và gửi lại bản tin \code{ICMP Type 11 (Time Exceeded)}. Máy bạn ghi lại địa chỉ IP của Router 1 và đo thời gian RTT.
+    \item Bước 2: Gửi gói tin với $\text{TTL} = 2$. Vượt qua Router 1 tới Router 2 thì hết hạn, Router 2 gửi ICMP báo lỗi. Máy bạn ghi lại IP Router 2.
+    \item Lặp lại tuần tự với $\text{TTL} = 3, 4, 5...$ cho tới khi gói tin chạm tới máy chủ đích cuối cùng!
+  \end{enumerate}
+\end{itemize}
+
+\subsection{Cơ Chế Dịch Địa Chỉ Mạng NAT/PAT \& Bảng Linux Connection Tracking}
+Do địa chỉ IPv4 chỉ có $2^{32} \approx 4.3$ tỷ địa chỉ, thế giới đã cạn kiệt IP công cộng. Kỹ thuật \term{NAT (Network Address Translation)} và đặc biệt là \term{PAT (Port Address Translation / NAT Overload)} được phát minh để cho phép hàng nghìn máy chủ nội bộ chia sẻ chung một địa chỉ IP công cộng duy nhất.
+
+Khi một ứng dụng gửi request ra Internet qua Router NAT:
+\begin{enumerate}
+  \item Router chặn gói tin, ghi nhận bộ tham số nguồn: $(\text{Private IP: 192.168.1.10}, \text{Port: 45678})$.
+  \item Router tráo đổi trường Source IP thành IP công cộng của Router (\code{203.0.113.5}) và đổi Source Port thành một cổng ngẫu nhiên khả dụng (ví dụ: \code{61001}).
+  \item Router lưu dòng ánh xạ này vào \textbf{Bảng Theo Dõi Phiên (Connection Tracking Table -- Conntrack)} trong bộ nhớ RAM của nhân Linux.
+  \item Khi gói phản hồi từ máy chủ bên ngoài quay về cổng \code{61001}, Router tra bảng Conntrack và dịch ngược lại thành \code{192.168.1.10:45678}.
+\end{enumerate}
+
+\begin{debugbox}[Sự Cố Cạn Kiệt Bảng Conntrack Trong Cụm Microservices AI]
+Trong các cụm Kubernetes hoặc hệ thống phục vụ AI quy mô lớn, nhân Linux theo dõi từng kết nối qua mô-đun \code{nf_conntrack}. Nếu hệ số kết nối đồng thời vượt quá ngưỡng tối đa (\code{/proc/sys/net/netfilter/nf_conntrack_max}), nhân Linux sẽ phát sinh lỗi \code{"nf_conntrack: table full, dropping packet"}. Khi đó, dù máy chủ còn $90\%$ CPU và RAM rảnh rỗi, toàn bộ các kết nối mạng mới đều bị thả rơi âm thầm!
+\end{debugbox}
+
+\subsection{Hệ Thống Phân Giải Tên Miền DNS (Domain Name System) Từ Số 0}
+\label{subsec:dns-from-scratch}
+Con người không thể ghi nhớ hàng triệu địa chỉ IP dạng số như \code{104.18.32.7}. Giao thức \term{DNS (Domain Name System - RFC 1035)} đóng vai trò như một danh bạ điện thoại toàn cầu của mạng Internet, chuyển đổi các tên miền ký tự sang địa chỉ IP đích.
+
+\subsubsection{Cây Phân Cấp Tên Miền \& Quy Trình Phân Giải Đệ Quy}
+Không gian tên miền trên Internet được tổ chức theo cấu trúc cây phân cấp nghiêm ngặt:
+\begin{enumerate}
+  \item \textbf{Máy chủ Tên miền Gốc (Root DNS Servers)}: Biểu diễn bằng dấu chấm (\code{.}). Toàn thế giới có 13 cụm địa chỉ IP Root DNS (từ \code{a.root-servers.net} đến \code{m.root-servers.net}) được phân tán bởi hàng nghìn máy chủ Anycast trên toàn cầu.
+  \item \textbf{Máy chủ Tên miền Cấp cao nhất (Top-Level Domain -- TLD Servers)}: Quản lý các đuôi tên miền quốc tế như \code{.com}, \code{.org}, \code{.net} hoặc tên miền quốc gia như \code{.vn}, \code{.jp}.
+  \item \textbf{Máy chủ Tên miền Có thẩm quyền (Authoritative Nameservers)}: Nơi lưu trữ chính thức các bản ghi cấu hình DNS của tổ chức (ví dụ: máy chủ Cloudflare hay AWS Route 53 quản lý tên miền \code{openai.com}).
+\end{enumerate}
+
+Khi ứng dụng Python của bạn thực hiện cuộc gọi: \code{requests.get("https://api.openai.com")}:
+\begin{enumerate}
+  \item \textbf{Kiểm tra Bộ đệm Cục bộ}: Tiến trình kiểm tra cache DNS trong ứng dụng, sau đó kiểm tra cache hệ điều hành và file \code{/etc/hosts}.
+  \item \textbf{Hỏi Máy chủ Phân giải Đệ quy (Recursive Resolver)}: Nếu không có, máy tính gửi gói tin UDP cổng 53 tới DNS Resolver (ví dụ: \code{8.8.8.8} của Google hoặc \code{1.1.1.1} của Cloudflare).
+  \item \textbf{Truy vấn Lặp (Iterative Query)}:
+    \begin{itemize}
+      \item Resolver hỏi Root DNS Server: ``\textit{IP của api.openai.com là gì?}''. Root trả lời: ``\textit{Tôi không biết, nhưng hãy đi hỏi máy chủ quản lý đuôi .com tại IP X}''.
+      \item Resolver hỏi TLD Server của \code{.com}: TLD trả lời: ``\textit{Hãy hỏi Authoritative Server của openai.com tại IP Y}''.
+      \item Resolver hỏi Authoritative Server: Máy chủ này trả về bản ghi chính xác: \code{api.openai.com -> 104.18.32.7}.
+    \end{itemize}
+  \item \textbf{Trả kết quả \& Lưu Cache}: Resolver gửi IP về cho ứng dụng của bạn và lưu kết quả vào bộ đệm trong khoảng thời gian quy định bởi tham số \term{TTL (Time To Live)}.
+\end{enumerate}
+
+\subsubsection{Các Bản Ghi DNS Cốt Lõi Mà Kỹ Sư AI Phải Nắm Vững}
+\begin{itemize}
+  \item \textbf{A Record}: Ánh xạ tên miền sang địa chỉ IPv4 (ví dụ: \code{model.ai -> 203.0.113.10}).
+  \item \textbf{AAAA Record}: Ánh xạ tên miền sang địa chỉ IPv6 128-bit.
+  \item \textbf{CNAME (Canonical Name)}: Bí danh trỏ một tên miền sang một tên miền khác (ví dụ: \code{rag.domain.com} trỏ tới \code{lb-ai.aws.internal}).
+  \item \textbf{TXT Record}: Chứa chuỗi ký tự tự do, dùng để xác thực quyền sở hữu tên miền, cấu hình bảo mật email SPF/DKIM, hoặc chứa mã xác thực webhook của các nền tảng AI.
+\end{itemize}
 
 \subsection{Cổng Dịch Vụ (Port Numbers) \& Khái Niệm Socket Tuple}
 Một máy chủ chỉ có một địa chỉ IP duy nhất, nhưng có thể chạy đồng thời nhiều dịch vụ: Web API, Database, SSH, Cache. Để phân biệt gói tin gửi tới dịch vụ nào, hệ điều hành sử dụng \term{Cổng Dịch Vụ (Port Number)}:
@@ -320,9 +512,154 @@ T_{\text{Connect}} = \text{RTT}_{\text{DNS}} + \text{RTT}_{\text{TCP}} + \text{R
 \end{equation}
 Nếu máy chủ đặt tại Mỹ ($\text{RTT} \approx 180\text{ms}$ từ Việt Nam), người dùng phải chờ **hơn $540\text{ms}$** trước khi mô hình AI thậm chí bắt đầu đọc prompt! 
 
-\begin{definition}[Quy Tắc Vàng Về Tái Sử Dụng Kết Nối (Connection Pooling)]
-Trong hạ tầng AI, các ứng dụng Backend tuyệt đối không bao giờ được khởi tạo phiên HTTP mới cho mỗi câu hỏi. Hệ thống bắt buộc phải duy trì một \textbf{Hồ bơi kết nối (HTTP Connection Pool)} với cơ chế \code{TCP Keep-Alive}. Nhờ đó, các yêu cầu tiếp theo sẽ tái sử dụng kênh truyền đã được xác thực mã hóa sẵn, triệt tiêu $100\%$ thời gian bắt tay và gửi request đi trong đúng $0\text{ ms}$ phụ trội!
-\end{definition}
+\subsection{Giải Phẫu Tiêu Đề TCP Segment Từng Byte}
+\label{subsec:tcp-header-anatomy}
+Để hiện thực hóa dòng byte tin cậy, TCP phải mang một tiêu đề (\textit{Header}) phức tạp và tinh vi hơn rất nhiều so với UDP. Cấu trúc tiêu đề TCP tiêu chuẩn có kích thước tối thiểu $20\text{ bytes}$ (và có thể lên tới $60\text{ bytes}$ khi có thêm trường Options):
+
+\begin{figure}[htbp]
+\centering
+\begin{tikzpicture}[node distance=0.5cm, auto,
+    headercell/.style={rectangle, draw=secondarycolor, thick, fill=accentcolor!20, text centered, font=\scriptsize\ttfamily, minimum height=0.7cm}
+]
+    % Row 1
+    \node[headercell, text width=5.7cm] (sp) {Source Port (16 bits)};
+    \node[headercell, text width=5.7cm, right=0cm of sp] (dp) {Destination Port (16 bits)};
+
+    % Row 2
+    \node[headercell, text width=11.4cm, below=0cm of sp.south west, anchor=north west] (seq) {Sequence Number (32 bits / 4 Bytes)};
+
+    % Row 3
+    \node[headercell, text width=11.4cm, below=0cm of seq.south west, anchor=north west] (ack) {Acknowledgment Number (32 bits / 4 Bytes)};
+
+    % Row 4
+    \node[headercell, text width=1.5cm, below=0cm of ack.south west, anchor=north west] (offset) {Data Off (4b)};
+    \node[headercell, text width=1.2cm, right=0cm of offset] (res) {Res (3b)};
+    \node[headercell, text width=4.0cm, right=0cm of res] (flags) {Flags (9 bits: U|A|P|R|S|F...)};
+    \node[headercell, text width=4.7cm, right=0cm of flags] (win) {Window Size (16 bits)};
+
+    % Row 5
+    \node[headercell, text width=5.7cm, below=0cm of offset.south west, anchor=north west] (csum) {Checksum (16 bits)};
+    \node[headercell, text width=5.7cm, right=0cm of csum] (urg) {Urgent Pointer (16 bits)};
+
+    % Row 6 (Options)
+    \node[headercell, text width=11.4cm, below=0cm of csum.south west, anchor=north west, fill=boxbg] (opts) {Options (0 -- 40 Bytes): MSS, Window Scale, SACK, Timestamps};
+\end{tikzpicture}
+\caption{Cấu trúc chi tiết các trường nhị phân trong TCP Header}
+\label{fig:tcp-header-detail}
+\end{figure}
+
+Giải mã các trường cờ cốt lõi (\textit{Control Flags}):
+\begin{itemize}
+  \item \textbf{SYN (Synchronize)}: Thiết lập kết nối ban đầu, dùng để đàm phán số thứ tự khởi tạo ngẫu nhiên ($ISN$).
+  \item \textbf{ACK (Acknowledgment)}: Xác nhận đã nhận được dữ liệu tới byte số $ACK\_NUM$.
+  \item \textbf{FIN (Finish)}: Thông báo bên gửi đã truyền xong toàn bộ dữ liệu và yêu cầu đóng chiều gửi của kết nối.
+  \item \textbf{RST (Reset)}: Lập tức hủy bỏ kết nối khẩn cấp (xảy ra khi cổng đích không có dịch vụ nào lắng nghe hoặc gói tin không hợp lệ).
+  \item \textbf{PSH (Push)}: Yêu cầu nhân Linux lập tức đẩy dữ liệu từ buffer lên ứng dụng nhận mà không chờ gom đủ buffer.
+  \item \textbf{URG (Urgent)}: Báo hiệu gói tin chứa dữ liệu ưu tiên khẩn cấp (ít dùng trong ứng dụng hiện đại).
+\end{itemize}
+
+\subsection{Máy Trạng Thái Hữu Hạn TCP (TCP Finite State Machine) \& Vòng Đời Kết Nối}
+\label{subsec:tcp-state-machine}
+Mỗi socket TCP trong nhân hệ điều hành Linux vận hành chính xác như một \term{Máy Trạng Thái Hữu Hạn (FSM -- RFC 793)} gồm 11 trạng thái được định nghĩa nghiêm ngặt:
+
+\begin{table}[htbp]
+\centering
+\small
+\caption{Bảng 11 Trạng Thái Của Máy Trạng Thái TCP Trong Nhân Linux}
+\label{tab:tcp-fsm-states}
+\begin{tabular}{p{2.8cm}p{3.2cm}p{7.0cm}}
+\toprule
+\textbf{Trạng Thái} & \textbf{Vai Trò} & \textbf{Ý Nghĩa Kỹ Thuật \& Chuyển Dịch} \\
+\midrule
+\code{CLOSED} & Cả hai bên & Socket chưa được cấp phát hoặc đã đóng hoàn toàn, không có kết nối. \\
+\code{LISTEN} & Server & Socket đang ở chế độ thụ động chờ kết nối từ Client (\code{listen()}). \\
+\code{SYN\_SENT} & Client & Đã gửi gói \code{SYN}, đang chờ phản hồi \code{SYN-ACK} từ Server. \\
+\code{SYN\_RCVD} & Server & Đã nhận \code{SYN}, gửi lại \code{SYN-ACK} và nằm trong hàng đợi SYN Queue. \\
+\code{ESTABLISHED} & Cả hai bên & Bắt tay 3 bước hoàn tất, kênh truyền 2 chiều mở hoàn toàn để gửi nhận dữ liệu. \\
+\midrule
+\code{FIN\_WAIT\_1} & Bên chủ động đóng & Đã gửi \code{FIN}, chờ gói \code{ACK} hoặc \code{FIN} đối ứng từ phía bên kia. \\
+\code{FIN\_WAIT\_2} & Bên chủ động đóng & Đã nhận \code{ACK} cho cờ FIN của mình, đang chờ bên kia gửi nốt \code{FIN}. \\
+\code{CLOSE\_WAIT} & Bên bị động đóng & Nhận được \code{FIN} từ đối tác, đã gửi \code{ACK}. \textbf{Đang chờ ứng dụng cục bộ gọi hàm \code{close()}}! \\
+\code{CLOSING} & Cả hai bên & Cả hai bên đồng thời gửi \code{FIN} cho nhau trước khi kịp nhận \code{ACK}. \\
+\code{LAST\_ACK} & Bên bị động đóng & Ứng dụng đã gọi \code{close()}, gửi gói \code{FIN} cuối cùng và chờ \code{ACK}. \\
+\code{TIME\_WAIT} & Bên chủ động đóng & Đã gửi \code{ACK} cuối cùng, \textbf{bắt buộc chờ $2 \times \text{MSL}$ (thường là 60s)} trước khi hủy socket. \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\begin{figure}[htbp]
+\centering
+\begin{tikzpicture}[node distance=1.5cm, auto,
+    state/.style={rectangle, draw=primarycolor, thick, fill=boxbg, text centered, rounded corners=3pt, minimum height=0.7cm, minimum width=2.6cm, font=\footnotesize\bfseries},
+    trans/.style={draw=primarycolor, -Stealth, thick, font=\scriptsize}
+]
+    \node[state] (closed) {CLOSED};
+    \node[state, below left=1.2cm and 1.0cm of closed] (synsent) {SYN\_SENT};
+    \node[state, below right=1.2cm and 1.0cm of closed] (listen) {LISTEN};
+    \node[state, below=1.2cm of listen] (synrcvd) {SYN\_RCVD};
+    \node[state, below=2.8cm of closed] (estab) {ESTABLISHED};
+
+    \node[state, below left=1.2cm and 1.0cm of estab] (finw1) {FIN\_WAIT\_1};
+    \node[state, below=1.0cm of finw1] (finw2) {FIN\_WAIT\_2};
+    \node[state, below=1.0cm of finw2] (timewait) {TIME\_WAIT};
+
+    \node[state, below right=1.2cm and 1.0cm of estab] (closewait) {CLOSE\_WAIT};
+    \node[state, below=1.0cm of closewait] (lastack) {LAST\_ACK};
+
+    % Transitions
+    \draw[trans] (closed) -- node[left] {Active Open: gửi SYN} (synsent);
+    \draw[trans] (closed) -- node[right] {Passive Open} (listen);
+    \draw[trans] (listen) -- node[right] {Nhận SYN, gửi SYN-ACK} (synrcvd);
+    \draw[trans] (synsent) -- node[left, yshift=-0.2cm] {Nhận SYN-ACK, gửi ACK} (estab);
+    \draw[trans] (synrcvd) -- node[right] {Nhận ACK} (estab);
+
+    % Closing
+    \draw[trans, draw=dangercolor] (estab) -- node[left, color=dangercolor] {Gửi FIN (Active Close)} (finw1);
+    \draw[trans] (finw1) -- node[left] {Nhận ACK} (finw2);
+    \draw[trans] (finw2) -- node[left] {Nhận FIN, gửi ACK} (timewait);
+    \draw[trans] (timewait) -- node[left, xshift=-0.5cm] {Hết $2 \times \text{MSL}$} (closed);
+
+    \draw[trans, draw=secondarycolor] (estab) -- node[right, color=secondarycolor] {Nhận FIN, gửi ACK} (closewait);
+    \draw[trans] (closewait) -- node[right] {Gọi \code{close()}, gửi FIN} (lastack);
+    \draw[trans] (lastack) -- node[right, xshift=0.5cm] {Nhận ACK} (closed);
+\end{tikzpicture}
+\caption{Sơ đồ máy trạng thái hữu hạn TCP: Từ xác lập kết nối tới chu trình giải phóng 4 bước}
+\label{fig:tcp-fsm-diagram}
+\end{figure}
+
+\subsubsection{Cơn Ác Mộng Của Kỹ Sư Vận Hành: TIME\_WAIT vs. CLOSE\_WAIT}
+Hai lỗi mạng phổ biến nhất làm sập các hệ thống phục vụ mô hình AI là tràn socket ở trạng thái \code{TIME_WAIT} và rò rỉ socket ở trạng thái \code{CLOSE_WAIT}:
+\begin{enumerate}
+  \item \textbf{Trạng thái TIME\_WAIT}:
+    \begin{itemize}
+      \item \textit{Tại sao cần tồn tại?} Khi bên chủ động đóng kết nối gửi gói \code{ACK} cuối cùng, nếu gói ACK này bị rơi trên mạng, bên kia sẽ gửi lại cờ \code{FIN}. Nhờ duy trì trạng thái \code{TIME_WAIT} trong thời gian $2 \times \text{MSL}$ (Maximum Segment Lifetime, thường là $60\text{ giây}$ trên Linux), máy chủ có thể gửi lại gói \code{ACK} cứu vãn. Đồng thời, thời gian chờ này bảo đảm toàn bộ các gói tin trôi dạt (\textit{Dangling Segments}) của kết nối cũ đã hoàn toàn biến mất khỏi Internet trước khi một kết nối mới trùng 5-tuple được cấp phát!
+      \item \textit{Vấn đề trong hệ thống AI}: Nếu một API Gateway liên tục mở và đóng kết nối TCP tới máy chủ vLLM với tần suất 10.000 requests/giây mà không dùng Connection Pooling, 60.000 cổng tạm thời (\textit{Ephemeral Ports}) sẽ bị kẹt cứng ở trạng thái \code{TIME_WAIT}. Hệ điều hành cạn kiệt cổng kết nối, phát sinh lỗi kinh hoàng: \code{"Cannot assign requested address"}.
+      \item \textit{Giải pháp kernel}: Bật tùy chọn tái sử dụng socket an toàn: \code{sysctl -w net.ipv4.tcp_tw_reuse=1}.
+    \end{itemize}
+  \item \textbf{Trạng thái CLOSE\_WAIT (Lỗ Hổng Lập Trình Ứng Dụng)}:
+    \begin{itemize}
+      \item Khi Client đóng kết nối, nhân Linux của Server nhận cờ \code{FIN}, gửi lại \code{ACK} và đưa socket vào trạng thái \code{CLOSE_WAIT}.
+      \item \textbf{Cơ chế nguy hiểm}: Nhân Linux KHÔNG THỂ tự ý đóng socket này! Nó bắt buộc phải chờ tiến trình ứng dụng (ví dụ: code Python FastAPI hoặc Thread Pool) gọi hàm \code{client_socket.close()}.
+      \item Nếu lập trình viên viết code bị treo ngoại lệ (exception) trước lệnh \code{close()}, socket sẽ nằm vĩnh viễn ở trạng thái \code{CLOSE_WAIT}. Hàng chục nghìn socket tích tụ sẽ làm cạn kiệt bảng mô tả tệp (\textit{File Descriptors}), máy chủ báo lỗi \code{"Too many open files"} và sụp đổ hoàn toàn!
+    \end{itemize}
+\end{enumerate}
+
+\subsection{Cơ Chế Điều Khiển Luồng (Flow Control) Với Cửa Sổ Trượt (Sliding Window)}
+Trong khi \term{Điều Khiển Tắc Nghẽn (Congestion Control)} bảo vệ đường truyền mạng bên ngoài không bị sụp đổ, thì \term{Điều Khiển Luồng (Flow Control)} bảo vệ bộ nhớ đệm tiếp nhận (\textit{Receive Buffer}) của máy chủ không bị tràn bởi máy phát quá nhanh.
+
+Cơ chế này hoạt động thông qua trường \textbf{Window Size} trong TCP Header:
+\begin{itemize}
+  \item Máy nhận thông báo cho máy gửi biết dung lượng bộ đệm còn trống khả dụng: \term{Receiver Window ($rwnd$)}.
+  \item Lượng dữ liệu tối đa máy gửi được phép phát đi mà chưa cần nhận gói ACK xác nhận là:
+  \begin{equation}
+  \text{Bytes In Flight} \le \min(cwnd, rwnd)
+  \end{equation}
+  \item Khi bộ đệm máy nhận đầy ($rwnd = 0$), máy nhận phát thông báo \term{Zero Window}. Máy gửi lập tức ngừng phát dữ liệu và kích hoạt bộ định thời gửi gói \textit{Zero Window Probe} định kỳ để thăm dò khi nào bộ đệm được giải phóng.
+  \item \textbf{Tắt Thuật Toán Nagle Cho Streaming AI Token}: Mặc định, giải thuật Nagle cố gắng gom nhiều gói tin nhỏ thành một gói lớn bằng MSS mới gửi đi. Nhưng trong bài toán LLM Token Streaming, mỗi token sinh ra chỉ gồm 1--4 byte. Nếu không tắt Nagle, hệ điều hành sẽ trì hoãn gửi token khiến người dùng cảm thấy chữ xuất hiện giật cục. Các kỹ sư AI bắt buộc phải thiết lập cờ socket:
+  \begin{lstlisting}[language=Python]
+  sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
+  \end{lstlisting}
+\end{itemize}
 
 ---
 

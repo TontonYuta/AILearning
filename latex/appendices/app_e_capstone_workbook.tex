@@ -624,3 +624,204 @@ class MultiRegionFailoverOrchestrator:
   \item \textbf{Cơ chế Quorum Arbiter hoạt động như thế nào để ngăn chặn hiện tượng não phân liệt (\textit{Split-Brain}) khi đường truyền giữa Cụm chính và Cụm dự phòng bị đứt gãy hoàn toàn?}
 \end{enumerate}
 
+---
+
+\section{Đồ Án 7: Nền Tảng Hỗ Trợ Kỹ Thuật \& Tự Động Hóa Vận Hành IT / SRE Cho Doanh Nghiệp (Enterprise Autonomous IT Helpdesk \& SRE Copilot)}
+\label{sec:project-7-sre-copilot}
+
+\subsection{Bối Cảnh Doanh Nghiệp \& Thách Thức Vận Hành}
+Tại các tập đoàn và doanh nghiệp công nghệ, bộ phận Hỗ trợ Kỹ thuật IT (IT Helpdesk) và Kỹ sư Vận hành Độ tin cậy Hệ thống (SRE / DevOps) luôn bị quá tải nghiêm trọng:
+\begin{itemize}
+  \item Hàng ngày tiếp nhận từ $500$ đến $2.000$ tickets hỗ trợ qua Slack, Microsoft Teams, và Jira Service Management.
+  \item Khoảng $65\%$ số tickets là các tác vụ lặp đi lặp lại: Cấp lại mật khẩu VPN, phân quyền truy cập kho dữ liệu, kiểm tra tại sao container pod trên Kubernetes bị lỗi \code{CrashLoopBackOff} hoặc \code{OOMKilled}, hay kiểm tra độ trễ mạng chập chờn của chi nhánh văn phòng.
+  \item Thời gian chờ phản hồi trung bình (First Response Time) kéo dài từ $2$ đến $6\text{ giờ}$, làm ngưng trệ năng suất làm việc của hàng nghìn nhân viên.
+\end{itemize}
+
+\subsection{Kiến Trúc Nền Tảng \& Vòng Lặp ReAct An Toàn}
+Hệ thống kết hợp ba thành phần kiến trúc:
+\begin{enumerate}
+  \item \textbf{Phân Loại Mức Độ Nghiêm Trọng ITIL Tự Động}: Ánh xạ tức thì ticket vào 4 cấp độ: P1 (Sập dịch vụ toàn công ty), P2 (Ảnh hưởng phòng ban trọng yếu), P3 (Lỗi tính năng cục bộ), P4 (Yêu cầu tư vấn/thông tin).
+  \item \textbf{Bộ Công Cụ Thao Tác Hệ Thống Chỉ Đọc (Read-Only Diagnostics)}: Agent được cấp quyền an toàn để gọi các API nội bộ: Kiểm tra trạng thái Kubernetes Pod, đọc 50 dòng log cuối cùng, đo độ trễ DNS, và tra cứu chính sách bảo mật nội bộ qua Hybrid RAG.
+  \item \textbf{Điểm Ngắt Phê Duyệt Của Con Người (Human-in-the-Loop -- HITL)}: Đối với các thao tác thay đổi hạ tầng (Restart Pod, Flush Cache, Cấp quyền Admin), Agent bắt buộc phải dừng lại, xuất trình bản kế hoạch khắc phục sự cố và gửi nút xác nhận phê duyệt kèm chữ ký số tới Kỹ sư trực ca qua Slack Bot.
+\end{enumerate}
+
+\subsection{Hiện Thực Hóa Mã Nguồn Mẫu Bằng Python}
+\begin{lstlisting}[language=Python]
+from typing import Dict, Any, List, Optional, Tuple
+import re
+
+class EnterpriseSRECopilotEngine:
+    """Dong co phan loai su co va tu dong dieu tra nguyen nhan goc (RCA)."""
+    
+    SEVERITY_KEYWORDS = {
+        "P1_CRITICAL": ["down", "outage", "database crash", "sap he thong", "khong the thanh toan", "data breach"],
+        "P2_HIGH": ["slow", "latency spike", "500 error", "oomkilled", "treo dich vu", "vpn failure"],
+        "P3_MEDIUM": ["feature bug", "ui error", "cannot export pdf", "can cap quyen"],
+        "P4_LOW": ["how to", "huong dan", "hoi dap", "general inquiry"]
+    }
+
+    @classmethod
+    def classify_severity(cls, ticket_title: str, ticket_body: str) -> str:
+        text = f"{ticket_title} {ticket_body}".lower()
+        for sev, keywords in cls.SEVERITY_KEYWORDS.items():
+            if any(kw in text for kw in keywords):
+                return sev
+        return "P3_MEDIUM"
+
+    @classmethod
+    def diagnose_pod_crash(cls, exit_code: int, termination_reason: str, log_snippet: str) -> Dict[str, Any]:
+        """Chan doan nguyen nhan goc dua tren ma thoat va log Kubernetes."""
+        root_cause = "UNKNOWN"
+        remediation_action = "MANUAL_INVESTIGATION"
+        requires_hitl = True
+
+        if exit_code == 137 or "OOMKilled" in termination_reason:
+            root_cause = "OUT_OF_MEMORY_LIMIT_EXCEEDED"
+            remediation_action = "INCREASE_MEMORY_LIMIT"
+            explanation = "Container bi Linux kernel OOM Killer tieu diet do vuot qua gioi han RAM duoc cap phat."
+        elif exit_code == 1 or "CrashLoopBackOff" in termination_reason:
+            if "database connection refused" in log_snippet.lower():
+                root_cause = "UPSTREAM_DB_UNAVAILABLE"
+                remediation_action = "CHECK_DB_NETWORK_CONNECTIVITY"
+                explanation = "Ung dung khoi dong that bai do khong the ket noi toi may chu Database co so du lieu."
+            else:
+                root_cause = "APPLICATION_RUNTIME_EXCEPTION"
+                remediation_action = "INSPECT_APP_STACK_TRACE"
+                explanation = "Ung dung nem ra ngoai le nghiem trong trong qua trinh khoi tao."
+        elif exit_code == 0:
+            root_cause = "NORMAL_COMPLETION"
+            remediation_action = "NO_ACTION_REQUIRED"
+            requires_hitl = False
+            explanation = "Tien trinh ket thuc thanh cong binh thuong."
+        else:
+            explanation = f"Container thoat voi ma loi khong xac dinh {exit_code}."
+
+        return {
+            "exit_code": exit_code,
+            "root_cause": root_cause,
+            "explanation": explanation,
+            "recommended_action": remediation_action,
+            "requires_human_approval": requires_hitl
+        }
+
+    @classmethod
+    def generate_incident_postmortem(cls, incident_id: str, severity: str, root_cause: str, recovery_time_sec: float) -> str:
+        """Sinh bao cao Post-Mortem su co tu dong dat chuan Google SRE."""
+        return (
+            f"=== BAO CAO PHAN TICH SU CO (POST-MORTEM) ===\n"
+            f"Ma su co: {incident_id}\n"
+            f"Muc do anh huong: {severity}\n"
+            f"Nguyen nhan goc re (Root Cause): {root_cause}\n"
+            f"Thoi gian khoi phuc (MTTR): {recovery_time_sec:.1f} giay\n"
+            f"Tinh trang phe duyet: Da duoc chuyen vien SRE ky duyet\n"
+            f"Hanh dong phong ngua: Cap nhat nguong canh bao Prometheus va bo sung gioi han tai nguyen."
+        )
+\end{lstlisting}
+
+\subsection{Bộ Câu Hỏi Phản Biện Bảo Vệ Đồ Án}
+\begin{enumerate}
+  \item \textbf{Làm thế nào để bảo vệ hệ thống trước nguy cơ Prompt Injection nằm ẩn bên trong các đoạn log lỗi của container hoặc nội dung ticket người dùng gửi lên?}
+  \item \textbf{Cơ chế nào ngăn chặn Agent rơi vào vòng lặp vô tận (Infinite ReAct Loop) khi thực hiện các lệnh chẩn đoán mạng bị timeout?}
+  \item \textbf{Tại sao các hành động mang tính chất thay đổi trạng thái (\textit{Mutating Actions}) bắt buộc phải lưu vết chữ ký số mật mã học trên Audit Log?}
+\end{enumerate}
+
+---
+
+\section{Đồ Án 8: Trợ Lý Giám Đốc Điều Hành Cá Nhân \& Tự Động Hóa Quy Trình (Executive AI Chief of Staff \& Workflow Automation)}
+\label{sec:project-8-chief-of-staff}
+
+\subsection{Bối Cảnh Cá Nhân / Doanh Nghiệp Nhỏ \& Bài Toán Đặt Ra}
+Các nhà sáng lập startup, giám đốc điều hành và các chuyên gia cấp cao thường xuyên gặp phải tình trạng quá tải thông tin:
+\begin{itemize}
+  \item Nhận hàng trăm email mỗi ngày cần xử lý (từ báo giá đối tác, hóa đơn chi phí, lịch hẹn khách hàng đến thư quảng cáo rác).
+  \item Lịch làm việc dày đặc dẫn tới tình trạng xung đột thời gian (\textit{Calendar Conflict}) giữa các cuộc hẹn quan trọng.
+  \item Quản lý chứng từ chi tiêu và hóa đơn tài chính rời rạc, làm chậm tiến độ quyết toán thuế hàng tháng.
+\end{itemize}
+
+\subsection{Kiến Trúc Giải Pháp \& Ba Trụ Cột Tự Động Hóa}
+\begin{enumerate}
+  \item \textbf{Hộp Thư Thông Minh (Inbox Zero AI Engine)}: Trích xuất ý định (\textit{Intent Recognition}), nhận diện mức độ khẩn cấp, tóm tắt 1 dòng cốt lõi và tự động dự thảo thư phản hồi (\textit{Draft Response}) bám sát văn phong của người dùng.
+  \item \textbf{Bộ Điều Phối Lịch Trình (Smart Calendar Conflict Resolver)}: Sử dụng thuật toán giao thoa khoảng thời gian đóng mở $[s_1, e_1] \cap [s_2, e_2] \neq \emptyset$ để phát hiện trùng lịch và tự động đề xuất 3 khung thời gian trống khả dụng chung.
+  \item \textbf{Trích Xuất Hóa Đơn Tài Chính Đa Phương Thức (Vision Invoice Parser)}: Đọc dữ liệu từ hình ảnh hoặc PDF hóa đơn VAT, trích xuất mã số thuế, nhà cung cấp, ngày lập và số tiền thanh toán, sau đó kiểm tra tính hợp lệ của công thức thuế VAT $10\%$.
+\end{enumerate}
+
+\subsection{Hiện Thực Hóa Mã Nguồn Mẫu Bằng Python}
+\begin{lstlisting}[language=Python]
+from typing import Dict, Any, List, Optional, Tuple
+
+class ExecutiveChiefOfStaffEngine:
+    """Dong co ho tro giam doc dieu hanh xu ly email, lich trinh va hoa don."""
+    
+    @staticmethod
+    def triage_email(sender: str, subject: str, body: str) -> Dict[str, Any]:
+        text = f"{subject} {body}".lower()
+        
+        # 1. Phan loai danh muc
+        if any(w in text for w in ["invoice", "hoa don", "thanh toan", "receipt", "billing"]):
+            category = "FINANCE_EXPENSE"
+            priority = "HIGH"
+        elif any(w in text for w in ["gap mat", "hop", "meeting", "calendar", "call"]):
+            category = "CALENDAR_REQUEST"
+            priority = "HIGH"
+        elif any(w in text for w in ["khuyen mai", "sale", "discount", "newsletter", "unsubscribe"]):
+            category = "MARKETING_SPAM"
+            priority = "LOW"
+        else:
+            category = "GENERAL_COMMUNICATION"
+            priority = "MEDIUM"
+
+        # 2. Sinh tom tat va du thao hanh dong
+        is_action_required = priority in ["HIGH", "MEDIUM"]
+        return {
+            "sender": sender,
+            "subject": subject,
+            "category": category,
+            "priority": priority,
+            "requires_action": is_action_required
+        }
+
+    @staticmethod
+    def detect_calendar_conflict(existing_events: List[Tuple[float, float]], new_start: float, new_end: float) -> Tuple[bool, Optional[Tuple[float, float]]]:
+        """Kiem tra xem su kien moi [new_start, new_end] co bi trung voi lich cu hay khong."""
+        if new_start >= new_end:
+            raise ValueError("Thoi gian bat dau phai nho hon thoi gian ket thuc")
+            
+        for (start, end) in existing_events:
+            # Hai khoang [s1, e1] va [s2, e2] giao nhau khi: max(s1, s2) < min(e1, e2)
+            if max(start, new_start) < min(end, new_end):
+                return True, (start, end)
+        return False, None
+
+    @staticmethod
+    def parse_and_validate_invoice(subtotal: float, vat_rate: float, total_billed: float, supplier_tax_id: str) -> Dict[str, Any]:
+        """Kiem tra tinh hop le cua hoa don VAT."""
+        if subtotal < 0 or vat_rate < 0 or total_billed < 0:
+            raise ValueError("So tien khong the am")
+            
+        expected_vat = subtotal * vat_rate
+        expected_total = subtotal + expected_vat
+        discrepancy = abs(total_billed - expected_total)
+        is_valid = discrepancy < 0.01  # Cho phep sai so lam tron 1 xu
+        
+        # Kiem tra dinh dang Ma So Thue Viet Nam (10 hoac 13 chu so)
+        is_tax_id_valid = bool(re.match(r"^\d{10}(-\d{3})?$", supplier_tax_id))
+
+        return {
+            "subtotal": subtotal,
+            "vat_amount": expected_vat,
+            "expected_total": expected_total,
+            "discrepancy": round(discrepancy, 4),
+            "is_math_valid": is_valid,
+            "is_tax_id_valid": is_tax_id_valid,
+            "status": "APPROVED" if (is_valid and is_tax_id_valid) else "FLAGGED_FOR_REVIEW"
+        }
+\end{lstlisting}
+
+\subsection{Bộ Câu Hỏi Phản Biện Bảo Vệ Đồ Án}
+\begin{enumerate}
+  \item \textbf{Làm thế nào để đảm bảo tính riêng tư (Privacy) tuyệt đối cho email và dữ liệu tài chính của giám đốc khi sử dụng mô hình LLM bên ngoài qua API đám mây?}
+  \item \textbf{Nếu hai đối tác cùng gửi yêu cầu hẹn gặp vào cùng một khung giờ trống, thuật toán thương lượng lịch trình (Calendar Negotiation) sẽ giải quyết ưu tiên như thế nào?}
+  \item \textbf{Trong bài toán trích xuất hóa đơn bằng Vision-LLM, làm thế nào để phát hiện và ngăn chặn các hóa đơn giả mạo được tạo bởi các công cụ AI sinh ảnh?}
+\end{enumerate}
+
+

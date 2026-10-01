@@ -776,6 +776,10 @@ class CIDRSubnetCalculator:
   \item \textbf{Câu A.3 (Ý Nghĩa Của File Descriptors)}: Trong Linux, tại sao câu lệnh cấu hình \code{LimitNOFILE=65536} trong tệp systemd lại là yêu cầu sống còn cho các máy chủ API Gateway phục vụ mô hình ngôn ngữ lớn? Điều gì sẽ xảy ra ở tầng mạng nếu giữ nguyên giá trị mặc định (\code{1024}) khi có $2.000$ người dùng đồng thời mở kết nối streaming SSE?
   \item \textbf{Câu A.4 (TCP Slow Start \& Ảnh Hưởng Lên TTFT)}: Giải thích hiện tượng khởi động chậm (TCP Slow Start) trong giao thức TCP. Khi một client kết nối tới cụm vLLM qua đường truyền có độ trễ lớn (BDP cao), tại sao một câu prompt dài 8000 tokens ($\approx 32\text{ KB}$) lại mất nhiều hơn 1 RTT để truyền tới máy chủ ngay cả khi băng thông mạng còn dư thừa?
   \item \textbf{Câu A.5 (Jumbo Frames Trong Cụm GPU Multi-Node)}: Tại sao trong các cụm huấn luyện AI phân tán liên kết qua card mạng RoCE v2, kỹ sư mạng luôn cấu hình kích thước gói tin tối đa Jumbo Frames ($\text{MTU} = 9000\text{ bytes}$) thay vì chuẩn thông thường $\text{MTU} = 1500\text{ bytes}$?
+  \item \textbf{Câu A.6 (Thuật Toán Nagle \& Cờ TCP\_NODELAY Trong Streaming Token)}: \\
+  Thuật toán Nagle (\code{RFC 896}) gom các gói tin nhỏ lại cho đến khi nhận được ACK của gói tin trước. Tại sao thuật toán này lại là kẻ thù số 1 của giao thức Server-Sent Events (SSE) khi truyền từng token từ vLLM tới người dùng? Tại sao các máy chủ web hiện đại (Uvicorn, Nginx) bắt buộc phải bật cờ \code{TCP_NODELAY}?
+  \item \textbf{Câu A.7 (Bản Chất UDP Port 53 \& Tấn Công Khuếch Đại DNS Amplification)}: \\
+  Giải thích tại sao giao thức DNS chạy trên nền UDP cổng 53 lại dễ bị kẻ tấn công giả mạo địa chỉ IP nguồn để biến các máy chủ DNS công cộng thành vũ khí tấn công DDoS khuếch đại (Amplification Attack) vào cổng API Gateway của cụm AI. Hệ số khuếch đại $K_{\text{amp}}$ được định nghĩa như thế nào và cách phòng thủ?
 \end{enumerate}
 
 \subsection{Nhóm B: Bài Toán Tính Toán Giải Tích Bằng Tay}
@@ -801,6 +805,24 @@ class CIDRSubnetCalculator:
     \item Mặt nạ mạng con CIDR nhỏ nhất (\code{/n}) thuộc dải mạng riêng Class A (\code{10.0.0.0/8}) đủ để chứa toàn bộ các máy chủ này và còn dư dự phòng ít nhất $20\%$ địa chỉ cho mở rộng tương lai.
     \item Xác định số địa chỉ host khả dụng thực tế của dải CIDR đã chọn.
   \end{enumerate}
+
+  \item \textbf{Bài B.3 (Định Lượng BDP \& Tối Ưu Cửa Sổ Bộ Đệm TCP Qua Mạng WAN Cho Cụm AI Đa Vùng)}: \\
+  Hai cụm GPU huấn luyện phân tán đặt tại US-East (Virginia) và EU-West (Frankfurt) kết nối qua mạng WAN xuyên Đại Tây Dương với thời gian khứ hồi $RTT = 80\text{ ms}$ và đường truyền chuyên dụng có băng thông $C = 10\text{ Gbps}$.
+  \begin{enumerate}
+    \item Tính Bandwidth-Delay Product (BDP) của kết nối tính bằng Megabytes (MB).
+    \item Nếu nhân Linux giữ nguyên giá trị bộ đệm mặc định của TCP Socket (\code{net.ipv4.tcp_wmem} max là $4\text{ MB}$), hỏi băng thông tối đa trên lý thuyết mà tiến trình truyền đồng bộ trọng số có thể đạt được là bao nhiêu? Băng thông này đạt bao nhiêu phần trăm công suất thực tế của đường truyền?
+    \item Kỹ sư hệ thống cần cấu hình tham số \code{tcp_rmem} và \code{tcp_wmem} tối thiểu bao nhiêu Megabytes để khai thác trọn vẹn $100\%$ băng thông $10\text{ Gbps}$?
+  \end{enumerate}
+
+  \item \textbf{Bài B.4 (Thiết Kế Kiến Trúc Phân Vùng Mạng Subnetting Cho Hạ Tầng AI Enterprise)}: \\
+  Một doanh nghiệp công nghệ được cấp dải mạng riêng Class A \code{10.100.0.0/16}. Hãy thiết kế kế hoạch chia subnet theo kỹ thuật VLSM (Variable Length Subnet Masking) cho 4 phân vùng chức năng sau:
+  \begin{itemize}
+    \item Phân vùng 1 (AI Ingress / Public API Gateway): Cần tối thiểu 50 máy chủ proxy (Nginx/Envoy).
+    \item Phân vùng 2 (vLLM Model Serving Cluster): Cần tối thiểu 450 máy chủ GPU worker.
+    \item Phân vùng 3 (Storage Fabric \& Checkpointing - Ceph / Lustre / NFS): Cần tối thiểu 120 máy chủ lưu trữ.
+    \item Phân vùng 4 (Data Science \& Training Sandbox): Cần tối thiểu 200 máy chủ thử nghiệm.
+  \end{itemize}
+  Hãy xác định CIDR prefix nhỏ nhất, Network Address, Broadcast Address, và số lượng IP khả dụng thực tế cho từng phân vùng, bảo đảm không bị chồng lấn địa chỉ.
 \end{enumerate}
 
 \subsection{Nhóm C: Thực Hành Kỹ Nghệ \& Lập Trình (Implementation Labs)}
@@ -815,6 +837,9 @@ class CIDRSubnetCalculator:
 
   \item \textbf{Bài C.2 (Viết Kịch Bản Bash Phân Tích Độ Trễ Bằng \code{curl})}: \\
   Viết một đoạn mã shell script sử dụng tiện ích \code{curl} kết hợp tệp định dạng \code{--write-out} để đo lường chi tiết 5 mốc thời gian của một yêu cầu HTTP POST gửi tới máy chủ AI: \code{time_namelookup}, \code{time_connect}, \code{time_appconnect} (TLS), \code{time_starttransfer} (TTFT), và \code{time_total}.
+
+  \item \textbf{Bài C.3 (Bộ Tối Ưu Hóa Buffer Mạng \& Tính Toán BDP Cho Distributed AI)}: \\
+  Xây dựng lớp Python \code{TCPOptimizerEngine} tự động tính toán BDP, phân tích tình trạng nghẽn cửa sổ TCP window-limited và sinh ra các lệnh cấu hình kernel sysctl \code{net.ipv4.tcp_rmem}, \code{net.ipv4.tcp_wmem} và \code{net.core.rmem_max} tối ưu cho đường truyền.
 \end{enumerate}
 
 \subsection{Nhóm D: Phân Tích Thất Bại \& Debugging Thực Tế (Post-Mortem Analysis)}
@@ -867,6 +892,24 @@ class CIDRSubnetCalculator:
     \item Nếu dùng $\text{MTU} = 1500$, để truyền $9\text{ KB}$ cần 6 gói tin Ethernet, CPU/NIC phải xử lý 6 lần ngắt (Interrupts) và tiêu tốn $6 \times 40\text{ bytes} = 240\text{ bytes}$ overhead tiêu đề.
     \item Nếu dùng Jumbo Frame $\text{MTU} = 9000$, toàn bộ $9\text{ KB}$ chỉ cần đúng 1 gói tin duy nhất, giảm 6 lần số lượng ngắt mạng và giảm 6 lần chi phí xử lý gói tin của card mạng, giúp giải phóng tối đa băng thông cho các thuật toán huấn luyện phân tán.
   \end{itemize}
+
+  \item \textbf{Lời giải Câu A.6}:
+  Thuật toán Nagle hoạt động theo quy tắc: Nếu có dữ liệu chưa được xác nhận trên đường truyền (unacknowledged data), TCP sẽ giữ lại các gói tin nhỏ hơn kích thước phân đoạn tối đa (MSS) trong bộ đệm cục bộ và chỉ gửi đi khi: (1) Đủ dữ liệu bằng 1 MSS, hoặc (2) Đã nhận được gói tin ACK của gói tin trước đó.
+  Trong ứng dụng AI streaming (SSE), mô hình LLM sinh ra từng token (chỉ từ 3 đến 5 bytes). Nếu Nagle được bật:
+  - Token đầu tiên được gửi đi ngay lập tức.
+  - Token thứ hai (vài bytes) bị giữ lại trong buffer socket của hệ điều hành để chờ ACK của token thứ nhất từ trình duyệt người dùng.
+  - Phía trình duyệt (Client) lại thường áp dụng thuật toán Delayed ACK (trì hoãn gửi ACK tới $40 - 200\text{ ms}$ để gom ACK).
+  - Sự kết hợp chết người giữa Nagle và Delayed ACK tạo ra hiện tượng đứng hình giật cục (\textit{Token Stuttering}), đẩy độ trễ liên token (ITL) tăng vọt thêm hàng trăm phần nghìn giây!
+  Việc thiết lập \code{TCP_NODELAY = 1} vô hiệu hóa hoàn toàn thuật toán Nagle, buộc card mạng phát từng token ngay tức khắc khi ứng dụng ghi vào socket, đảm bảo trải nghiệm streaming chữ mượt mà như người gõ phím.
+
+  \item \textbf{Lời giải Câu A.7}:
+  Giao thức DNS sử dụng UDP không có cơ chế bắt tay 3 bước, do đó địa chỉ IP nguồn trong gói tin UDP hoàn toàn không được xác thực ở tầng mạng và rất dễ bị kẻ tấn công giả mạo (IP Spoofing).
+  Kẻ tấn công gửi các truy vấn DNS yêu cầu toàn bộ bản ghi miền (truy vấn \code{ANY} kết hợp DNSSEC) tới hàng nghìn máy chủ Open DNS Resolvers trên toàn cầu, nhưng giả mạo IP nguồn thành IP của cụm AI API Gateway nạn nhân:
+  - Gói tin yêu cầu gửi đi chỉ tốn khoảng $60\text{ bytes}$.
+  - Gói tin phản hồi DNSSEC trả về có kích thước lên tới $3.000 - 4.000\text{ bytes}$.
+  - Hệ số khuếch đại: $K_{\text{amp}} = \frac{3600}{60} \approx \mathbf{60 \text{ lần!}}$
+  Hàng trăm Gigabits lưu lượng UDP khổng lồ đổ dồn về cổng mạng của API Gateway, làm cạn kiệt băng thông và đánh sập dịch vụ AI.
+  \textbf{Biện pháp phòng thủ}: Triển khai DNS Response Rate Limiting (RRL) trên các máy chủ DNS nội bộ, sử dụng mạng Anycast BGP để hấp thụ lưu lượng phân tán, cấu hình tường lửa Stateless Drop đối với các gói tin DNS UDP có kích thước bất thường, và chuyển hướng truy vấn quản trị sang DoH (DNS over HTTPS) hoặc DoT (DNS over TLS).
 \end{itemize}
 
 \subsection{Lời Giải Nhóm B: Bài Toán Tính Toán Giải Tích Bằng Tay}
@@ -909,10 +952,83 @@ class CIDRSubnetCalculator:
     \end{itemize}
     Mặt nạ mạng con CIDR nhỏ nhất là \textbf{\code{10.0.0.0/22}} với \textbf{1022 địa chỉ host khả dụng}, đáp ứng hoàn toàn nhu cầu hiện tại và dự phòng tới $99.6\%$ cho việc cắm thêm 128 máy chủ mới!
   \end{enumerate}
+
+  \item \textbf{Lời giải Bài B.3}:
+  \begin{enumerate}
+    \item Tính Bandwidth-Delay Product (BDP):
+    Đổi băng thông đường truyền sang bits/giây: $C = 10\text{ Gbps} = 10 \times 10^9\text{ bits/s}$.
+    Độ trễ khứ hồi: $RTT = 80\text{ ms} = 0.08\text{ giây}$.
+    \begin{equation*}
+    BDP_{\text{bits}} = C \times RTT = 10^{10} \times 0.08 = 8 \times 10^8\text{ bits}
+    \end{equation*}
+    Đổi sang Bytes và Megabytes:
+    \begin{equation*}
+    BDP_{\text{Bytes}} = \frac{8 \times 10^8}{8} = 10^8\text{ Bytes} = \mathbf{100\text{ MB}}
+    \end{equation*}
+    BDP là khối lượng dữ liệu tối đa có thể nằm trên đường dây cáp quang cùng một lúc.
+    
+    \item Băng thông tối đa khi bộ đệm TCP bị giới hạn ở $4\text{ MB}$ ($32 \times 10^6\text{ bits}$):
+    Theo lý thuyết cửa sổ trượt TCP, băng thông tối đa bị giới hạn bởi:
+    \begin{equation*}
+    \text{Throughput}_{\max} = \frac{\text{TCP Window Size}}{RTT} = \frac{4 \times 10^6 \times 8\text{ bits}}{0.08\text{ s}} = 400 \times 10^6\text{ bps} = \mathbf{400\text{ Mbps}}
+    \end{equation*}
+    Tỷ lệ khai thác công suất đường truyền:
+    \begin{equation*}
+    \eta = \frac{400\text{ Mbps}}{10.000\text{ Mbps}} \times 100\% = \mathbf{4.0\%!}
+    \end{equation*}
+    Hơn $96\%$ băng thông đường truyền chuyên dụng đắt đỏ xuyên biển bị lãng phí hoàn toàn do tiến trình gửi phải dừng lại chờ ACK vì tràn cửa sổ TCP!
+    
+    \item Cấu hình tham số kernel sysctl tối ưu:
+    Để đạt $100\%$ băng thông $10\text{ Gbps}$, cửa sổ bộ đệm tối thiểu phải bằng $BDP = 100\text{ MB}$. Thực tế công nghiệp khuyến nghị cấu hình bằng $1.25 \times BDP = 125\text{ MB}$ ($125 \times 10^6\text{ bytes}$) để bù trừ overhead tiêu đề.
+  \end{enumerate}
+
+  \item \textbf{Lời giải Bài B.4}:
+  Quy hoạch không gian địa chỉ IP theo phương pháp VLSM bắt đầu từ phân vùng có nhu cầu lớn nhất:
+  \begin{enumerate}
+    \item \textbf{Phân vùng 2 (vLLM Serving Cluster - 450 máy)}:
+    Cần $\ge 450 + 2 = 452$ IP $\implies$ Số lượng lũy thừa 2 nhỏ nhất là $2^9 = 512$ IP.
+    Số bit host: $h = 9 \implies$ Mặt nạ CIDR: $32 - 9 = \mathbf{/23}$.
+    \begin{itemize}
+      \item Network Address: \code{10.100.0.0/23}
+      \item Dải IP khả dụng: \code{10.100.0.1} đến \code{10.100.1.254} (Tổng \textbf{510 máy chủ})
+      \item Broadcast Address: \code{10.100.1.255}
+    \end{itemize}
+    
+    \item \textbf{Phân vùng 4 (Data Science \& Training Sandbox - 200 máy)}:
+    Tiếp tục dải mạng trống tiếp theo từ \code{10.100.2.0}.
+    Cần $\ge 200 + 2 = 202$ IP $\implies$ Lũy thừa 2 nhỏ nhất là $2^8 = 256$ IP.
+    Số bit host: $h = 8 \implies$ Mặt nạ CIDR: $32 - 8 = \mathbf{/24}$.
+    \begin{itemize}
+      \item Network Address: \code{10.100.2.0/24}
+      \item Dải IP khả dụng: \code{10.100.2.1} đến \code{10.100.2.254} (Tổng \textbf{254 máy chủ})
+      \item Broadcast Address: \code{10.100.2.255}
+    \end{itemize}
+    
+    \item \textbf{Phân vùng 3 (Storage Fabric \& Checkpointing - 120 máy)}:
+    Tiếp tục dải mạng trống tiếp theo từ \code{10.100.3.0}.
+    Cần $\ge 120 + 2 = 122$ IP $\implies$ Lũy thừa 2 nhỏ nhất là $2^7 = 128$ IP.
+    Số bit host: $h = 7 \implies$ Mặt nạ CIDR: $32 - 7 = \mathbf{/25}$.
+    \begin{itemize}
+      \item Network Address: \code{10.100.3.0/25}
+      \item Dải IP khả dụng: \code{10.100.3.1} đến \code{10.100.3.126} (Tổng \textbf{126 máy chủ})
+      \item Broadcast Address: \code{10.100.3.127}
+    \end{itemize}
+    
+    \item \textbf{Phân vùng 1 (AI Ingress / Public API Gateway - 50 máy)}:
+    Tiếp tục nửa sau của dải \code{10.100.3.0/24} bắt đầu từ \code{10.100.3.128}.
+    Cần $\ge 50 + 2 = 52$ IP $\implies$ Lũy thừa 2 nhỏ nhất là $2^6 = 64$ IP.
+    Số bit host: $h = 6 \implies$ Mặt nạ CIDR: $32 - 6 = \mathbf{/26}$.
+    \begin{itemize}
+      \item Network Address: \code{10.100.3.128/26}
+      \item Dải IP khả dụng: \code{10.100.3.129} đến \code{10.100.3.190} (Tổng \textbf{62 máy chủ})
+      \item Broadcast Address: \code{10.100.3.191}
+    \end{itemize}
+  \end{enumerate}
+  Quy hoạch này hoàn toàn không có địa chỉ chồng lấn và vẫn để trống toàn bộ không gian từ \code{10.100.3.192} đến \code{10.100.255.255} cho các cụm GPU tương lai!
 \end{itemize}
 
 \subsection{Lời Giải Nhóm C: Thực Hành Kỹ Nghệ \& Lập Trình}
-\begin{lstlisting}[language=Python]
+\begin{lstlisting}[language=Python, caption={Bộ kiểm tra socket và độ trễ tới các dịch vụ AI.}]
 import socket
 import time
 from typing import Dict, Any
@@ -939,6 +1055,54 @@ class AINetworkHealthChecker:
             return {"host": host, "port": port, "status": f"ERROR: {str(e)}", "latency_ms": -1.0}
         finally:
             sock.close()
+\end{lstlisting}
+
+\begin{lstlisting}[language=Python, caption={Bộ tính toán BDP và tối ưu hóa buffer mạng TCP cho cụm phân tán.}]
+class TCPOptimizerEngine:
+    """Tinh toan BDP va sinh tham so toi uu hoa bo dem TCP kernel."""
+    
+    @staticmethod
+    def calculate_bdp(bandwidth_gbps: float, rtt_ms: float) -> Dict[str, Any]:
+        if bandwidth_gbps <= 0 or rtt_ms <= 0:
+            raise ValueError("Bandwidth va RTT phai la so duong")
+            
+        bandwidth_bps = bandwidth_gbps * 1e9
+        rtt_sec = rtt_ms / 1000.0
+        
+        bdp_bits = bandwidth_bps * rtt_sec
+        bdp_bytes = int(bdp_bits / 8.0)
+        bdp_mb = round(bdp_bytes / 1e6, 2)
+        
+        return {
+            "bandwidth_gbps": bandwidth_gbps,
+            "rtt_ms": rtt_ms,
+            "bdp_bytes": bdp_bytes,
+            "bdp_mb": bdp_mb
+        }
+
+    @staticmethod
+    def calculate_throughput_limit(buffer_bytes: int, rtt_ms: float) -> float:
+        """Tinh bang thong toi da ly thuyet khi bi gioi han boi TCP Window."""
+        rtt_sec = rtt_ms / 1000.0
+        max_bps = (buffer_bytes * 8.0) / rtt_sec
+        return round(max_bps / 1e6, 2)  # Mbps
+
+    @staticmethod
+    def generate_sysctl_recommendations(bandwidth_gbps: float, rtt_ms: float) -> Dict[str, Any]:
+        bdp_info = TCPOptimizerEngine.calculate_bdp(bandwidth_gbps, rtt_ms)
+        recommended_max_bytes = int(bdp_info["bdp_bytes"] * 1.25)
+        
+        return {
+            "bdp_bytes": bdp_info["bdp_bytes"],
+            "recommended_max_bytes": recommended_max_bytes,
+            "sysctl_commands": [
+                f"sysctl -w net.core.rmem_max={recommended_max_bytes}",
+                f"sysctl -w net.core.wmem_max={recommended_max_bytes}",
+                f"sysctl -w net.ipv4.tcp_rmem='4096 87380 {recommended_max_bytes}'",
+                f"sysctl -w net.ipv4.tcp_wmem='4096 65536 {recommended_max_bytes}'",
+                "sysctl -w net.ipv4.tcp_window_scaling=1"
+            ]
+        }
 \end{lstlisting}
 
 \subsection{Lời Giải Nhóm D: Phân Tích Thất Bại Thực Tế (Post-Mortem Analysis)}

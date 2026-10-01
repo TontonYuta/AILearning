@@ -184,3 +184,74 @@ def test_ecdh_key_exchange_toy_simulation():
     K_server = pow(Q_C, d_S, p)  # 8^15 mod 23 = 2
     
     assert K_client == K_server == 2
+
+
+class TCPOptimizerEngine:
+    @staticmethod
+    def calculate_bdp(bandwidth_gbps: float, rtt_ms: float) -> Dict[str, Any]:
+        if bandwidth_gbps <= 0 or rtt_ms <= 0:
+            raise ValueError("Bandwidth va RTT phai la so duong")
+            
+        bandwidth_bps = bandwidth_gbps * 1e9
+        rtt_sec = rtt_ms / 1000.0
+        
+        bdp_bits = bandwidth_bps * rtt_sec
+        bdp_bytes = int(bdp_bits / 8.0)
+        bdp_mb = round(bdp_bytes / 1e6, 2)
+        
+        return {
+            "bandwidth_gbps": bandwidth_gbps,
+            "rtt_ms": rtt_ms,
+            "bdp_bytes": bdp_bytes,
+            "bdp_mb": bdp_mb
+        }
+
+    @staticmethod
+    def calculate_throughput_limit(buffer_bytes: int, rtt_ms: float) -> float:
+        rtt_sec = rtt_ms / 1000.0
+        max_bps = (buffer_bytes * 8.0) / rtt_sec
+        return round(max_bps / 1e6, 2)
+
+    @staticmethod
+    def generate_sysctl_recommendations(bandwidth_gbps: float, rtt_ms: float) -> Dict[str, Any]:
+        bdp_info = TCPOptimizerEngine.calculate_bdp(bandwidth_gbps, rtt_ms)
+        recommended_max_bytes = int(bdp_info["bdp_bytes"] * 1.25)
+        
+        return {
+            "bdp_bytes": bdp_info["bdp_bytes"],
+            "recommended_max_bytes": recommended_max_bytes,
+            "sysctl_commands": [
+                f"sysctl -w net.core.rmem_max={recommended_max_bytes}",
+                f"sysctl -w net.core.wmem_max={recommended_max_bytes}",
+                f"sysctl -w net.ipv4.tcp_rmem='4096 87380 {recommended_max_bytes}'",
+                f"sysctl -w net.ipv4.tcp_wmem='4096 65536 {recommended_max_bytes}'",
+                "sysctl -w net.ipv4.tcp_window_scaling=1"
+            ]
+        }
+
+
+def test_tcp_optimizer_engine():
+    # Exercise B.3: 10 Gbps, RTT = 80ms
+    res = TCPOptimizerEngine.calculate_bdp(bandwidth_gbps=10.0, rtt_ms=80.0)
+    assert res["bdp_bytes"] == 100_000_000
+    assert res["bdp_mb"] == 100.0
+
+    # With 4MB buffer: Throughput limit = 400 Mbps
+    limit_4mb = TCPOptimizerEngine.calculate_throughput_limit(buffer_bytes=4_000_000, rtt_ms=80.0)
+    assert limit_4mb == 400.0
+
+    rec = TCPOptimizerEngine.generate_sysctl_recommendations(bandwidth_gbps=10.0, rtt_ms=80.0)
+    assert rec["recommended_max_bytes"] == 125_000_000
+    assert len(rec["sysctl_commands"]) == 5
+
+
+def test_exercise_b4_vlsm_subnetting():
+    # Subnet 2: /23 -> 510 usable hosts (>= 450)
+    assert CIDRSubnetCalculator.calculate_usable_hosts(23) == 510
+    # Subnet 4: /24 -> 254 usable hosts (>= 200)
+    assert CIDRSubnetCalculator.calculate_usable_hosts(24) == 254
+    # Subnet 3: /25 -> 126 usable hosts (>= 120)
+    assert CIDRSubnetCalculator.calculate_usable_hosts(25) == 126
+    # Subnet 1: /26 -> 62 usable hosts (>= 50)
+    assert CIDRSubnetCalculator.calculate_usable_hosts(26) == 62
+

@@ -294,3 +294,106 @@ def test_graph_rag_khop_expansion():
     hop3 = graph_retriever.expand_subgraph(["Transformer"], k_hops=3)
     assert "GPU" in hop3
 
+
+# ==============================================================================
+# 7. TABLE-AWARE CHUNKER & HAND CALCULATION TESTS
+# ==============================================================================
+
+class TableAwareChunker:
+    """Bo chia doan van ban Markdown co kha nang bao toan Table Headers."""
+    def __init__(self, max_table_rows: int = 5):
+        self.max_table_rows = max_table_rows
+
+    def chunk_markdown(self, text: str) -> list[str]:
+        lines = text.strip().split("\n")
+        chunks = []
+        in_table = False
+        table_headers = []
+        current_rows = []
+
+        for line in lines:
+            stripped = line.strip()
+            if stripped.startswith("|") and stripped.endswith("|"):
+                if not in_table:
+                    in_table = True
+                    table_headers = [line]
+                elif len(table_headers) == 1 and ("---" in stripped):
+                    table_headers.append(line)
+                else:
+                    current_rows.append(line)
+                    if len(current_rows) >= self.max_table_rows:
+                        chunk_content = "\n".join(table_headers + current_rows)
+                        chunks.append(chunk_content)
+                        current_rows = []
+            else:
+                if in_table:
+                    if current_rows:
+                        chunk_content = "\n".join(table_headers + current_rows)
+                        chunks.append(chunk_content)
+                        current_rows = []
+                    in_table = False
+                    table_headers = []
+                if stripped:
+                    chunks.append(line)
+
+        if in_table and current_rows:
+            chunks.append("\n".join(table_headers + current_rows))
+
+        return chunks
+
+
+def test_exercise_b4_bm25_hand_calculation():
+    # Exercise B.4: N=3, n(q)=2 -> IDF = ln((3 - 2 + 0.5)/(2 + 0.5) + 1) = ln(1.5/2.5 + 1) = ln(1.6)
+    idf_val = math.log((3 - 2 + 0.5) / (2 + 0.5) + 1.0)
+    assert pytest.approx(idf_val, 1e-4) == 0.4700036
+
+    # D1: len=4, f=2, avgdl=5.0, k1=1.2, b=0.75
+    score_d1 = idf_val * (2.0 * 2.2) / (2.0 + 1.2 * (0.25 + 0.75 * (4.0 / 5.0)))
+    assert pytest.approx(score_d1, 1e-4) == 0.6848
+
+    # D2: len=6, f=1, avgdl=5.0
+    score_d2 = idf_val * (1.0 * 2.2) / (1.0 + 1.2 * (0.25 + 0.75 * (6.0 / 5.0)))
+    assert pytest.approx(score_d2, 1e-4) == 0.4345
+
+    assert score_d1 > score_d2
+
+
+def test_exercise_b5_rrf_hand_calculation():
+    # Dense: [d1, d2, d3, d4] -> ranks 1, 2, 3, 4
+    # BM25:  [d3, d1, d4, d2] -> ranks 2, 4, 1, 3
+    # k = 60
+    rrf_d1 = 1.0 / (60 + 1) + 1.0 / (60 + 2)
+    rrf_d2 = 1.0 / (60 + 2) + 1.0 / (60 + 4)
+    rrf_d3 = 1.0 / (60 + 3) + 1.0 / (60 + 1)
+    rrf_d4 = 1.0 / (60 + 4) + 1.0 / (60 + 3)
+
+    assert pytest.approx(rrf_d1, abs=1e-4) == 0.032522
+    assert pytest.approx(rrf_d2, abs=1e-4) == 0.031754
+    assert pytest.approx(rrf_d3, abs=1e-4) == 0.032266
+    assert pytest.approx(rrf_d4, abs=1e-4) == 0.031498
+
+    # Winner is d1
+    assert rrf_d1 > rrf_d3 > rrf_d2 > rrf_d4
+
+
+def test_table_aware_chunker():
+    chunker = TableAwareChunker(max_table_rows=2)
+    md_content = """# Bao Cao Doanh Thu
+| Nam | Doanh Thu |
+|---|---|
+| 2023 | 100 ty |
+| 2024 | 150 ty |
+| 2025 | 200 ty |
+| 2026 | 280 ty |
+Ket thuc bao cao."""
+
+    chunks = chunker.chunk_markdown(md_content)
+    table_chunks = [c for c in chunks if "| Nam | Doanh Thu |" in c]
+    assert len(table_chunks) == 2
+    assert "| 2023 | 100 ty |" in table_chunks[0]
+    assert "| 2025 | 200 ty |" in table_chunks[1]
+    for tc in table_chunks:
+        assert "| Nam | Doanh Thu |" in tc
+        assert "|---|---|" in tc
+
+

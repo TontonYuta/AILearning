@@ -262,3 +262,122 @@ def test_dpo_loss_engine():
         policy_chosen, policy_rejected, ref_chosen, ref_rejected
     )
     assert pytest.approx(loss_b1, 1e-4) == -np.log(0.8)
+
+
+class OBSQuantizerEngine:
+    """Bo luong tu hoa Optimal Brain Surgeon 1 tang voi bu sai so bac hai."""
+    def __init__(self, damping: float = 0.01):
+        self.damping = damping
+
+    def quantize_layer(
+        self,
+        w: np.ndarray,
+        x: np.ndarray,
+        bits: int = 4
+    ) -> Tuple[np.ndarray, float, float]:
+        d_out, d_in = w.shape
+        w_obs = w.copy().astype(np.float64)
+        w_rtn = w.copy().astype(np.float64)
+
+        # 1. Tinh ma tran Hessian H = 2 * X @ X.T
+        h = 2.0 * np.matmul(x, x.T)
+        diag_mean = float(np.mean(np.diag(h)))
+        if diag_mean == 0.0:
+            diag_mean = 1.0
+
+        # Dieu hoa Damping factor chong suy bien
+        h += self.damping * diag_mean * np.eye(d_in)
+
+        # 2. Tinh nghich dao Hessian H^-1
+        h_inv = np.linalg.inv(h)
+
+        # 3. Tinh Scale luong tu hoa INT cho tung hang
+        q_max = (2 ** (bits - 1)) - 1
+        scales = np.max(np.abs(w), axis=1) / q_max
+        scales = np.maximum(scales, 1e-8)
+
+        # 4. Luong tu hoa doc lap RTN de so sanh
+        for r in range(d_out):
+            s = scales[r]
+            q_rtn = np.clip(np.round(w_rtn[r, :] / s), -q_max, q_max)
+            w_rtn[r, :] = q_rtn * s
+
+        # 5. Luong tu hoa OBS voi bu sai so lien tuc tren tung cot
+        for col in range(d_in):
+            h_inv_qq = h_inv[col, col]
+            h_inv_col = h_inv[:, col]
+
+            for r in range(d_out):
+                w_orig = w_obs[r, col]
+                s = scales[r]
+                q_val = np.clip(np.round(w_orig / s), -q_max, q_max)
+                w_hat = q_val * s
+                err = w_orig - w_hat
+
+                # Cap nhat bu sai so cho cac cot con lai
+                delta_w = - (err / h_inv_qq) * h_inv_col
+                w_obs[r, :] += delta_w
+                w_obs[r, col] = w_hat
+
+        # 6. Danh gia sai so tai tao kich hoa Y = W @ X
+        y_true = np.matmul(w, x)
+        y_obs = np.matmul(w_obs, x)
+        y_rtn = np.matmul(w_rtn, x)
+
+        mse_obs = float(np.mean((y_true - y_obs) ** 2))
+        mse_rtn = float(np.mean((y_true - y_rtn) ** 2))
+
+        return w_obs.astype(np.float32), mse_obs, mse_rtn
+
+
+def test_obs_hand_calculation_worked_example():
+    # Worked example in text:
+    # X = [[1, 2, 1], [0, 1, 2]]
+    # w = [1.5, -2.0]
+    x = np.array([[1.0, 2.0, 1.0], [0.0, 1.0, 2.0]], dtype=np.float64)
+    w = np.array([[1.5, -2.0]], dtype=np.float64)
+
+    # 1. Hessian H = 2 * X @ X.T
+    h = 2.0 * np.matmul(x, x.T)
+    np.testing.assert_allclose(h, [[12.0, 8.0], [8.0, 10.0]])
+
+    # 2. H_inv
+    h_inv = np.linalg.inv(h)
+    assert pytest.approx(h_inv[0, 0], 1e-4) == 5.0 / 28.0
+    assert pytest.approx(h_inv[0, 1], 1e-4) == -1.0 / 7.0
+    assert pytest.approx(h_inv[1, 1], 1e-4) == 3.0 / 14.0
+
+    # 3. Quantize w1 = 1.5 -> w_hat1 = 2.0
+    err = 1.5 - 2.0  # -0.5
+    delta_w = - (err / h_inv[0, 0]) * h_inv[:, 0]
+    assert pytest.approx(delta_w[0], 1e-4) == 0.5
+    assert pytest.approx(delta_w[1], 1e-4) == -0.4
+
+    w_obs = np.array([[2.0, -2.4]], dtype=np.float64)
+    w_rtn = np.array([[2.0, -2.0]], dtype=np.float64)
+
+    y_true = np.matmul(w, x)
+    y_obs = np.matmul(w_obs, x)
+    y_rtn = np.matmul(w_rtn, x)
+
+    mse_obs = np.sum((y_true - y_obs) ** 2)
+    mse_rtn = np.sum((y_true - y_rtn) ** 2)
+
+    assert pytest.approx(mse_obs, 1e-4) == 0.70
+    assert pytest.approx(mse_rtn, 1e-4) == 1.50
+    assert mse_obs < mse_rtn * 0.5
+
+
+def test_obs_quantizer_engine():
+    np.random.seed(42)
+    d_out, d_in, n_samples = 4, 8, 50
+    w = np.random.standard_normal((d_out, d_in)).astype(np.float64)
+    x = np.random.standard_normal((d_in, n_samples)).astype(np.float64)
+
+    engine = OBSQuantizerEngine(damping=0.01)
+    w_q, mse_obs, mse_rtn = engine.quantize_layer(w, x, bits=4)
+
+    assert w_q.shape == (d_out, d_in)
+    # OBS must consistently achieve lower reconstruction MSE than RTN
+    assert mse_obs < mse_rtn
+

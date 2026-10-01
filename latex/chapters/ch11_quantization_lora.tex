@@ -161,17 +161,153 @@ Trong đó $\max(|\mathbf{X}_j|)$ là giá trị kích hoạt lớn nhất trên
   \item Khi $\alpha = 0.5$: Điểm cân bằng hình học tối ưu, chia sẻ đều độ lệch biên độ giữa kích hoạt và trọng số, cho phép lượng tử hóa đồng thời cả activations và weights sang INT8 mà không làm mất độ chính xác.
 \end{itemize}
 
-\subsection{GPTQ: Tối Ưu Hóa Bậc Hai Dựa Trên Ma Trận Hessian}
-Được Frantar et al. (2022) phát triển dựa trên khung lý thuyết \textit{Optimal Brain Surgeon (OBS)}, GPTQ giải quyết bài toán nén trọng số xuống INT4 hoặc INT3 bằng cách tối ưu hóa hàm mục tiêu sai số bình phương trên một tập dữ liệu hiệu chỉnh nhỏ (khoảng 128 chuỗi văn bản):
+\subsection{Toán Học Giải Tích Bậc Hai: Optimal Brain Surgeon (OBS) \& Thuật Toán GPTQ}
+\label{sec:obs-gptq-math}
+
+Để hiểu tại sao GPTQ có thể nén một mô hình ngôn ngữ 70 tỷ tham số xuống INT4 hoặc INT3 mà không làm suy giảm chỉ số Perplexity, chúng ta phải xuất phát từ nền tảng giải tích của thuật toán \term{Optimal Brain Surgeon (OBS)} do Babak Hassibi và David Stork đề xuất năm 1993.
+
+\paragraph{1. Động cơ: Tại sao làm tròn độc lập (Round-To-Nearest - RTN) thất bại thảm hại ở 4-bit?}
+Xét một tầng tuyến tính bất kỳ của Transformer: $\mathbf{Y} = \mathbf{W} \mathbf{X}$, trong đó $\mathbf{W} \in \mathbb{R}^{d_{\text{out}} \times d_{\text{in}}}$ là ma trận trọng số và $\mathbf{X} \in \mathbb{R}^{d_{\text{in}} \times N}$ là ma trận kích hoạt đầu vào thu thập từ $N$ mẫu dữ liệu hiệu chuẩn (Calibration tokens).
+Khi nén trọng số từ FP16 xuống INT4, phương pháp đơn giản nhất là làm tròn độc lập từng phần tử (Round-To-Nearest -- RTN):
 \begin{equation}
-\min_{\widehat{\mathbf{W}}} \|\mathbf{W} \mathbf{X} - \widehat{\mathbf{W}} \mathbf{X}\|_F^2
+\hat{w}_{ij} = \text{round}\left( \frac{w_{ij}}{S} \right) \cdot S
 \end{equation}
-Thay vì làm tròn độc lập từng trọng số một cách mù quáng, GPTQ sử dụng ma trận Hessian nghịch đảo $\mathbf{H}^{-1} = (2 \mathbf{X} \mathbf{X}^T)^{-1}$.
-Khi cột trọng số thứ $i$ bị lượng tử hóa thành $\hat{w}_i$ (tạo ra sai số cục bộ $w_i - \hat{w}_i$), GPTQ lập tức cập nhật bù trừ giải tích lên toàn bộ các trọng số chưa lượng tử hóa còn lại theo công thức:
+Ở độ phân giải 8-bit ($256$ mức rời rạc), khoảng cách giữa hai mức lượng tử hóa $\Delta$ đủ nhỏ để sai số làm tròn $e = w_{ij} - \hat{w}_{ij}$ triệt tiêu lẫn nhau qua phân phối chuẩn. Nhưng ở độ phân giải 4-bit ($16$ mức rời rạc), khoảng cách $\Delta$ trở nên khổng lồ. Hàng triệu sai số cục bộ độc lập cộng dồn lại theo chiều sâu hàng chục tầng Transformer, khiến đầu ra $\widehat{\mathbf{Y}} = \widehat{\mathbf{W}} \mathbf{X}$ bị trôi dạt hoàn toàn khỏi phân phối ban đầu, dẫn đến hiện tượng sụp đổ suy luận (Perplexity bùng nổ lên hàng nghìn).
+
+\paragraph{2. Khai triển chuỗi Taylor bậc hai của hàm mục tiêu sai số tái tạo}:
+Thay vì tối ưu hóa mù quáng trên từng trọng số đơn lẻ, mục tiêu thực sự của lượng tử hóa bảo toàn độ chính xác là cực tiểu hóa bình phương sai số tái tạo kích hoạt đầu ra:
 \begin{equation}
-\mathbf{w}_{\text{remaining}} \leftarrow \mathbf{w}_{\text{remaining}} - \frac{w_i - \hat{w}_i}{[\mathbf{H}^{-1}]_{ii}} \cdot \mathbf{H}^{-1}_{:, i}
+\min_{\widehat{\mathbf{W}}} \mathcal{E} = \|\mathbf{W} \mathbf{X} - \widehat{\mathbf{W}} \mathbf{X}\|_F^2 = \sum_{r=1}^{d_{\text{out}}} \|\mathbf{w}_r \mathbf{X} - \widehat{\mathbf{w}}_r \mathbf{X}\|_2^2
 \end{equation}
-Nhờ cơ chế bù trừ sai số bậc hai này, sai số làm tròn của cột trước được hấp thụ và triệt tiêu bởi các cột tiếp theo, cho phép nén một mô hình 70B xuống INT4 trong vòng vài giờ trên 1 GPU duy nhất mà chỉ tăng chỉ số độ bối rối (Perplexity) dưới $0.5\%$.
+Hàm mục tiêu này khả ly theo từng hàng của ma trận trọng số. Do đó, bài toán quy về việc tối ưu hóa độc lập cho từng vector trọng số hàng $\mathbf{w} \in \mathbb{R}^{1 \times d_{\text{in}}}$. Đặt $\Delta \mathbf{w} = \widehat{\mathbf{w}} - \mathbf{w}$ là vector sai số lượng tử hóa. Khai triển Taylor của hàm sai số $\mathcal{E}(\mathbf{w} + \Delta \mathbf{w})$ quanh điểm tối ưu ban đầu $\mathbf{w}$:
+\begin{equation}
+\mathcal{E}(\mathbf{w} + \Delta \mathbf{w}) = \mathcal{E}(\mathbf{w}) + \mathbf{g}^T \Delta \mathbf{w} + \frac{1}{2} \Delta \mathbf{w}^T \mathbf{H} \Delta \mathbf{w} + \mathcal{O}(\|\Delta \mathbf{w}\|^3)
+\end{equation}
+Trong đó:
+\begin{itemize}
+  \item Vì mô hình đã hội tụ sau huấn luyện, vector gradient bậc nhất triệt tiêu về 0: $\mathbf{g} = \nabla_{\mathbf{w}} \mathcal{E} = \mathbf{0}$.
+  \item Ma trận đạo hàm bậc hai (Hessian Matrix) $\mathbf{H} \in \mathbb{R}^{d_{\text{in}} \times d_{\text{in}}}$ được xác định tường minh bằng:
+  \begin{equation}
+  \mathbf{H} = \nabla^2_{\mathbf{w}} \mathcal{E} = 2 \mathbf{X} \mathbf{X}^T
+  \end{equation}
+  \item Bỏ qua các số hạng bậc ba và cao hơn, mức biến thiên sai số thuần túy do lượng tử hóa gây ra là:
+  \begin{equation}
+  \Delta \mathcal{E} \approx \frac{1}{2} \Delta \mathbf{w}^T \mathbf{H} \Delta \mathbf{w}
+  \end{equation}
+\end{itemize}
+
+\paragraph{3. Thiết lập bài toán tối ưu có ràng buộc với Nhân tử Lagrange}:
+Giả sử ta tiến hành lượng tử hóa trọng số tại vị trí cột thứ $q$ ($w_q \to \hat{w}_q$), tức là cố định sai số lượng tử hóa cục bộ tại vị trí $q$:
+\begin{equation}
+\mathbf{e}_q^T \Delta \mathbf{w} + (w_q - \hat{w}_q) = 0
+\end{equation}
+trong đó $\mathbf{e}_q$ là vector đơn vị có phần tử thứ $q$ bằng $1$ và các phần tử khác bằng $0$.
+Để giảm thiểu tối đa sự gia tăng sai số toàn cục $\Delta \mathcal{E}$, chúng ta không giữ nguyên các trọng số chưa nén còn lại, mà chủ động điều chỉnh chúng để hấp thụ phần sai số của $w_q$. Bài toán tối ưu hóa có ràng buộc được phát biểu:
+\begin{equation}
+\min_{\Delta \mathbf{w}} \frac{1}{2} \Delta \mathbf{w}^T \mathbf{H} \Delta \mathbf{w} \quad \text{với điều kiện ràng buộc } \mathbf{e}_q^T \Delta \mathbf{w} + (w_q - \hat{w}_q) = 0
+\end{equation}
+
+Thiết lập hàm Lagrange:
+\begin{equation}
+\mathcal{L}(\Delta \mathbf{w}, \lambda) = \frac{1}{2} \Delta \mathbf{w}^T \mathbf{H} \Delta \mathbf{w} + \lambda \left( \mathbf{e}_q^T \Delta \mathbf{w} + w_q - \hat{w}_q \right)
+\end{equation}
+với $\lambda \in \mathbb{R}$ là nhân tử Lagrange. Lấy đạo hàm riêng theo $\Delta \mathbf{w}$ và cho bằng $0$:
+\begin{equation}
+\nabla_{\Delta \mathbf{w}} \mathcal{L} = \mathbf{H} \Delta \mathbf{w} + \lambda \mathbf{e}_q = \mathbf{0} \implies \Delta \mathbf{w} = -\lambda \mathbf{H}^{-1} \mathbf{e}_q
+\end{equation}
+Nhân cả hai vế với $\mathbf{e}_q^T$:
+\begin{equation}
+\mathbf{e}_q^T \Delta \mathbf{w} = -\lambda \mathbf{e}_q^T \mathbf{H}^{-1} \mathbf{e}_q = -\lambda [\mathbf{H}^{-1}]_{qq}
+\end{equation}
+Mặt khác, theo điều kiện ràng buộc: $\mathbf{e}_q^T \Delta \mathbf{w} = -(w_q - \hat{w}_q) = \hat{w}_q - w_q$. Suy ra:
+\begin{equation}
+\lambda = \frac{w_q - \hat{w}_q}{[\mathbf{H}^{-1}]_{qq}}
+\end{equation}
+Thay $\lambda$ ngược trở lại phương trình của $\Delta \mathbf{w}$, ta thu được công thức bù sai số kinh điển của Optimal Brain Surgeon:
+\begin{equation}
+\Delta \mathbf{w} = - \frac{w_q - \hat{w}_q}{[\mathbf{H}^{-1}]_{qq}} \cdot \mathbf{H}^{-1}_{:, q}
+\end{equation}
+trong đó $\mathbf{H}^{-1}_{:, q}$ là cột thứ $q$ của ma trận Hessian nghịch đảo, và $[\mathbf{H}^{-1}]_{qq}$ là phần tử nằm trên đường chéo chính tại hàng $q$, cột $q$.
+
+Mức gia tăng sai số toàn cục tối thiểu khi lượng tử hóa trọng số thứ $q$ là:
+\begin{equation}
+\Delta \mathcal{E}_q = \frac{1}{2} \Delta \mathbf{w}^T \mathbf{H} \Delta \mathbf{w} = \frac{1}{2} \left(-\lambda \mathbf{e}_q^T \mathbf{H}^{-1}\right) \mathbf{H} \left(-\lambda \mathbf{H}^{-1} \mathbf{e}_q\right) = \frac{1}{2} \lambda^2 [\mathbf{H}^{-1}]_{qq} = \frac{1}{2} \frac{(w_q - \hat{w}_q)^2}{[\mathbf{H}^{-1}]_{qq}}
+\end{equation}
+
+\paragraph{4. Thuật toán GPTQ hiện đại: Đột phá vượt qua giới hạn tính toán}:
+Mặc dù công thức OBS có vẻ đẹp giải tích tuyệt đối, việc áp dụng nó cho mô hình LLM hiện đại từng gặp phải rào cản tính toán không thể vượt qua:
+\begin{itemize}
+  \item Trong OBS cổ điển, sau khi lượng tử hóa trọng số thứ $q$, ma trận Hessian phải được cập nhật lại theo công thức Sherman-Morrison với độ phức tạp $\mathcal{O}(d^2)$ cho mỗi tham số, dẫn đến tổng độ phức tạp toàn tầng là $\mathcal{O}(d^4)$. Với ma trận ẩn $d = 8192$ của Llama-3-70B, $d^4 \approx 4.5 \times 10^{15}$ phép tính, đòi hỏi hàng tuần tính toán chỉ cho một tầng duy nhất!
+  \item \textbf{Cải tiến 1: Khử ma trận qua Phân rã Cholesky (Cholesky Factorization)}:
+  Frantar et al. (2022) nhận ra rằng nếu cố định thứ tự lượng tử hóa các cột trọng số từ $1$ đến $d_{\text{in}}$, ta có thể tính toán trước ma trận Hessian nghịch đảo $\mathbf{H}^{-1}$ một lần duy nhất, sau đó dùng phân rã Cholesky của $\mathbf{H}^{-1}$:
+  \begin{equation}
+  \mathbf{H}^{-1} = \mathbf{L} \mathbf{L}^T
+  \end{equation}
+  trong đó $\mathbf{L}$ là ma trận tam giác dưới. Nhờ đó, việc cập nhật bù sai số cho toàn bộ các cột còn lại có thể thực hiện theo quy tắc khử Gaussian trực tiếp trên các cột của ma trận nghịch đảo mà không cần đảo ngược lại ma trận!
+  \item \textbf{Cải tiến 2: Điều hòa Damping Factor $\lambda \mathbf{I}$ chống suy biến}:
+  Trong thực tế, ma trận kích hoạt $\mathbf{X}$ có thể chứa các kênh tương quan tuyến tính hoặc các nơ-ron chết (giá trị 0), khiến ma trận Hessian $\mathbf{H} = 2 \mathbf{X} \mathbf{X}^T$ có các trị riêng gần bằng $0$ (ill-conditioned). Để đảm bảo tính khả nghịch và ổn định số học, GPTQ bổ sung một hệ số điều hòa đường chéo:
+  \begin{equation}
+  \widehat{\mathbf{H}} = 2 \mathbf{X} \mathbf{X}^T + \lambda \mathbf{I}, \quad \text{với } \lambda = \alpha \cdot \frac{\text{Tr}(2 \mathbf{X} \mathbf{X}^T)}{d_{\text{in}}} \quad (\alpha \approx 0.01)
+  \end{equation}
+  \item \textbf{Cải tiến 3: Cập nhật trễ theo khối (Lazy Batch / Block Updates)}:
+  Thay vì cập nhật toàn bộ ma trận trọng số $\mathbf{W}$ sau mỗi cột đơn lẻ (gây nghẽn băng thông bộ nhớ GPU Memory Bandwidth do các thao tác ghi liên tục), GPTQ gom $B = 128$ cột lại thành một khối. Quá trình lượng tử hóa và bù sai số được tích lũy cục bộ bên trong khối, sau đó một phép nhân ma trận lớn duy nhất (\code{GEMM}) được thực thi trên GPU Tensor Cores để cập nhật toàn bộ phần còn lại của ma trận trọng số. Kỹ thuật này giúp tăng tốc độ nén lên hơn 10 lần!
+\end{itemize}
+
+\begin{example}[Tính Toán Bằng Tay Từng Bước Thuật Toán OBS Cho Tensor Kích Hoạt $2 \times 3$]
+Xét ma trận kích hoạt đầu vào $\mathbf{X} \in \mathbb{R}^{2 \times 3}$ và vector trọng số ban đầu $\mathbf{w} \in \mathbb{R}^{1 \times 2}$:
+\begin{equation*}
+\mathbf{X} = \begin{bmatrix} 1 & 2 & 1 \\ 0 & 1 & 2 \end{bmatrix}, \qquad \mathbf{w} = \begin{bmatrix} 1.5 & -2.0 \end{bmatrix}
+\end{equation*}
+Đầu ra kích hoạt chuẩn ban đầu:
+\begin{equation*}
+\mathbf{y} = \mathbf{w} \mathbf{X} = \begin{bmatrix} 1.5 & -2.0 \end{bmatrix} \begin{bmatrix} 1 & 2 & 1 \\ 0 & 1 & 2 \end{bmatrix} = \begin{bmatrix} 1.5 & 1.0 & -2.5 \end{bmatrix}
+\end{equation*}
+
+\textbf{Bước 1: Tính ma trận Hessian $\mathbf{H}$ và ma trận nghịch đảo $\mathbf{H}^{-1}$}:
+\begin{equation*}
+\mathbf{X} \mathbf{X}^T = \begin{bmatrix} 1 & 2 & 1 \\ 0 & 1 & 2 \end{bmatrix} \begin{bmatrix} 1 & 0 \\ 2 & 1 \\ 1 & 2 \end{bmatrix} = \begin{bmatrix} 1^2 + 2^2 + 1^2 & 1\cdot 0 + 2\cdot 1 + 1\cdot 2 \\ 0\cdot 1 + 1\cdot 2 + 2\cdot 1 & 0^2 + 1^2 + 2^2 \end{bmatrix} = \begin{bmatrix} 6 & 4 \\ 4 & 5 \end{bmatrix}
+\end{equation*}
+Ma trận Hessian:
+\begin{equation*}
+\mathbf{H} = 2 \mathbf{X} \mathbf{X}^T = \begin{bmatrix} 12 & 8 \\ 8 & 10 \end{bmatrix}
+\end{equation*}
+Định thức: $\det(\mathbf{H}) = 12 \cdot 10 - 8 \cdot 8 = 120 - 64 = 56$.
+Ma trận Hessian nghịch đảo:
+\begin{equation*}
+\mathbf{H}^{-1} = \frac{1}{56} \begin{bmatrix} 10 & -8 \\ -8 & 12 \end{bmatrix} = \begin{bmatrix} \frac{5}{28} & -\frac{1}{7} \\ -\frac{1}{7} & \frac{3}{14} \end{bmatrix} \approx \begin{bmatrix} 0.17857 & -0.14286 \\ -0.14286 & 0.21429 \end{bmatrix}
+\end{equation*}
+
+\textbf{Bước 2: Lượng tử hóa trọng số thứ nhất ($q=1$)}:
+Giả sử ta làm tròn $w_1 = 1.5$ sang số nguyên gần nhất $\hat{w}_1 = 2.0$.
+Sai số làm tròn cục bộ: $w_1 - \hat{w}_1 = 1.5 - 2.0 = -0.5$.
+Phần tử đường chéo $[\mathbf{H}^{-1}]_{11} = \frac{5}{28} \approx 0.17857$.
+Áp dụng công thức cập nhật bù trừ OBS cho vector trọng số:
+\begin{equation*}
+\Delta \mathbf{w} = - \frac{w_1 - \hat{w}_1}{[\mathbf{H}^{-1}]_{11}} \cdot \mathbf{H}^{-1}_{:, 1} = - \frac{-0.5}{\frac{5}{28}} \begin{bmatrix} \frac{5}{28} \\ -\frac{1}{7} \end{bmatrix} = \frac{0.5 \times 28}{5} \begin{bmatrix} \frac{5}{28} \\ -\frac{4}{28} \end{bmatrix} = 2.8 \begin{bmatrix} \frac{5}{28} \\ -\frac{4}{28} \end{bmatrix} = \begin{bmatrix} 0.5 \\ -0.4 \end{bmatrix}
+\end{equation*}
+Như vậy:
+\begin{itemize}
+  \item Trọng số thứ nhất nhận giá trị đã lượng tử hóa: $w_1 + \Delta w_1 = 1.5 + 0.5 = 2.0 = \hat{w}_1$.
+  \item Trọng số thứ hai được tự động bù trừ: $w_2' = w_2 + \Delta w_2 = -2.0 + (-0.4) = -2.4$.
+\end{itemize}
+
+\textbf{Bước 3: So sánh sai số kích hoạt đầu ra giữa OBS và RTN}:
+\begin{itemize}
+  \item \textit{Nếu dùng Round-To-Nearest (RTN)}: Cả hai trọng số bị làm tròn độc lập: $\widehat{\mathbf{w}}_{\text{RTN}} = \begin{bmatrix} 2.0 & -2.0 \end{bmatrix}$.
+  Đầu ra tái tạo: $\widehat{\mathbf{y}}_{\text{RTN}} = \begin{bmatrix} 2.0 & -2.0 \end{bmatrix} \begin{bmatrix} 1 & 2 & 1 \\ 0 & 1 & 2 \end{bmatrix} = \begin{bmatrix} 2.0 & 2.0 & -2.0 \end{bmatrix}$.
+  Bình phương sai số tái tạo kích hoạt:
+  \begin{equation*}
+  \|\mathbf{y} - \widehat{\mathbf{y}}_{\text{RTN}}\|_2^2 = (1.5 - 2.0)^2 + (1.0 - 2.0)^2 + (-2.5 - (-2.0))^2 = 0.25 + 1.0 + 0.25 = \mathbf{1.50}
+  \end{equation*}
+  \item \textit{Nếu dùng OBS}: Vector trọng số sau khi lượng tử hóa $w_1$ và bù trừ $w_2$ là $\mathbf{w}_{\text{OBS}} = \begin{bmatrix} 2.0 & -2.4 \end{bmatrix}$.
+  Đầu ra tái tạo: $\widehat{\mathbf{y}}_{\text{OBS}} = \begin{bmatrix} 2.0 & -2.4 \end{bmatrix} \begin{bmatrix} 1 & 2 & 1 \\ 0 & 1 & 2 \end{bmatrix} = \begin{bmatrix} 2.0 & 1.6 & -2.8 \end{bmatrix}$.
+  Bình phương sai số tái tạo kích hoạt:
+  \begin{equation*}
+  \|\mathbf{y} - \widehat{\mathbf{y}}_{\text{OBS}}\|_2^2 = (1.5 - 2.0)^2 + (1.0 - 1.6)^2 + (-2.5 - (-2.8))^2 = 0.25 + 0.36 + 0.09 = \mathbf{0.70}
+  \end{equation*}
+\end{itemize}
+\textbf{Kết luận định lượng}: Cơ chế bù trừ bậc hai của OBS đã triệt tiêu hơn $53\%$ sai số tái tạo kích hoạt so với làm tròn độc lập RTN ngay từ bước đầu tiên! Khi tiếp tục lượng tử hóa $w_2$, OBS sẽ đảm bảo tổng sai số trên toàn mạng được triệt tiêu tối ưu nhất.
+\end{example}
 
 \subsection{AWQ: Bảo Vệ 1\% Trọng Số Quan Trọng Nhất}
 Được Lin et al. (MIT HAN Lab, 2023) đề xuất, \textbf{AWQ (Activation-aware Weight Quantization)} xuất phát từ nhận định thực nghiệm: \textit{Trọng số kết nối với các kênh kích hoạt có biên độ lớn đóng vai trò sống còn đến $90\%$ độ chính xác của mạng.}
@@ -728,6 +864,14 @@ class DPOLossEngine:
   \item \textbf{Câu A.3}: Tại sao thuật toán AWQ lại bảo toàn được năng lực giải thuật và viết code của mô hình sau khi nén INT4 tốt hơn đáng kể so với phương pháp làm tròn độc lập (Round-To-Nearest -- RTN)?
   \item \textbf{Câu A.4}: Trong bài toán căn chỉnh DPO, điều gì sẽ xảy ra nếu ta đặt hệ số phạt $\beta \to 0$ hoặc $\beta \to \infty$?
   \item \textbf{Câu A.5}: So sánh ưu và nhược điểm kiến trúc giữa DPO và ORPO. Khi nào một Kỹ sư AI nên chọn ORPO thay vì DPO trong dự án thực tế?
+  \item \textbf{Câu A.6 (Bản Chất Của Hessian Nghịch Đảo Trong Optimal Brain Surgeon)}: \\
+  Trong công thức gia tăng sai số của OBS:
+  \begin{equation*}
+  \Delta \mathcal{E}_q = \frac{1}{2} \frac{(w_q - \hat{w}_q)^2}{[\mathbf{H}^{-1}]_{qq}}
+  \end{equation*}
+  Tại sao phần tử đường chéo $[\mathbf{H}^{-1}]_{qq}$ của ma trận nghịch đảo càng lớn thì mức gia tăng sai số khi lượng tử hóa trọng số $w_q$ lại càng nhỏ? Giải thích ý nghĩa hình học của elip đường đồng mức (Level Sets) của hàm mất mát trong không gian tham số.
+  \item \textbf{Câu A.7 (So Sánh Độ Phức Tạp Thuật Toán Nén Trọng Số)}: \\
+  So sánh độ phức tạp tính toán và bộ nhớ giữa ba chiến lược nén trọng số: Làm tròn độc lập (Round-To-Nearest -- RTN), Optimal Brain Surgeon (OBS) cổ điển cập nhật từng trọng số, và thuật toán GPTQ dùng phân rã Cholesky cập nhật theo khối (Lazy Block Updates). Tại sao OBS cổ điển không thể mở rộng cho các mô hình ngôn ngữ lớn như Llama-3-70B, trong khi GPTQ lại hoàn thành trong vòng vài giờ?
 \end{enumerate}
 
 \subsection{Nhóm B: Bài Toán Tính Toán Giải Tích Bằng Tay (Analytical Problems)}
@@ -760,6 +904,24 @@ class DPOLossEngine:
   \begin{equation*}
   \nabla_\theta \mathcal{L}_{\text{DPO}}(\theta) = -\beta \cdot \sigma\left( \hat{r}_\theta(x, y_l) - \hat{r}_\theta(x, y_w) \right) \cdot \left[ \nabla_\theta \log \pi_\theta(y_w \mid x) - \nabla_\theta \log \pi_\theta(y_l \mid x) \right]
   \end{equation*}
+
+  \item \textbf{Bài B.4 (Tính Toán Thủ Công Bù Sai Số OBS Cho Tensor $2 \times 3$)}: \\
+  Cho ma trận kích hoạt $\mathbf{X} = \begin{bmatrix} 1 & 2 & 1 \\ 0 & 1 & 2 \end{bmatrix}$ và vector trọng số ban đầu $\mathbf{w} = [1.5, -2.0]$.
+  \begin{enumerate}
+    \item Tính ma trận Hessian $\mathbf{H} = 2 \mathbf{X} \mathbf{X}^T$ và ma trận Hessian nghịch đảo $\mathbf{H}^{-1}$.
+    \item Nếu lượng tử hóa trọng số thứ nhất từ $w_1 = 1.5$ thành $\hat{w}_1 = 2.0$, hãy áp dụng công thức OBS để tính vector bù sai số $\Delta \mathbf{w}$ cho trọng số thứ hai $w_2$.
+    \item Tính giá trị mới của $w_2'$ và so sánh bình phương sai số kích hoạt đầu ra $\|\mathbf{y} - \hat{\mathbf{y}}\|_2^2$ giữa phương pháp OBS và phương pháp làm tròn độc lập RTN.
+  \end{enumerate}
+
+  \item \textbf{Bài B.5 (Chứng Minh Giải Tích Đầy Đủ Công Thức Cập Nhật OBS Bằng Nhân Tử Lagrange)}: \\
+  Cho hàm sai số bậc hai $\mathcal{E}(\Delta \mathbf{w}) = \frac{1}{2} \Delta \mathbf{w}^T \mathbf{H} \Delta \mathbf{w}$ với $\mathbf{H}$ là ma trận đối xứng xác định dương. Xét bài toán tối thiểu hóa sai số khi cố định lượng tử hóa trọng số thứ $q$:
+  \begin{equation*}
+  \min_{\Delta \mathbf{w}} \frac{1}{2} \Delta \mathbf{w}^T \mathbf{H} \Delta \mathbf{w} \quad \text{s.t.} \quad \mathbf{e}_q^T \Delta \mathbf{w} + (w_q - \hat{w}_q) = 0
+  \end{equation*}
+  Bằng phương pháp nhân tử Lagrange, hãy thiết lập hàm Lagrange $\mathcal{L}(\Delta \mathbf{w}, \lambda)$ và giải tích chi tiết để chứng minh:
+  \begin{equation*}
+  \Delta \mathbf{w} = - \frac{w_q - \hat{w}_q}{[\mathbf{H}^{-1}]_{qq}} \cdot \mathbf{H}^{-1}_{:, q} \qquad \text{và} \qquad \Delta \mathcal{E}_q = \frac{1}{2} \frac{(w_q - \hat{w}_q)^2}{[\mathbf{H}^{-1}]_{qq}}
+  \end{equation*}
 \end{enumerate}
 
 \subsection{Nhóm C: Thực Hành Kỹ Nghệ \& Lập Trình (Implementation Labs)}
@@ -772,6 +934,15 @@ class DPOLossEngine:
 
   \item \textbf{Bài C.3 (Bộ Kiểm Định Sở Thích DPO)}: \\
   Hiện thực hóa bộ kiểm định tự động đo lường độ chính xác phân loại sở thích (Reward Accuracy) và tỷ lệ lề phần thưởng trung bình qua 100 mẫu huấn luyện.
+
+  \item \textbf{Bài C.4 (Bộ Lượng Tử Hóa OBS/GPTQ Một Tầng Với Cholesky)}: \\
+  Xây dựng lớp Python \code{OBSQuantizerEngine} nhận ma trận kích hoạt $\mathbf{X}$ và ma trận trọng số $\mathbf{W}$. Thực hiện:
+  \begin{itemize}
+    \item Tính ma trận Hessian $\mathbf{H} = 2 \mathbf{X} \mathbf{X}^T$ với hệ số điều hòa $\lambda \mathbf{I}$ ($\lambda = 0.01 \times \text{mean}(\text{diag}(\mathbf{H}))$).
+    \item Tính nghịch đảo Hessian $\mathbf{H}^{-1}$.
+    \item Tuần tự duyệt qua từng cột của $\mathbf{W}$, lượng tử hóa sang số nguyên đối xứng INT8/INT4 và bù trừ sai số giải tích lên các cột còn lại.
+    \item So sánh tổng sai số bình phương tái tạo kích hoạt MSE với phương pháp làm tròn độc lập Round-to-Nearest (RTN) và kiểm định rằng MSE của OBS luôn nhỏ hơn RTN ít nhất $40\%$.
+  \end{itemize}
 \end{enumerate}
 
 \subsection{Nhóm D: Phân Tích Thất Bại \& Debugging Thực Tế (Post-Mortem Analysis)}
@@ -781,6 +952,9 @@ class DPOLossEngine:
 
   \item \textbf{Tình huống sự cố 2 (Hiện tượng sụp đổ phân phối xác suất trong DPO)}: \\
   Trong quá trình huấn luyện DPO cho mô hình 8B với tốc độ học $\eta = 5 \times 10^{-6}$ và $\beta = 0.5$, sau 500 bước huấn luyện, độ dài trung bình của câu trả lời sinh ra bất ngờ tăng vọt từ 200 tokens lên hơn 1800 tokens, chứa đầy các cụm từ lặp lại vô nghĩa. Phân tích nguyên nhân của hội chứng này và phương pháp phòng ngừa.
+
+  \item \textbf{Tình huống sự cố 3 (Sụp đổ số học do ma trận Hessian suy biến trong GPTQ)}: \\
+  Khi thực hiện lượng tử hóa một tầng MLP lớn của mô hình 70B bằng GPTQ không có hệ số điều hòa ($\lambda = 0$), hàm nghịch đảo ma trận \code{torch.linalg.cholesky} bất ngờ ném ngoại lệ \code{LinAlgError: The factorization could not be completed because the matrix is not positive-definite}. Sau khi bỏ qua lỗi và dùng giả nghịch đảo Moore-Penrose, các trọng số sau lượng tử hóa bùng nổ lên giá trị vô cực ($NaN / \pm\infty$). Phân tích nguyên nhân suy biến của ma trận kích hoạt và nguyên lý khắc phục bằng Damping Factor.
 \end{enumerate}
 
 ---
@@ -804,6 +978,23 @@ class DPOLossEngine:
 
   \item \textbf{Lời giải Câu A.5}:
   DPO có ưu điểm là nền tảng giải tích chặt chẽ và khả năng kiểm soát độ trôi dạt chính sách chính xác qua mô hình tham chiếu $\pi_{\text{ref}}$, nhưng nhược điểm là tốn gấp đôi VRAM vì phải nạp cả hai mô hình lớn song song. ORPO kết hợp SFT và căn chỉnh trong một pha duy nhất, không cần mô hình tham chiếu, giúp tiết kiệm $50\%$ VRAM và rút ngắn thời gian huấn luyện. Do đó, ORPO là lựa chọn tối ưu khi nguồn tài nguyên GPU bị giới hạn hoặc khi cần tinh chỉnh nhanh trên phần cứng biên.
+
+  \item \textbf{Lời giải Câu A.6}:
+  Theo công thức OBS, $\Delta \mathcal{E}_q = \frac{1}{2} \frac{(w_q - \hat{w}_q)^2}{[\mathbf{H}^{-1}]_{qq}}$. Về mặt hình học, hàm mất mát $\mathcal{E}$ là một paraboloid elip nhiều chiều trong không gian tham số.
+  \begin{itemize}
+    \item Ma trận Hessian $\mathbf{H}$ xác định độ cong: Trị riêng lớn ứng với hướng có độ cong dốc đứng, trị riêng nhỏ ứng với hướng có độ cong thoai thoải.
+    \item Tuy nhiên, khi ta lượng tử hóa $w_q$, ta không chỉ dịch chuyển trên trục $q$ mà còn được phép dịch chuyển trên tất cả các trục còn lại $\Delta w_{j \neq q}$ để tìm điểm có sai số cực tiểu trên siêu phẳng cắt $\Delta w_q = \hat{w}_q - w_q$.
+    \item Theo bổ đề ma trận khối, phần tử đường chéo $[\mathbf{H}^{-1}]_{qq}$ tỉ lệ nghịch với khoảng cách từ mặt phẳng cắt đến mặt elip. Cụ thể: $[\mathbf{H}^{-1}]_{qq} = \frac{1}{H_{qq} - \mathbf{h}_q^T \mathbf{H}_{-q, -q}^{-1} \mathbf{h}_q}$. Đại lượng trong mẫu số chính là ``độ cong hiệu dụng'' (Effective Curvature) của trục $q$ sau khi đã chiếu tối ưu lên không gian con của các trọng số còn lại.
+    \item Khi $[\mathbf{H}^{-1}]_{qq}$ rất lớn, độ cong hiệu dụng rất nhỏ, nghĩa là các trọng số còn lại có khả năng hấp thụ và bù trừ hầu như toàn bộ sai số của $w_q$, dẫn đến mức tăng sai số toàn cục $\Delta \mathcal{E}_q$ rất nhỏ!
+  \end{itemize}
+
+  \item \textbf{Lời giải Câu A.7}:
+  So sánh ba thuật toán nén trọng số:
+  \begin{itemize}
+    \item \textbf{Round-To-Nearest (RTN)}: Độ phức tạp tính toán $\mathcal{O}(d_{\text{in}} d_{\text{out}})$, không cần dữ liệu hiệu chuẩn hay bộ nhớ phụ. Tuy nhiên, sai số làm tròn tích lũy độc lập khiến mô hình 4-bit bị sụp đổ hoàn toàn về năng lực suy luận.
+    \item \textbf{Optimal Brain Surgeon (OBS) Cổ Điển}: Mỗi lần lượng tử hóa 1 trọng số, phải cập nhật ma trận Hessian nghịch đảo theo công thức Sherman-Morrison tốn $\mathcal{O}(d_{\text{in}}^2)$, dẫn đến tổng thời gian cho một tầng là $\mathcal{O}(d_{\text{in}}^3 \cdot d_{\text{out}})$ hoặc $\mathcal{O}(d_{\text{in}}^4)$. Với mô hình Llama-3-70B ($d = 8192$), con số này đòi hỏi hàng triệu tỷ phép tính tuần tự không thể song song hóa, khiến OBS cổ điển bất khả thi trên thực tế.
+    \item \textbf{Cholesky GPTQ}: Bằng cách cố định thứ tự nén và sử dụng phân rã Cholesky $\mathbf{H}^{-1} = \mathbf{L} \mathbf{L}^T$, ma trận nghịch đảo chỉ cần tính một lần duy nhất ($\mathcal{O}(d_{\text{in}}^3)$). Hơn thế nữa, bằng kỹ thuật Lazy Block Updates (gom $B = 128$ cột), toàn bộ các thao tác bù sai số được thực hiện qua các phép nhân ma trận GEMM trên GPU Tensor Cores, nén trọn vẹn mô hình 70B chỉ trong $2 - 4$ giờ!
+  \end{itemize}
 \end{itemize}
 
 \subsection{Lời Giải Nhóm B: Bài Toán Tính Toán Giải Tích Bằng Tay}
@@ -868,6 +1059,71 @@ Kết hợp lại, ta thu được:
 \end{equation*}
 (Điều phải chứng minh).
 
+\paragraph{Lời giải Bài B.4}:
+\begin{enumerate}
+  \item Tính ma trận Hessian $\mathbf{H}$ và $\mathbf{H}^{-1}$:
+  \begin{equation*}
+  \mathbf{X} \mathbf{X}^T = \begin{bmatrix} 1 & 2 & 1 \\ 0 & 1 & 2 \end{bmatrix} \begin{bmatrix} 1 & 0 \\ 2 & 1 \\ 1 & 2 \end{bmatrix} = \begin{bmatrix} 6 & 4 \\ 4 & 5 \end{bmatrix}
+  \end{equation*}
+  Ma trận Hessian:
+  \begin{equation*}
+  \mathbf{H} = 2 \mathbf{X} \mathbf{X}^T = \begin{bmatrix} 12 & 8 \\ 8 & 10 \end{bmatrix}
+  \end{equation*}
+  Định thức: $\det(\mathbf{H}) = 12 \times 10 - 8 \times 8 = 120 - 64 = 56$.
+  Ma trận Hessian nghịch đảo:
+  \begin{equation*}
+  \mathbf{H}^{-1} = \frac{1}{56} \begin{bmatrix} 10 & -8 \\ -8 & 12 \end{bmatrix} = \begin{bmatrix} \frac{5}{28} & -\frac{1}{7} \\ -\frac{1}{7} & \frac{3}{14} \end{bmatrix} \approx \begin{bmatrix} 0.17857 & -0.14286 \\ -0.14286 & 0.21429 \end{bmatrix}
+  \end{equation*}
+
+  \item Tính vector bù sai số $\Delta \mathbf{w}$ khi lượng tử hóa $w_1 = 1.5 \to \hat{w}_1 = 2.0$:
+  Sai số cục bộ: $w_1 - \hat{w}_1 = 1.5 - 2.0 = -0.5$.
+  Phần tử đường chéo $[\mathbf{H}^{-1}]_{11} = \frac{5}{28}$.
+  Áp dụng công thức cập nhật bù trừ OBS:
+  \begin{equation*}
+  \Delta \mathbf{w} = - \frac{w_1 - \hat{w}_1}{[\mathbf{H}^{-1}]_{11}} \cdot \mathbf{H}^{-1}_{:, 1} = - \frac{-0.5}{\frac{5}{28}} \begin{bmatrix} \frac{5}{28} \\ -\frac{1}{7} \end{bmatrix} = 2.8 \begin{bmatrix} \frac{5}{28} \\ -\frac{4}{28} \end{bmatrix} = \begin{bmatrix} 0.5 \\ -0.4 \end{bmatrix}
+  \end{equation*}
+
+  \item Giá trị mới của $w_2'$:
+  \begin{equation*}
+  w_2' = w_2 + \Delta w_2 = -2.0 + (-0.4) = \mathbf{-2.4}
+  \end{equation*}
+  Đầu ra ban đầu: $\mathbf{y} = [1.5, 1.0, -2.5]$.
+  - Sai số khi dùng RTN ($\widehat{\mathbf{w}} = [2.0, -2.0]$):
+  $\widehat{\mathbf{y}}_{\text{RTN}} = [2.0, 2.0, -2.0] \implies \|\mathbf{y} - \widehat{\mathbf{y}}_{\text{RTN}}\|_2^2 = (1.5-2.0)^2 + (1.0-2.0)^2 + (-2.5 - (-2.0))^2 = 0.25 + 1.0 + 0.25 = \mathbf{1.50}$.
+  - Sai số khi dùng OBS ($\mathbf{w}_{\text{OBS}} = [2.0, -2.4]$):
+  $\widehat{\mathbf{y}}_{\text{OBS}} = [2.0, 1.6, -2.8] \implies \|\mathbf{y} - \widehat{\mathbf{y}}_{\text{OBS}}\|_2^2 = (1.5-2.0)^2 + (1.0-1.6)^2 + (-2.5 - (-2.8))^2 = 0.25 + 0.36 + 0.09 = \mathbf{0.70}$.
+  OBS giảm thiểu hơn $53.3\%$ sai số bình phương tái tạo kích hoạt!
+\end{enumerate}
+
+\paragraph{Lời giải Bài B.5}:
+Hàm mục tiêu: $\min_{\Delta \mathbf{w}} \frac{1}{2} \Delta \mathbf{w}^T \mathbf{H} \Delta \mathbf{w}$ dưới ràng buộc $\mathbf{e}_q^T \Delta \mathbf{w} + (w_q - \hat{w}_q) = 0$.
+Thiết lập hàm Lagrange:
+\begin{equation*}
+\mathcal{L}(\Delta \mathbf{w}, \lambda) = \frac{1}{2} \Delta \mathbf{w}^T \mathbf{H} \Delta \mathbf{w} + \lambda \left(\mathbf{e}_q^T \Delta \mathbf{w} + w_q - \hat{w}_q\right)
+\end{equation*}
+Lấy đạo hàm riêng theo vector $\Delta \mathbf{w}$:
+\begin{equation*}
+\nabla_{\Delta \mathbf{w}} \mathcal{L} = \mathbf{H} \Delta \mathbf{w} + \lambda \mathbf{e}_q = \mathbf{0} \implies \mathbf{H} \Delta \mathbf{w} = -\lambda \mathbf{e}_q \implies \Delta \mathbf{w} = -\lambda \mathbf{H}^{-1} \mathbf{e}_q
+\end{equation*}
+Nhân vô hướng cả hai vế với $\mathbf{e}_q^T$:
+\begin{equation*}
+\mathbf{e}_q^T \Delta \mathbf{w} = -\lambda \mathbf{e}_q^T \mathbf{H}^{-1} \mathbf{e}_q = -\lambda [\mathbf{H}^{-1}]_{qq}
+\end{equation*}
+Theo điều kiện ràng buộc: $\mathbf{e}_q^T \Delta \mathbf{w} = -(w_q - \hat{w}_q) = \hat{w}_q - w_q$. Suy ra:
+\begin{equation*}
+\hat{w}_q - w_q = -\lambda [\mathbf{H}^{-1}]_{qq} \implies \lambda = \frac{w_q - \hat{w}_q}{[\mathbf{H}^{-1}]_{qq}}
+\end{equation*}
+Thế $\lambda$ vào công thức $\Delta \mathbf{w}$:
+\begin{equation*}
+\Delta \mathbf{w} = - \frac{w_q - \hat{w}_q}{[\mathbf{H}^{-1}]_{qq}} \cdot \mathbf{H}^{-1} \mathbf{e}_q = - \frac{w_q - \hat{w}_q}{[\mathbf{H}^{-1}]_{qq}} \cdot \mathbf{H}^{-1}_{:, q}
+\end{equation*}
+Tính mức gia tăng sai số toàn cục tối thiểu:
+\begin{align*}
+\Delta \mathcal{E}_q &= \frac{1}{2} \Delta \mathbf{w}^T \mathbf{H} \Delta \mathbf{w} = \frac{1}{2} \left(-\lambda \mathbf{e}_q^T \mathbf{H}^{-1}\right) \mathbf{H} \left(-\lambda \mathbf{H}^{-1} \mathbf{e}_q\right) \\
+&= \frac{1}{2} \lambda^2 \mathbf{e}_q^T \mathbf{H}^{-1} \mathbf{e}_q = \frac{1}{2} \left(\frac{w_q - \hat{w}_q}{[\mathbf{H}^{-1}]_{qq}}\right)^2 [\mathbf{H}^{-1}]_{qq} = \frac{1}{2} \frac{(w_q - \hat{w}_q)^2}{[\mathbf{H}^{-1}]_{qq}}
+\end{align*}
+(Điều phải chứng minh).
+
 \subsection{Lời Giải Nhóm C: Thực Hành Kỹ Nghệ \& Lập Trình}
 Dưới đây là mã nguồn hoàn chỉnh cho các bài thực hành phòng lab:
 
@@ -903,6 +1159,78 @@ class MultiLoRAManager:
         return base_out + lora_out
 \end{lstlisting}
 
+\begin{lstlisting}[language=Python, caption={Cài đặt OBSQuantizerEngine nén ma trận trọng số với bù sai số bậc hai.}]
+class OBSQuantizerEngine:
+    """Bo luong tu hoa Optimal Brain Surgeon 1 tang voi bu sai so bac hai."""
+    def __init__(self, damping: float = 0.01):
+        self.damping = damping
+
+    def quantize_layer(
+        self,
+        w: np.ndarray,
+        x: np.ndarray,
+        bits: int = 4
+    ) -> Tuple[np.ndarray, float, float]:
+        """
+        w: ma tran trong so (d_out, d_in)
+        x: ma tran kich hoat (d_in, N)
+        Tra ve: (w_quantized, mse_obs, mse_rtn)
+        """
+        d_out, d_in = w.shape
+        w_obs = w.copy().astype(np.float64)
+        w_rtn = w.copy().astype(np.float64)
+
+        # 1. Tinh ma tran Hessian H = 2 * X @ X.T
+        h = 2.0 * np.matmul(x, x.T)
+        diag_mean = float(np.mean(np.diag(h)))
+        if diag_mean == 0.0:
+            diag_mean = 1.0
+
+        # Dieu hoa Damping factor chong suy bien
+        h += self.damping * diag_mean * np.eye(d_in)
+
+        # 2. Tinh nghich dao Hessian H^-1
+        h_inv = np.linalg.inv(h)
+
+        # 3. Tinh Scale luong tu hoa INT cho tung hang
+        q_max = (2 ** (bits - 1)) - 1
+        scales = np.max(np.abs(w), axis=1) / q_max
+        scales = np.maximum(scales, 1e-8)
+
+        # 4. Luong tu hoa doc lap RTN de so sanh
+        for r in range(d_out):
+            s = scales[r]
+            q_rtn = np.clip(np.round(w_rtn[r, :] / s), -q_max, q_max)
+            w_rtn[r, :] = q_rtn * s
+
+        # 5. Luong tu hoa OBS voi bu sai so lien tuc tren tung cot
+        for col in range(d_in):
+            h_inv_qq = h_inv[col, col]
+            h_inv_col = h_inv[:, col]
+
+            for r in range(d_out):
+                w_orig = w_obs[r, col]
+                s = scales[r]
+                q_val = np.clip(np.round(w_orig / s), -q_max, q_max)
+                w_hat = q_val * s
+                err = w_orig - w_hat
+
+                # Cap nhat bu sai so cho cac cot con lai
+                delta_w = - (err / h_inv_qq) * h_inv_col
+                w_obs[r, :] += delta_w
+                w_obs[r, col] = w_hat
+
+        # 6. Danh gia sai so tai tao kich hoa Y = W @ X
+        y_true = np.matmul(w, x)
+        y_obs = np.matmul(w_obs, x)
+        y_rtn = np.matmul(w_rtn, x)
+
+        mse_obs = float(np.mean((y_true - y_obs) ** 2))
+        mse_rtn = float(np.mean((y_true - y_rtn) ** 2))
+
+        return w_obs.astype(np.float32), mse_obs, mse_rtn
+\end{lstlisting}
+
 \subsection{Lời Giải Nhóm D: Phân Tích Thất Bại \& Debugging Thực Tế}
 
 \paragraph{Lời giải Sự cố 1 (Năng lực giải thuật suy thoái sau khi GPTQ)}:
@@ -933,5 +1261,23 @@ class MultiLoRAManager:
     \item Tăng hệ số phạt KL $\beta$ từ $0.1$ lên $0.3 - 0.5$ để hạn chế trôi dạt chính sách.
     \item Chuyển sang thuật toán SimPO với cơ chế chuẩn hóa độ dài bắt buộc $\frac{\beta}{|y|} \log \pi_\theta(y \mid x)$.
     \item Lọc và cân bằng độ dài của các cặp dữ liệu huấn luyện: loại bỏ các mẫu mà $|y_w| > 1.5 \times |y_l|$.
+  \end{itemize}
+\end{enumerate}
+
+\paragraph{Lời giải Sự cố 3 (Sụp đổ số học do ma trận Hessian suy biến)}:
+\begin{enumerate}
+  \item \textbf{Nguyên nhân gốc rễ (Root Cause)}:
+  Trong các mô hình Transformer sâu, hàm kích hoạt thường tạo ra hiện tượng nơ-ron chết (Dead Neurons, giá trị kích hoạt luôn bằng 0 qua toàn bộ token) hoặc hai nơ-ron có kích hoạt cộng tuyến (Collinear Activations, kênh $i$ bằng bội số của kênh $j$). Khi đó:
+  \begin{equation*}
+  \text{rank}(\mathbf{X} \mathbf{X}^T) < d_{\text{in}} \implies \det(\mathbf{H}) = 0
+  \end{equation*}
+  Ma trận Hessian không còn xác định dương, có trị riêng bằng 0 hoặc âm do sai số làm tròn số thực. Khi chạy thuật toán phân rã Cholesky $\mathbf{H}^{-1} = \mathbf{L} \mathbf{L}^T$, phép khai căn số âm $\sqrt{L_{ii}}$ sẽ thất bại ngay lập tức. Nếu dùng giả nghịch đảo không ổn định, các giá trị trên đường chéo $[\mathbf{H}^{-1}]_{qq} \to 0$, khiến phép chia trong công thức OBS $\frac{w_q - \hat{w}_q}{[\mathbf{H}^{-1}]_{qq}}$ bị nổ số mũ ra vô cực ($NaN / \pm\infty$).
+  \item \textbf{Giải pháp kỹ nghệ chuẩn mực}:
+  \begin{itemize}
+    \item Bắt buộc thêm số hạng điều hòa Tikhonov (Damping Factor) $\lambda \mathbf{I}$ vào ma trận Hessian trước khi phân rã Cholesky:
+    \begin{equation*}
+    \widehat{\mathbf{H}} = 2 \mathbf{X} \mathbf{X}^T + \left( \alpha \cdot \frac{\text{Tr}(2 \mathbf{X} \mathbf{X}^T)}{d_{\text{in}}} \right) \mathbf{I}, \quad \text{với } \alpha = 0.01
+    \end{equation*}
+    \item Hệ số $\lambda > 0$ đảm bảo mọi trị riêng của $\widehat{\mathbf{H}}$ đều thỏa mãn $\lambda_i \ge \lambda > 0$, triệt tiêu hoàn toàn tính suy biến và bảo đảm thuật toán phân rã Cholesky luôn thành công $100\%$.
   \end{itemize}
 \end{enumerate}

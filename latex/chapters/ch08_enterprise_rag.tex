@@ -466,6 +466,10 @@ class GraphEntityRetriever:
   \item \textbf{Câu A.4 (GraphRAG vs Vector RAG)}: Tại sao Vector RAG thuần túy lại thất bại trước các câu hỏi dạng suy luận toàn cục (Global Sensemaking)? GraphRAG sử dụng cơ chế nào để tổng hợp thông tin ở tầm vĩ mô?
   \item \textbf{Câu A.5 (Dense vs Sparse vs ColBERT Late Interaction)}: So sánh sự đánh đổi về độ trễ suy luận, chi phí lưu trữ bộ nhớ và độ chính xác giữa: Bi-Encoder (Dense), BM25 (Sparse) và ColBERT (Late Interaction).
   \item \textbf{Câu A.6 (Bản Chất Adaptive RAG)}: Tại sao việc bổ sung bước Retrieval Evaluator trong Corrective RAG (CRAG) lại ngăn chặn được hiện tượng ảo giác dây chuyền (\textit{Cascade Hallucination})?
+  \item \textbf{Câu A.7 (Tại Sao RRF Ưu Việt Hơn Linear Score Fusion)}: \\
+  Tại sao công thức cộng điểm tuyến tính $S = \alpha S_{\text{Dense}} + (1-\alpha) S_{\text{BM25}}$ thường thất bại trong môi trường sản xuất do hiện tượng trôi dạt phân phối điểm số (Score Distribution Drift)? Thuật toán Reciprocal Rank Fusion (RRF) giải quyết triệt để khuyết tật này như thế nào mà không cần chuẩn hóa điểm số?
+  \item \textbf{Câu A.8 (Cơ Chế HyDE \& Điểm Mù Khi Triển Khai)}: \\
+  Giải thích cơ chế hoạt động của kỹ thuật Hypothetical Document Embeddings (HyDE) trong việc khắc phục hiện tượng Bất đối xứng Ngữ nghĩa (Query-Document Asymmetry). Trong những tình huống nghiệp vụ nào (ví dụ: tra cứu văn bản pháp lý mới ban hành, mã lỗi hệ thống nội bộ) HyDE lại phản tác dụng và gây hại nghiêm trọng cho hệ thống RAG?
 \end{enumerate}
 
 \subsection{Nhóm B: Bài Toán Tính Toán Giải Tích Bằng Tay (Analytical Problems)}
@@ -498,6 +502,31 @@ class GraphEntityRetriever:
   \end{enumerate}
   Đối chiếu với ngữ cảnh trích xuất từ 3 tài liệu, chuyên viên xác định $C_1$, $C_2$, $C_4$ đều có bằng chứng trực tiếp trong tài liệu, riêng $C_3$ hoàn toàn không được đề cập trong tài liệu.
   Hãy tính chỉ số \textbf{Faithfulness} của câu trả lời trên. Nếu người dùng yêu cầu chỉ số Faithfulness tối thiểu phải đạt $0.90$ để phê duyệt xuất bản tự động, hệ thống có được phép trả lời người dùng hay không?
+
+  \item \textbf{Bài B.4 (Tính Toán Thủ Công Điểm Số BM25 Chuẩn Okapi)}: \\
+  Cho tập dữ liệu gồm $N = 3$ tài liệu với độ dài lần lượt là $|D_1| = 4$ từ, $|D_2| = 6$ từ, $|D_3| = 5$ từ. Độ dài trung bình $\text{avgdl} = 5.0$ từ.
+  Từ khóa truy vấn $q = \{\text{``AI''}\}$.
+  Từ ``AI'' xuất hiện trong $D_1$ với tần số $f_1 = 2$, trong $D_2$ với tần số $f_2 = 1$, và không xuất hiện trong $D_3$ ($n(q) = 2$).
+  Tham số chuẩn: $k_1 = 1.2, b = 0.75$.
+  \begin{enumerate}
+    \item Tính giá trị $\text{IDF}(\text{``AI''})$ theo công thức Okapi BM25 chuẩn:
+    \begin{equation*}
+    \text{IDF}(q) = \ln \left( \frac{N - n(q) + 0.5}{n(q) + 0.5} + 1 \right)
+    \end{equation*}
+    \item Tính điểm số $\text{BM25}(D_1, q)$ và $\text{BM25}(D_2, q)$. Xác định tài liệu nào có độ phù hợp cao hơn.
+  \end{enumerate}
+
+  \item \textbf{Bài B.5 (Tính Toán Điểm Số Reciprocal Rank Fusion - RRF)}: \\
+  Cho 4 tài liệu $\{d_1, d_2, d_3, d_4\}$ được truy xuất từ hai hệ thống:
+  \begin{itemize}
+    \item Hệ thống Dense Vector Search xếp hạng: $r_{\text{dense}}(d_1) = 1$, $r_{\text{dense}}(d_2) = 2$, $r_{\text{dense}}(d_3) = 3$, $r_{\text{dense}}(d_4) = 4$.
+    \item Hệ thống BM25 Sparse Search xếp hạng: $r_{\text{bm25}}(d_3) = 1$, $r_{\text{bm25}}(d_1) = 2$, $r_{\text{bm25}}(d_4) = 3$, $r_{\text{bm25}}(d_2) = 4$.
+  \end{itemize}
+  Với hằng số làm mịn $k = 60$:
+  \begin{enumerate}
+    \item Tính toán điểm số $\text{RRF}(d_i)$ cho cả 4 tài liệu bằng tay.
+    \item Xác định thứ tự xếp hạng dung hợp cuối cùng và cho biết tài liệu nào chiến thắng.
+  \end{enumerate}
 \end{enumerate}
 
 \subsection{Nhóm C: Thực Hành Kỹ Nghệ \& Lập Trình (Implementation Labs)}
@@ -510,6 +539,9 @@ class GraphEntityRetriever:
 
   \item \textbf{Bài C.3 (Bộ Truy Xuất Tri Thức Đồ Thị k-hop)}:
   Xây dựng lớp \code{GraphEntityRetriever} lưu danh sách kề của đồ thị tri thức doanh nghiệp. Viết hàm \code{expand_subgraph(seed_entities, k_hops)} mở rộng không gian ngữ cảnh qua $k$ bước nhảy đồ thị để phục vụ bổ sung ngữ cảnh cho LLM.
+
+  \item \textbf{Bài C.4 (Bộ Chia Đoạn Bảng Biểu Nhận Biết Cấu Trúc - TableAwareChunker)}: \\
+  Xây dựng lớp Python \code{TableAwareChunker} có khả năng tự động phát hiện cấu trúc bảng biểu Markdown (\code{| col1 | col2 |}). Khi bảng biểu có số dòng vượt quá giới hạn $N$ dòng, thuật toán tự động tách bảng thành các chunk con nhưng luôn sao chép dòng tiêu đề cột vào đầu mỗi chunk con để bảo toàn trọn vẹn ngữ nghĩa số liệu cho mô hình embedding.
 \end{enumerate}
 
 \subsection{Nhóm D: Phân Tích Thất Bại \& Debugging Thực Tế (Post-Mortem Analysis)}
@@ -551,6 +583,21 @@ class GraphEntityRetriever:
 
   \item \textbf{Lời giải Câu A.6}:
   Trong Naive RAG, nếu bước truy xuất trả về tài liệu rác, LLM vẫn buộc phải đọc và cố gắng sinh câu trả lời, dẫn tới ảo giác (Hallucination). Corrective RAG (CRAG) chèn thêm một bộ đánh giá chất lượng (Retrieval Evaluator). Nếu điểm tin cậy thấp, hệ thống ngắt luồng sinh câu trả lời từ tài liệu rác và tự động chuyển hướng (Fallback) sang Web Search hoặc đưa ra thông báo từ chối an toàn, dập tắt ảo giác ngay từ đầu vào.
+
+  \item \textbf{Lời giải Câu A.7}:
+  Phương pháp cộng điểm tuyến tính $S = \alpha S_{\text{Dense}} + (1-\alpha) S_{\text{BM25}}$ đòi hỏi hai hệ thống phải có cùng thang đo điểm số. Tuy nhiên:
+  - Điểm BM25 không bị chặn trên ($[0, +\infty)$) và phụ thuộc mạnh vào độ dài câu truy vấn cũng như tần số từ khóa trong tài liệu.
+  - Điểm Dense Cosine nằm trong khoảng $[-1, 1]$ (hoặc $[0, 1]$ sau khi chuẩn hóa).
+  Nếu chỉ dùng Min-Max Normalization trên tập kết quả Top-K cục bộ, một tài liệu ngoại lai có điểm BM25 cực cao sẽ nén phẳng toàn bộ điểm của các tài liệu khác về gần 0.
+  Reciprocal Rank Fusion (RRF) giải quyết triệt để vấn đề này vì nó \textbf{hoàn toàn loại bỏ giá trị điểm số tuyệt đối} và chỉ thao tác trên \textbf{thứ hạng tương đối} $r_m(d) \in \{1, 2, \dots, K\}$. Nhờ hằng số làm mịn $k \approx 60$, RRF đóng vai trò như một bộ lọc thông thấp (Low-pass filter), làm giảm độ nhạy cảm của các vị trí đầu bảng và dung hợp công bằng kết quả giữa các mô hình tìm kiếm có phân phối điểm số hoàn toàn khác biệt.
+
+  \item \textbf{Lời giải Câu A.8}:
+  HyDE (Hypothetical Document Embeddings) khắc phục hiện tượng Bất đối xứng Ngữ nghĩa bằng cách yêu cầu LLM sinh ra một đoạn văn bản giả định trả lời câu hỏi trước, sau đó nhúng đoạn văn bản giả định này vào không gian véc-tơ để tìm kiếm các tài liệu thực tế tương tự. Vì cả hai đều là văn bản dài có cấu trúc tương đương, khoảng cách ngữ nghĩa được thu hẹp đáng kể.
+  Tuy nhiên, HyDE sẽ phản tác dụng nghiêm trọng trong hai tình huống:
+  \begin{itemize}
+    \item \textbf{Tri thức mới hoặc bí mật nội bộ}: Khi người dùng hỏi về quy chế mới ban hành hôm qua hoặc mã lỗi nội bộ chưa từng xuất hiện trong dữ liệu huấn luyện của LLM, mô hình sẽ sinh ra văn bản giả định chứa đầy ảo giác sai lệch. Việc nhúng văn bản ảo giác này sẽ dẫn đường cho Vector Search trích xuất các tài liệu hoàn toàn sai!
+    \item \textbf{Gia tăng độ trễ và chi phí}: Mỗi truy vấn phải chịu thêm độ trễ TTFT của một lượt sinh văn bản hoàn chỉnh từ LLM (thường mất từ $500\text{ ms}$ đến $2\text{ giây}$), phá hủy yêu cầu phản hồi thời gian thực của ứng dụng tìm kiếm.
+  \end{itemize}
 \end{itemize}
 
 \subsection{Lời Giải Nhóm B: Bài Toán Tính Toán Giải Tích Bằng Tay}
@@ -601,13 +648,126 @@ Chỉ số Faithfulness:
 \end{equation*}
 Vì $0.75 < 0.90$ (ngưỡng tối thiểu của doanh nghiệp), hệ thống \textbf{tuyệt đối không được phép tự động xuất bản câu trả lời này}! Hệ thống phải kích hoạt cờ cảnh báo hoặc yêu cầu chuyên viên thẩm định lại trước khi gửi cho khách hàng.
 
+\paragraph{Lời giải Bài B.4}:
+\begin{enumerate}
+  \item Tính giá trị $\text{IDF}(\text{``AI''})$:
+  Với $N = 3$, số tài liệu chứa từ khóa $n(q) = 2$:
+  \begin{equation*}
+  \text{IDF}(q) = \ln \left( \frac{3 - 2 + 0.5}{2 + 0.5} + 1 \right) = \ln \left( \frac{1.5}{2.5} + 1 \right) = \ln (0.6 + 1) = \ln(1.6) \approx \mathbf{0.4700}
+  \end{equation*}
+
+  \item Tính điểm số BM25 cho $D_1$ và $D_2$:
+  Độ dài trung bình $\text{avgdl} = 5.0$.
+  - Với $D_1$ ($|D_1| = 4, f_1 = 2$):
+  \begin{equation*}
+  B_1 = 1 - b + b \cdot \frac{|D_1|}{\text{avgdl}} = 1 - 0.75 + 0.75 \cdot \frac{4}{5.0} = 0.25 + 0.60 = 0.85
+  \end{equation*}
+  Số hạng tần số:
+  \begin{equation*}
+  \frac{f_1 (k_1 + 1)}{f_1 + k_1 \cdot B_1} = \frac{2 \times (1.2 + 1)}{2 + 1.2 \times 0.85} = \frac{4.4}{2 + 1.02} = \frac{4.4}{3.02} \approx 1.4570
+  \end{equation*}
+  Điểm số:
+  \begin{equation*}
+  \text{BM25}(D_1, q) = 0.4700 \times 1.4570 \approx \mathbf{0.6848}
+  \end{equation*}
+
+  - Với $D_2$ ($|D_2| = 6, f_2 = 1$):
+  \begin{equation*}
+  B_2 = 1 - 0.75 + 0.75 \cdot \frac{6}{5.0} = 0.25 + 0.90 = 1.15
+  \end{equation*}
+  Số hạng tần số:
+  \begin{equation*}
+  \frac{f_2 (k_1 + 1)}{f_2 + k_1 \cdot B_2} = \frac{1 \times 2.2}{1 + 1.2 \times 1.15} = \frac{2.2}{1 + 1.38} = \frac{2.2}{2.38} \approx 0.9244
+  \end{equation*}
+  Điểm số:
+  \begin{equation*}
+  \text{BM25}(D_2, q) = 0.4700 \times 0.9244 \approx \mathbf{0.4345}
+  \end{equation*}
+  \textbf{Kết luận}: $D_1$ có điểm BM25 cao hơn $D_2$ ($0.6848 > 0.4345$) vì tần số xuất hiện nhiều hơn và độ dài tài liệu ngắn hơn.
+\end{enumerate}
+
+\paragraph{Lời giải Bài B.5}:
+Áp dụng công thức RRF với $k = 60$: $\text{RRF}(d) = \frac{1}{60 + r_{\text{dense}}(d)} + \frac{1}{60 + r_{\text{bm25}}(d)}$.
+\begin{enumerate}
+  \item Tính toán điểm số cho 4 tài liệu:
+  \begin{itemize}
+    \item Tài liệu $d_1$ ($r_{\text{dense}} = 1, r_{\text{bm25}} = 2$):
+    \begin{equation*}
+    \text{RRF}(d_1) = \frac{1}{60 + 1} + \frac{1}{60 + 2} = \frac{1}{61} + \frac{1}{62} \approx 0.016393 + 0.016129 = \mathbf{0.032522}
+    \end{equation*}
+    \item Tài liệu $d_2$ ($r_{\text{dense}} = 2, r_{\text{bm25}} = 4$):
+    \begin{equation*}
+    \text{RRF}(d_2) = \frac{1}{60 + 2} + \frac{1}{60 + 4} = \frac{1}{62} + \frac{1}{64} \approx 0.016129 + 0.015625 = \mathbf{0.031754}
+    \end{equation*}
+    \item Tài liệu $d_3$ ($r_{\text{dense}} = 3, r_{\text{bm25}} = 1$):
+    \begin{equation*}
+    \text{RRF}(d_3) = \frac{1}{60 + 3} + \frac{1}{60 + 1} = \frac{1}{63} + \frac{1}{61} \approx 0.015873 + 0.016393 = \mathbf{0.032266}
+    \end{equation*}
+    \item Tài liệu $d_4$ ($r_{\text{dense}} = 4, r_{\text{bm25}} = 3$):
+    \begin{equation*}
+    \text{RRF}(d_4) = \frac{1}{60 + 4} + \frac{1}{60 + 3} = \frac{1}{64} + \frac{1}{63} \approx 0.015625 + 0.015873 = \mathbf{0.031498}
+    \end{equation*}
+  \end{itemize}
+
+  \item Thứ tự xếp hạng dung hợp RRF cuối cùng:
+  \begin{equation*}
+  \mathbf{d_1} \ (0.032522) > \mathbf{d_3} \ (0.032266) > \mathbf{d_2} \ (0.031754) > \mathbf{d_4} \ (0.031498)
+  \end{equation*}
+  Tài liệu \textbf{$d_1$ giành chiến thắng} vì duy trì thứ hạng rất cao ở cả hai hệ thống ($1$ và $2$), vượt qua $d_3$ vốn đứng đầu ở BM25 nhưng tụt xuống hạng $3$ ở Dense Search!
+\end{enumerate}
+
 \subsection{Lời Giải Nhóm C: Thực Hành Kỹ Nghệ \& Lập Trình}
-Toàn bộ mã nguồn kiểm chứng đã được cung cấp tại Mục~\ref{sec:python-hybrid-engine} với đầy đủ 3 module:
+Toàn bộ mã nguồn kiểm chứng đã được cung cấp tại Mục~\ref{sec:python-hybrid-engine} với đầy đủ các module:
 \begin{enumerate}
   \item \code{TwoStageHybridRetriever}: Kết hợp BM25 và Dense Search qua RRF, tái xếp hạng bằng Cross-Encoder.
   \item \code{FaithfulnessEvaluator}: Đánh giá độ trung thực của câu trả lời dựa trên việc đối chiếu từng khẳng định nguyên tử với ngữ cảnh trích xuất.
   \item \code{GraphEntityRetriever}: Mở rộng tri thức cục bộ theo đồ thị liên kết $k$-hop.
+  \item \code{TableAwareChunker}: Bộ chia đoạn bảng biểu bảo toàn header cho RAG doanh nghiệp:
 \end{enumerate}
+
+\begin{lstlisting}[language=Python, caption={Bộ phân đoạn bảng biểu nhận biết cấu trúc TableAwareChunker.}]
+class TableAwareChunker:
+    """Bo chia doan van ban Markdown co kha nang bao toan Table Headers."""
+    def __init__(self, max_table_rows: int = 5):
+        self.max_table_rows = max_table_rows
+
+    def chunk_markdown(self, text: str) -> List[str]:
+        lines = text.strip().split("\n")
+        chunks = []
+        in_table = False
+        table_headers = []
+        current_rows = []
+
+        for line in lines:
+            stripped = line.strip()
+            if stripped.startswith("|") and stripped.endswith("|"):
+                if not in_table:
+                    in_table = True
+                    table_headers = [line]
+                elif len(table_headers) == 1 and ("---" in stripped):
+                    table_headers.append(line)
+                else:
+                    current_rows.append(line)
+                    if len(current_rows) >= self.max_table_rows:
+                        chunk_content = "\n".join(table_headers + current_rows)
+                        chunks.append(chunk_content)
+                        current_rows = []
+            else:
+                if in_table:
+                    if current_rows:
+                        chunk_content = "\n".join(table_headers + current_rows)
+                        chunks.append(chunk_content)
+                        current_rows = []
+                    in_table = False
+                    table_headers = []
+                if stripped:
+                    chunks.append(line)
+
+        if in_table and current_rows:
+            chunks.append("\n".join(table_headers + current_rows))
+
+        return chunks
+\end{lstlisting}
 
 \subsection{Lời Giải Nhóm D: Phân Tích Thất Bại Thực Tế (Post-Mortem Analysis)}
 

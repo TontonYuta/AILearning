@@ -163,3 +163,95 @@ def test_semantic_resume_matcher():
 
     v3 = [0.0, 1.0, 0.0]
     assert matcher.evaluate_fit(v1, v3, threshold=0.85) is False
+
+# ==============================================================================
+# 4. BACK-OF-THE-ENVELOPE SYSTEM DESIGN ESTIMATOR
+# ==============================================================================
+
+class BackOfTheEnvelopeEstimator:
+    """Cong cu uoc tinh dinh luong nhanh tren bang trang cho phong van System Design."""
+    
+    @staticmethod
+    def estimate_model_weights_vram_gb(params_billions: float, bytes_per_param: float = 2.0) -> float:
+        raw_gb = params_billions * bytes_per_param
+        with_overhead_gb = raw_gb * 1.2
+        return round(with_overhead_gb, 2)
+
+    @staticmethod
+    def estimate_kv_cache_vram_gb(
+        batch_size: int,
+        context_len: int,
+        num_layers: int,
+        num_kv_heads: int,
+        head_dim: int,
+        bytes_per_elem: float = 2.0
+    ) -> float:
+        total_bytes = 2 * batch_size * context_len * num_layers * num_kv_heads * head_dim * bytes_per_elem
+        total_gb = total_bytes / (1024 ** 3)
+        return round(total_gb, 2)
+
+    @staticmethod
+    def estimate_allreduce_latency_us(
+        tensor_parallel_size: int,
+        tensor_bytes: int,
+        bus_bandwidth_gb_s: float
+    ) -> float:
+        if tensor_parallel_size <= 1:
+            return 0.0
+        ring_factor = 2.0 * (tensor_parallel_size - 1) / tensor_parallel_size
+        bytes_per_sec = bus_bandwidth_gb_s * (1024 ** 3)
+        seconds = ring_factor * (tensor_bytes / bytes_per_sec)
+        return round(seconds * 1_000_000, 2)
+
+    @staticmethod
+    def estimate_prefill_decode_tflops(
+        params_billions: float,
+        prompt_tokens: int,
+        output_tokens: int
+    ) -> Tuple[float, float, float]:
+        p = params_billions * 1e9
+        prefill_flops = 2.0 * p * prompt_tokens
+        decode_flops = 2.0 * p * output_tokens
+        total_flops = prefill_flops + decode_flops
+        return (
+            round(prefill_flops / 1e12, 2),
+            round(decode_flops / 1e12, 2),
+            round(total_flops / 1e12, 2)
+        )
+
+def test_back_of_the_envelope_estimator():
+    estimator = BackOfTheEnvelopeEstimator()
+
+    # 1. 70B model weights VRAM (FP16)
+    vram_70b = estimator.estimate_model_weights_vram_gb(70.0, bytes_per_param=2.0)
+    assert vram_70b == 168.0  # 140 * 1.2 = 168.0 GB
+
+    # 2. KV Cache for B=16, L=4096 on 70B (80 layers, 8 kv_heads, 128 head_dim)
+    kv_vram = estimator.estimate_kv_cache_vram_gb(
+        batch_size=16,
+        context_len=4096,
+        num_layers=80,
+        num_kv_heads=8,
+        head_dim=128,
+        bytes_per_elem=2.0
+    )
+    assert kv_vram == pytest.approx(20.0, abs=0.1)
+
+    # 3. AllReduce latency for TP=4, tensor=100MB over NVLink (900 GB/s)
+    allreduce_us = estimator.estimate_allreduce_latency_us(
+        tensor_parallel_size=4,
+        tensor_bytes=100 * 1024 * 1024,
+        bus_bandwidth_gb_s=900.0
+    )
+    assert 160.0 < allreduce_us < 170.0
+
+    # 4. Prefill/Decode FLOPs for 70B (prompt=2000, output=100)
+    prefill_tf, decode_tf, total_tf = estimator.estimate_prefill_decode_tflops(
+        params_billions=70.0,
+        prompt_tokens=2000,
+        output_tokens=100
+    )
+    assert prefill_tf == 280.0
+    assert decode_tf == 14.0
+    assert total_tf == 294.0
+

@@ -629,6 +629,105 @@ Thực nghiệm phổ giá trị kỳ dị của các mô hình LLM chứng minh
 \end{equation}
 Điều này chứng minh bằng toán học rằng việc chỉ huấn luyện $0.1\%$ số lượng tham số qua cặp ma trận $(\mathbf{B}, \mathbf{A})$ vẫn bảo toàn được $95\%$ năng lượng thông tin của toàn bộ quá trình tinh chỉnh tham số!
 
+
+---
+
+\section{Toán Học Định Tuyến MoE \& Tối Ưu Hóa Phân Bổ Nguồn Lực}
+\label{sec:app-math-moe-routing}
+
+\subsection{Cơ Chế Định Tuyến Noisy Top-$k$ Gating}
+Trong các kiến trúc Mixture-of-Experts (MoE) thưa thớt (\textit{Sparse MoE}) như Mixtral 8x7B hay DeepSeek-V3, với mỗi token đầu vào $\mathbf{x} \in \mathbb{R}^d$, chỉ có một tập con gồm $k \ll E$ chuyên gia $\{f_i(\mathbf{x})\}_{i=1}^E$ được kích hoạt.
+Bộ định tuyến tính toán véc-tơ điểm số $H(\mathbf{x}) \in \mathbb{R}^E$:
+\begin{equation}
+H(\mathbf{x})_i = (\mathbf{x} \mathbf{W}_g)_i + \epsilon \cdot \text{Softplus}((\mathbf{x} \mathbf{W}_{\text{noise}})_i), \quad \epsilon \sim \mathcal{N}(0, 1)
+\end{equation}
+Tập chỉ số $k$ chuyên gia có điểm số cao nhất được chọn:
+\begin{equation}
+\mathcal{T} = \text{Top-}k(H(\mathbf{x}), k) = \arg\max_{\mathcal{S} \subset \{1, \dots, E\}, |\mathcal{S}| = k} \sum_{j \in \mathcal{S}} H(\mathbf{x})_j
+\end{equation}
+Trọng số định tuyến chuẩn hóa Softmax trên tập $\mathcal{T}$:
+\begin{equation}
+p_i(\mathbf{x}) = \begin{cases}
+\dfrac{\exp(H(\mathbf{x})_i)}{\sum_{j \in \mathcal{T}} \exp(H(\mathbf{x})_j)}, & \text{nếu } i \in \mathcal{T} \\
+0, & \text{nếu } i \notin \mathcal{T}
+\end{cases}
+\end{equation}
+Đầu ra tổng hợp của tầng MoE là sự kết hợp tuyến tính của các chuyên gia được kích hoạt:
+\begin{equation}
+\mathbf{y} = \sum_{i \in \mathcal{T}} p_i(\mathbf{x}) f_i(\mathbf{x})
+\end{equation}
+
+\subsection{Hàm Mất Mát Phụ Trợ Cân Bằng Tải (Load Balancing Auxiliary Loss)}
+Nếu không có cơ chế ràng buộc, mạng định tuyến sẽ gặp hiện tượng suy biến (\textit{Routing Collapse}): một vài chuyên gia được ưa chuộng sẽ nhận hầu hết tokens, trong khi các chuyên gia còn lại bị bỏ đói (\textit{Starvation}).
+Để giải quyết bài toán này, Switch Transformer thiết lập hàm mất mát phụ trợ cân bằng tải $\mathcal{L}_{\text{balance}}$:
+\begin{equation}
+\mathcal{L}_{\text{balance}} = \alpha \cdot E \sum_{i=1}^E f_i \cdot P_i
+\end{equation}
+Trong đó:
+\begin{itemize}
+  \item $T$ là tổng số tokens trong batch huấn luyện.
+  \item $f_i = \frac{1}{T} \sum_{t=1}^T \mathbb{I}\{\text{token } t \text{ định tuyến đến chuyên gia } i\}$ là tỷ lệ tokens thực tế được giao cho chuyên gia $i$.
+  \item $P_i = \frac{1}{T} \sum_{t=1}^T p_i(\mathbf{x}_t)$ là xác suất phân bổ trung bình mà mạng Gating tính toán cho chuyên gia $i$.
+  \item $\alpha$ là siêu tham số cân bằng (thường chọn $\alpha \in [10^{-2}, 10^{-1}]$).
+\end{itemize}
+
+\paragraph{Chứng minh tính tối ưu phân bố đồng đều}:
+Áp dụng Bất đẳng thức Cauchy-Schwarz cho hai véc-tơ không âm $\mathbf{f} = [f_1, \dots, f_E]^T$ và $\mathbf{P} = [P_1, \dots, P_E]^T$ với điều kiện $\sum_{i=1}^E f_i = 1$ và $\sum_{i=1}^E P_i = 1$:
+\begin{equation}
+\sum_{i=1}^E f_i P_i \ge \frac{1}{E} \left(\sum_{i=1}^E \sqrt{f_i P_i}\right)^2
+\end{equation}
+Dấu đẳng thức đạt được khi và chỉ khi $f_i = P_i = \frac{1}{E}, \forall i \in \{1, \dots, E\}$. Khi đó:
+\begin{equation}
+\min \mathcal{L}_{\text{balance}} = \alpha \cdot E \cdot \sum_{i=1}^E \frac{1}{E} \cdot \frac{1}{E} = \alpha \cdot E \cdot \left(E \cdot \frac{1}{E^2}\right) = \alpha
+\end{equation}
+Nếu xảy ra tình trạng sụp đổ hoàn toàn (toàn bộ tokens dồn vào 1 chuyên gia duy nhất $f_1 = P_1 = 1$, các chuyên gia còn lại bằng 0):
+\begin{equation}
+\mathcal{L}_{\text{balance}}^{\text{collapse}} = \alpha \cdot E \cdot (1 \cdot 1) = \alpha \cdot E \gg \alpha
+\end{equation}
+Hàm mất mát phạt gấp $E$ lần trường hợp cân bằng, tạo động lực gradient mạnh mẽ ép các chuyên gia chia sẻ tải đồng đều.
+
+\subsection{Dung Lượng Chuyên Gia \& Cơ Chế Bỏ Rơi Token (Capacity Factor \& Token Dropping)}
+Để tránh tràn bộ nhớ VRAM khi một chuyên gia nhận quá nhiều token ngoài dự tính trong cụm xử lý song song phân tán (Expert Parallelism), ta định nghĩa dung lượng chứa tối đa của chuyên gia $C$:
+\begin{equation}
+C = \left\lceil \text{Capacity Factor} \cdot \frac{k \cdot B \cdot L}{E} \right\rceil
+\end{equation}
+Với $B$ là kích thước batch, $L$ là độ dài chuỗi (\textit{Sequence Length}), và $\text{Capacity Factor} \ge 1.0$ (thường chọn $1.25$ hoặc $1.5$).
+Nếu một chuyên gia nhận vượt quá $C$ tokens, các tokens vượt ngưỡng sẽ bị bỏ rơi (\textit{Token Dropping}) và được truyền thẳng qua đường tắt còn lại (\textit{Residual Bypass}) mà không đi qua mạng nơ-ron chuyên gia, đảm bảo giới hạn thời gian tính toán của tiến trình GPU.
+
+---
+
+\section{Mô Hình Hóa Phục Vụ LLM Bằng Lý Thuyết Hàng Đợi (M/G/1 Processor Sharing \& Tail Latency)}
+\label{sec:app-math-queueing-theory-llm}
+
+\subsection{Chuyển Dịch Từ FIFO Sang Mô Hình Chia Sẻ Vi Xử Lý (Processor Sharing)}
+Trong các hệ thống phục vụ LLM hiện đại (như vLLM hoặc TensorRT-LLM) với cơ chế gom lô liên tục (\textit{Continuous Batching / Iteration-level Scheduling}), tài nguyên GPU không xử lý từng yêu cầu theo thứ tự đến trước phục vụ trước (\textit{FIFO}). Thay vào đó, ở mỗi vòng lặp giải mã (\textit{Decode Step}), GPU đồng thời sinh thêm 1 token cho tất cả $N(t)$ yêu cầu đang hoạt động.
+Hệ thống này được mô hình hóa toán học chính xác bằng mô hình hàng đợi \textbf{M/G/1 Processor Sharing (M/G/1-PS)}:
+\begin{itemize}
+  \item Luồng yêu cầu đến theo quy trình Poisson với tốc độ $\lambda$.
+  \item Thời gian tính toán cần thiết $S$ có phân phối tổng quát $G$ với kỳ vọng $\mathbb{E}[S] = \mu^{-1}$ và phương sai $\sigma_S^2$.
+  \item Cường độ tải hệ thống $\rho = \frac{\lambda}{\mu} < 1$.
+\end{itemize}
+
+\subsection{Thời Gian Lưu Trú Trung Bình \& Tính Vô Cảm Với Phương Sai (Insensitivity Property)}
+Định lý Sakata chỉ ra một tính chất toán học quan trọng của mô hình M/G/1-PS:
+Thời gian lưu trú trung bình (\textit{Mean Sojourn Time}) của một yêu cầu có kích thước $x$ (số tokens cần sinh) hoàn toàn độc lập với hình dạng của phân phối thời gian phục vụ $G$:
+\begin{equation}
+\mathbb{E}[T_{\text{residence}} \mid S = x] = \frac{x}{1 - \rho}
+\end{equation}
+Hệ quả thực chiến: Một yêu cầu ngắn cần sinh $20$ tokens sẽ hoàn thành nhanh gấp 5 lần một yêu cầu dài $100$ tokens, bất kể độ lệch chuẩn của các prompt khác trong batch là bao nhiêu. Cơ chế Processor Sharing ngăn chặn hoàn toàn hiện tượng một yêu cầu dài độc chiếm GPU làm nghẽn các yêu cầu ngắn.
+
+\subsection{Phân Phối Trễ Đuôi Nặng P99 \& Hiện Tượng Bùng Nổ Dưới Áp Lực VRAM}
+Mặc dù thời gian trung bình có tính chất vô cảm lý tưởng, phân phối độ trễ ở các phân vị cao ($P99$, $P99.9$) lại tuân theo quy luật đuôi dưới cấp số nhân (\textit{Subexponential Tail Behavior}):
+\begin{equation}
+\mathbb{P}(T > t) \approx C_0 \cdot \exp\left( - \frac{2(1 - \rho)}{\rho \cdot C_s^2} \cdot \mu t \right)
+\end{equation}
+Trong đó $C_s^2 = \frac{\sigma_S^2}{\mathbb{E}[S]^2}$ là bình phương hệ số biến thiên độ dài chuỗi sinh.
+Khi hệ thống chịu tải cao và bộ nhớ KV Cache đạt ngưỡng tới hạn ($\rho_{\text{VRAM}} \to 1$):
+\begin{equation}
+\lim_{\rho \to 1} \frac{\partial \text{P99 Latency}}{\partial \rho} = +\infty
+\end{equation}
+Điều này giải thích một cách toán học tại sao khi sử dụng GPU trên $85\%$ VRAM, độ trễ P99 không tăng tuyến tính mà phát nổ theo chiều thẳng đứng!
+
 ---
 
 \section{Tổng Hợp Các Hằng Số \& Bảng Ký Hiệu Chuẩn Mực}

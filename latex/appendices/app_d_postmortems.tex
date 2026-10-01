@@ -179,3 +179,121 @@ Do thanh ghi tính toán không được bảo vệ bằng mã sửa lỗi ECC t
   \item \textbf{Cơ chế Gradient Norm Clipping \& Anomaly Detection}: Giám sát chuẩn gradient $\|\mathbf{g}\|_2$. Nếu chuẩn gradient vượt quá $5$ lần mức trung bình động (\textit{Moving Average}) trong 1 bước duy nhất, tự động bỏ qua bước cập nhật đó (\textit{Skip Step}) và kích hoạt kiểm tra phần cứng.
   \item \textbf{Định kỳ chạy Golden Matrix Multiplication Check}: Cứ sau mỗi $1,000$ bước huấn luyện, mỗi GPU tự động thực hiện một phép nhân hai ma trận cố định định trước và so khớp mã băm SHA256 của kết quả với giá trị mẫu chuẩn (\textit{Golden Hash}). Nếu mã băm không trùng khớp, GPU đó lập tức bị cô lập và kích hoạt cơ chế hồi phục từ Checkpoint gần nhất.
 \end{itemize}
+
+---
+
+\section{Sự Cố 7: Phân Mảnh Khối KV Cache \& Cơn Bão Hoán Đổi (PagedAttention Thrashing)}
+\label{sec:postmortem-pagedattention-thrashing}
+
+\subsection{Hiện Tượng}
+Sau khi triển khai tính năng Prefix Caching trên cụm vLLM phục vụ trợ lý Copilot lập trình (mô hình 70B FP8 trên cụm 4 GPU H100), hệ thống hoạt động hoàn hảo trong 2 ngày đầu với tỷ lệ Cache Hit đạt $85\%$.
+Tuy nhiên, đến ngày thứ 3, độ trễ đuôi P99 đột ngột tăng vọt từ $45\text{ms}$ lên $3.400\text{ms}$. Tỷ lệ sử dụng VRAM liên tục dao động dữ dội giữa $95\%$ và $99.9\%$, trong khi thông lượng sinh token toàn cụm giảm sụt hơn $70\%$.
+
+\subsection{Phân Tích Nguyên Nhân Gốc Rễ Tầng Thấp}
+Đội ngũ phát triển ứng dụng đã bổ sung một tính năng mới: Chèn dấu thời gian ISO 8601 (\code{timestamp = 2026-10-02T01:45:00Z}) và định danh phiên người dùng (\code{session_id}) vào ngay phần đầu của System Prompt!
+\begin{itemize}
+  \item \textbf{Cơ chế phá vỡ Prefix Cache}: Vì mỗi yêu cầu đều có một dấu thời gian và ID khác nhau ở những token đầu tiên, hàm băm tiền tố Radix Tree bị phân rã hoàn toàn. Cây tiền tố không thể tái sử dụng các nhánh dùng chung mà liên tục tạo ra hàng ngàn nhánh con rác chỉ tồn tại một lần.
+  \item \textbf{PagedAttention Thrashing}: Không gian bảng trang bộ nhớ ảo của vLLM bị phân mảnh cực độ. Khi VRAM chạm ngưỡng trần $95\%$, vLLM liên tục phải kích hoạt cơ chế trục xuất khối (Block Eviction) theo giải thuật LRU và hoán đổi các khối dở dang sang RAM máy chủ (\textit{Host Memory Swap-Out}).
+  \item \textbf{Prefill Storm}: Mỗi request mới đến đều bị tính là Cache Miss, buộc GPU phải thực hiện lại toàn bộ phép tính Attention cho $4.000$ tokens tiền tố, làm nghẽn hàng đợi Prefill và đẩy độ trễ P99 phát nổ.
+\end{itemize}
+
+\subsection{Kiến Trúc Khắc Phục Bền Vững}
+\begin{enumerate}
+  \item \textbf{Chuẩn hóa cấu trúc System Prompt (Prompt Normalization)}: Tách biệt hoàn toàn phần tĩnh và phần động:
+  \begin{equation*}
+  \text{Prompt} = \underbrace{\text{Static System Instructions (Không đổi)}}_{\text{Prefix Caching Hit 100\%}} + \underbrace{\text{Dynamic Metadata \& Session Variables}}_{\text{Chèn vào cuối Prompt}}
+  \end{equation*}
+  \item \textbf{Cấu hình ngưỡng dọn rác phân trang (Cache Eviction Threshold)}:
+  Điều chỉnh cờ tham số vLLM:\\
+  \code{--gpu-memory-utilization 0.90}\\
+  và thiết lập độ sâu nhánh tối thiểu để ngăn chặn việc ghi nhận các nhánh Radix Tree có tuổi thọ dưới 60 giây.
+\end{enumerate}
+
+---
+
+\section{Sự Cố 8: Bão Tái Kết Nối Anycast BGP \& Gãy Đổ Luồng Streaming SSE}
+\label{sec:postmortem-anycast-bgp-flapping}
+
+\subsection{Hiện Tượng}
+Vào lúc 09:30 sáng, hàng ngàn khách hàng sử dụng ứng dụng web chatbot đồng loạt báo cáo hiện tượng câu trả lời đang sinh giữa chừng thì bị đứng khựng và biến mất, kèm theo mã lỗi JavaScript \code{net::ERR_INCOMPLETE_CHUNKED_ENCODING} hoặc \code{net::ERR_CONNECTION_RESET}.
+Trong khi đó, hệ thống máy chủ GPU vLLM phía sau vẫn báo cáo trạng thái hoàn toàn khỏe mạnh, không có lỗi OOM hay quá tải.
+
+\subsection{Mổ Xẻ Tầng Giao Vận \& Mạng Anycast BGP}
+Hệ thống sử dụng mạng Anycast BGP toàn cầu: Cùng một địa chỉ IP công khai ($203.0.113.1$) được thông cáo định tuyến từ 4 trung tâm dữ liệu (Singapore, Tokyo, Frankfurt, Virginia).
+\begin{enumerate}
+  \item Một sự cố đứt cáp quang biển tại phân đoạn APG gây ra hiện tượng dao động định tuyến Internet (\textit{BGP Route Flapping}) liên tục giữa tuyến Singapore và Tokyo.
+  \item Người dùng tại Việt Nam ban đầu kết nối tới PoP Singapore và bắt đầu nhận luồng phản hồi Server-Sent Events (SSE) trên nền kết nối TCP.
+  \item Giữa chừng quá trình sinh văn bản (sau khoảng 10 giây), tuyến đường Anycast BGP bị dịch chuyển sang PoP Tokyo.
+  \item Các gói tin TCP ACK tiếp theo của máy khách bị chuyển tới cụm Gateway tại Tokyo. Do Gateway Tokyo hoàn toàn không nắm giữ Khối điều khiển kết nối (\textit{TCP Transmission Control Block - TCB}) của phiên đang mở tại Singapore, nó lập tức gửi lại gói tin cờ \code{TCP RST (Reset)}.
+  \item Kết nối TCP bị hủy diệt tức khắc, làm đứt gãy luồng SSE và khiến người dùng mất trắng toàn bộ nội dung câu trả lời dở dang!
+\end{enumerate}
+
+\subsection{Giải Pháp Khắc Phục Chuẩn Kỹ Nghệ}
+\begin{itemize}
+  \item \textbf{Chuyển đổi sang HTTP/3 trên nền QUIC}: Giao thức QUIC sử dụng mã định danh kết nối độc lập (\textit{Connection ID}) thay vì định danh bằng 4-tuple IP/Port truyền thống. Khi tuyến đường Anycast thay đổi, phiên truyền dữ liệu vẫn tiếp tục duy trì liền mạch mà không bị đứt gãy (\textit{Connection Migration}).
+  \item \textbf{Tầng chuyển tiếp gói tin nhất quán (Consistent Packet Forwarding)}: Triển khai bộ cân bằng tải tầng 4 dựa trên eBPF/Katran. Khi nhận gói tin của phiên đang mở tại PoP khác, Gateway tự động đóng gói qua đường hầm cáp quang nội bộ (Geneve/GRE) để chuyển tiếp về đúng PoP gốc.
+\end{itemize}
+
+---
+
+\section{Sự Cố 9: CUDA IPC Memory Leak \& Treo Luồng (Deadlock) Trong Huấn Luyện Đa GPU}
+\label{sec:postmortem-cuda-ipc-leak}
+
+\subsection{Hiện Tượng}
+Một tiến trình huấn luyện tinh chỉnh mô hình 70B tham số phân tán trên cụm 8 node H100 (64 GPUs) vận hành ổn định trong suốt 14 giờ đầu tiên.
+Tuy nhiên, từ giờ thứ 15, thông lượng huấn luyện bắt đầu suy giảm dần đều từ $3.400\text{ tokens/s/GPU}$ xuống còn $1.200\text{ tokens/s/GPU}$.
+Đến giờ thứ 16, toàn bộ 64 tiến trình đồng loạt rơi vào trạng thái đóng băng hoàn toàn và sập với thông điệp:
+\begin{verbatim}
+Watchdog caught collective operation timeout:
+WorkNCCL(OpId=49122, SequenceNum=18492) timed out after 1800.0 seconds.
+\end{verbatim}
+
+\subsection{Mổ Xẻ Tầng Nhân Linux \& Bộ Nhớ Chia Sẻ Host-GPU}
+\begin{enumerate}
+  \item Bộ nạp dữ liệu sử dụng PyTorch \code{DataLoader} cấu hình \code{num_workers=8} và \code{pin_memory=True}.
+  \item Để truyền các batch dữ liệu từ tiến trình CPU con sang tiến trình GPU chính, PyTorch tạo ra các trang bộ nhớ host cố định (\textit{Page-locked / Pinned Host Memory}) và chia sẻ thông qua các handle CUDA IPC (\textit{CUDA Inter-Process Communication}).
+  \item Do một chu kỳ thu gom rác (\textit{Python Garbage Collection}) bị nghẽn khi xử lý chuỗi văn bản dài bất thường, tiến trình worker CPU con bị dừng đột ngột mà không kịp giải phóng file descriptor gắn với \code{/dev/shm}.
+  \item Kernel Linux buộc phải hoán đổi các trang bộ nhớ vật lý sang đĩa (\textit{Host RAM Paging Thrash}), làm tốc độ chuẩn bị tensor trên Node 3 bị đình trệ nghiêm trọng.
+  \item Trong giải thuật All-Reduce phân tán dạng vòng tròn (\textit{Ring All-Reduce}), mỗi GPU bắt buộc phải nhận và truyền gradient từ GPU lân cận. Việc Node 3 bị chậm biến nó thành điểm nghẽn cổ chai duy nhất kìm hãm toàn bộ 63 GPU còn lại, dẫn đến tình trạng NCCL Watchdog quá hạn 30 phút và hủy diệt phiên huấn luyện!
+\end{enumerate}
+
+\subsection{Giải Pháp Khắc Phục Bền Vững}
+\begin{itemize}
+  \item \textbf{Loại bỏ Python Multiprocessing Worker IPC}: Chuyển dịch toàn bộ pipeline nạp dữ liệu sang cơ chế Streaming Zero-Copy trực tiếp bằng \code{WebDataset} hoặc Ray Data Actors. Dữ liệu được nạp thẳng vào bộ nhớ đệm luồng mà không phát sinh thêm tiến trình con trung gian.
+  \item \textbf{Cấu hình biến môi trường phòng thủ NCCL}:
+    Thiết lập các biến môi trường bắt buộc trong kịch bản khởi chạy:\\
+    \code{export NCCL_ASYNC_ERROR_HANDLING=1}\\
+    \code{export NCCL_BUFFSIZE=8388608}\\
+    \code{export TORCH_DISTRIBUTED_DEBUG=DETAIL}
+  \item \textbf{Giám sát độ lệch thời gian bước (Step Time Jitter Monitor)}:
+    Triển khai daemon giám sát chu kỳ huấn luyện. Nếu thời gian hoàn thành bước giữa node nhanh nhất và chậm nhất chênh lệch quá $20\%$ trong 3 bước liên tiếp, hệ thống tự động lưu chốt điểm an toàn (Safety Checkpoint) và khởi động lại tiến trình worker trước khi NCCL Watchdog phát nổ.
+\end{itemize}
+
+---
+
+\section{Sự Cố 10: Phân Độc Đồ Thị HNSW \& Gãy Đứt Tuyến Tìm Kiếm Véc-tơ (Vector Graph Islanding)}
+\label{sec:postmortem-hnsw-graph-islanding}
+
+\subsection{Hiện Tượng}
+Một hệ thống RAG phục hồi dữ liệu từ cơ sở dữ liệu véc-tơ chứa 25 triệu tài liệu văn bản.
+Sau 3 tuần vận hành liên tục với tần suất cập nhật dữ liệu cao (hơn $12.000$ thao tác ghi/xóa tài liệu mỗi giờ), người dùng bắt đầu phàn nàn rằng trợ lý AI trả lời sai sự thật và không còn trích dẫn được các tài liệu quy định mới nhất vừa ban hành, mặc dù dữ liệu này đã được xác nhận lưu trữ thành công.
+Kết quả đo đạc kiểm thử tự động cho thấy chỉ số độ phủ phục hồi (Recall@10) của hệ thống đã sụp đổ thảm hại từ $95.2\%$ xuống còn $42.6\%$.
+
+\subsection{Mổ Xẻ Cấu Trúc Đồ Thị Phân Tầng HNSW}
+\begin{enumerate}
+  \item Giải thuật HNSW (\textit{Hierarchical Navigable Small World}) tổ chức dữ liệu dưới dạng đồ thị liên thông nhiều tầng với đặc tính thế giới nhỏ (\textit{Small World Graph}). Tầng trên cùng thưa thớt đóng vai trò điểm dẫn nhập (\textit{Entry Point}), tầng đáy dày đặc kết nối trực tiếp các láng giềng gần nhất.
+  \item Nhằm tối ưu hóa hiệu năng ghi thời gian thực, hệ thống lưu trữ véc-tơ áp dụng kỹ thuật xóa mềm (\textit{Soft-Delete Tombstoning}): các véc-tơ bị xóa chỉ được gán cờ \code{deleted=True} trong siêu dữ liệu mà không cắt bỏ các cạnh liên kết vật lý trong đồ thị.
+  \item Trong quá trình vận hành, các nút trung tâm có bậc liên kết cao (\textit{Hub Nodes} - các tài liệu được nhiều truy vấn duyệt qua) dần dần bị xóa mềm khi tài liệu hết hạn.
+  \item Khi giải thuật tìm kiếm tham lam (\textit{Greedy Graph Search}) di chuyển qua đồ thị, nếu nó gặp một nút tombstone và cấu hình tìm kiếm bỏ qua nút này, luồng duyệt đồ thị bị cắt đứt đột ngột.
+  \item Hệ quả là đồ thị bị phân rã thành các hòn đảo cô lập (\textit{Disconnected Graph Islands}). Các véc-tơ tài liệu mới được chèn vào các đảo phụ không bao giờ được chạm tới từ điểm dẫn nhập chính, dẫn đến việc $52.6\%$ tri thức mới bị "vô hình" trước công cụ tìm kiếm!
+\end{enumerate}
+
+\subsection{Giải Pháp Khắc Phục Bền Vững}
+\begin{itemize}
+  \item \textbf{Cơ chế Tombstone-Traversable Search}:
+    Cho phép giải thuật tìm kiếm tiếp tục duyệt xuyên qua các nút tombstone như các cầu nối định tuyến trung chuyển, nhưng lọc bỏ chúng hoàn toàn khỏi danh sách kết quả cuối cùng trước khi trả về cho tầng ứng dụng.
+  \item \textbf{Tự động thu dọn \& Tái liên kết đồ thị bất đồng bộ (Background Graph Compaction)}:
+    Triển khai tiến trình dọn dẹp chạy nền định kỳ. Khi tỷ lệ tombstone trên một phân vùng đồ thị vượt quá $5\%$, tiến trình tự động thực hiện phép co cạnh (\textit{Edge Contraction}) và liên kết trực tiếp các nút tiền nhiệm với nút kế nhiệm của tombstone theo quy tắc tam giác khép kín.
+  \item \textbf{Giám sát chất lượng Recall với Véc-tơ Dò Mẫu (Golden Probe Canary)}:
+    Mỗi 5 phút, hệ thống tự động bắn một tập $100$ véc-tơ dò mẫu biết trước láng giềng thực tế $100\%$ (tính bằng duyệt vét cạn Brute-force). Nếu chỉ số Recall@10 trên tập mẫu suy giảm dưới $90\%$, hệ thống lập tức kích hoạt cờ tái xây dựng đồ thị cục bộ và chuyển hướng truy vấn sang cụm Replica dự phòng.
+\end{itemize}

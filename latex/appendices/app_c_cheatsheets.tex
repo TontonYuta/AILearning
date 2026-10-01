@@ -341,3 +341,64 @@ sudo iptables -I INPUT -s 198.51.100.42 -j DROP
 # 5. Chi cho phep dai IP noi bo cua mang Private Subnet truy cap vao cong vLLM
 sudo iptables -A INPUT -p tcp -s 10.244.0.0/16 --dport 8000 -j ACCEPT
 \end{lstlisting}
+
+---
+
+\section{Bảng Đối Sánh Phần Cứng GPU Chuyên Dụng Cho AI (GPU Hardware Sizing Guide)}
+\label{sec:app-cheat-gpu-hardware}
+
+Khi thiết kế hạ tầng máy chủ cho huấn luyện hoặc suy luận mô hình lớn, kỹ sư AI cần nắm vững bảng thông số phần cứng cốt lõi của các thế hệ GPU NVIDIA:
+
+\begin{table}[htbp]
+\centering
+\scriptsize
+\caption{Bảng so sánh thông số kỹ thuật các dòng GPU máy chủ AI chuyên dụng của NVIDIA}
+\label{tab:app-gpu-specs-comparison}
+\begin{tabular}{lcccccc}
+\toprule
+\textbf{Thông Số Phần Cứng} & \textbf{A100 SXM4} & \textbf{H100 SXM5} & \textbf{H200 SXM5} & \textbf{B200 SXM6} & \textbf{L40S PCIe} & \textbf{L4 PCIe} \\
+\midrule
+Kiến trúc & Ampere & Hopper & Hopper & Blackwell & Ada Lovelace & Ada Lovelace \\
+Dung lượng VRAM & $80\text{ GB}$ & $80\text{ GB}$ & $141\text{ GB}$ & $192\text{ GB}$ & $48\text{ GB}$ & $24\text{ GB}$ \\
+Loại bộ nhớ & HBM2e & HBM3 & HBM3e & HBM3e & GDDR6 & GDDR6 \\
+Băng thông bộ nhớ & $2.0\text{ TB/s}$ & $3.35\text{ TB/s}$ & $4.8\text{ TB/s}$ & $8.0\text{ TB/s}$ & $864\text{ GB/s}$ & $300\text{ GB/s}$ \\
+FP16 Tensor Core & $312\text{ TFLOPS}$ & $989\text{ TFLOPS}$ & $989\text{ TFLOPS}$ & $2.250\text{ TFLOPS}$ & $366\text{ TFLOPS}$ & $120\text{ TFLOPS}$ \\
+FP8 Tensor Core & \textit{Không hỗ trợ} & $1.979\text{ TFLOPS}$ & $1.979\text{ TFLOPS}$ & $4.500\text{ TFLOPS}$ & $733\text{ TFLOPS}$ & $242\text{ TFLOPS}$ \\
+Băng thông NVLink & $600\text{ GB/s}$ & $900\text{ GB/s}$ & $900\text{ GB/s}$ & $1.800\text{ GB/s}$ & \textit{Không hỗ trợ} & \textit{Không hỗ trợ} \\
+Giao tiếp Bus & SXM4 & SXM5 & SXM5 & SXM6 & PCIe Gen4 & PCIe Gen4 \\
+Công suất điện (TDP) & $400\text{W}$ & $700\text{W}$ & $700\text{W}$ & $1.000\text{W}$ & $350\text{W}$ & $72\text{W}$ \\
+Ứng dụng tối ưu & Huấn luyện & Serving 70B & Serving 405B & Cụm MoE lớn & Phục vụ SLM 8B & Edge / Embeddings \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+---
+
+\section{Cẩm Nang Giám Sát SRE: Bộ Chỉ Số PromQL \& Grafana Cho vLLM Production}
+\label{sec:app-cheat-promql}
+
+Để thiết lập hệ thống cảnh báo và bảng điều khiển Grafana giám sát cụm vLLM theo thời gian thực, kỹ sư SRE sử dụng các câu truy vấn PromQL chuẩn kỹ nghệ sau:
+
+\begin{lstlisting}[language=bash]
+# 1. Do do tre phan vi P99 cua Time to First Token (TTFT) trong 5 phut gan nhat (giay)
+histogram_quantile(0.99, sum(rate(vllm:time_to_first_token_seconds_bucket[5m])) by (le))
+
+# 2. Do do tre phan vi P99 cua Time Per Output Token (TPOT / Decode latency) (giay)
+histogram_quantile(0.99, sum(rate(vllm:time_per_output_token_seconds_bucket[5m])) by (le))
+
+# 3. Tong thong luong sinh token thoi gian thuc cua toan cum may chu (tokens/giay)
+sum(rate(vllm:iteration_tokens_total[1m]))
+
+# 4. Ty le Cache Hit cua tinh nang Prefix Caching tren toan cum (%)
+sum(rate(vllm:gpu_prefix_cache_hit_total[5m])) / sum(rate(vllm:gpu_prefix_cache_queries_total[5m])) * 100
+
+# 5. Ty le chiem dung bo nho VRAM thuc te cua KV Cache (Gia tri tu 0.0 den 1.0)
+vllm:gpu_cache_usage_factor
+
+# 6. So luong yeu cau dang bi u dong trong hang doi Prefill (Queue Backlog)
+vllm:num_requests_waiting
+
+# 7. So luong yeu cau dang duoc xu ly dong thoi trong giai doan Decode (Concurrency)
+vllm:num_requests_running
+\end{lstlisting}
+

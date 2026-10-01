@@ -260,3 +260,43 @@ def test_eckart_young_mirsky_lora():
     energy_captured = np.sum(s[:r] ** 2) / np.sum(s ** 2)
     assert energy_captured > 0.95  # 95%+ energy preserved
 
+
+def test_moe_auxiliary_load_balancing_loss():
+    """Verify Switch Transformer load balancing loss reaches minimum at uniform distribution."""
+    num_experts = 8
+    alpha = 0.01
+    
+    # Perfectly balanced case: f_i = 1/E, P_i = 1/E
+    f_balanced = np.full(num_experts, 1.0 / num_experts)
+    P_balanced = np.full(num_experts, 1.0 / num_experts)
+    loss_balanced = alpha * num_experts * np.sum(f_balanced * P_balanced)
+    
+    # Theoretical minimum: loss = alpha
+    assert np.isclose(loss_balanced, alpha)
+    
+    # Complete collapse case: expert 0 takes 100% of tokens
+    f_collapsed = np.zeros(num_experts)
+    f_collapsed[0] = 1.0
+    P_collapsed = np.zeros(num_experts)
+    P_collapsed[0] = 1.0
+    loss_collapsed = alpha * num_experts * np.sum(f_collapsed * P_collapsed)
+    
+    # Under collapse, loss is penalized by exactly E * alpha
+    assert np.isclose(loss_collapsed, num_experts * alpha)
+    assert loss_collapsed == 8 * loss_balanced
+
+
+def test_mg1_processor_sharing_sojourn_time():
+    """Verify M/G/1 Processor Sharing mean sojourn time E[T|x] = x / (1 - rho)."""
+    rho = 0.75  # 75% GPU load
+    short_task_tokens = 20
+    long_task_tokens = 100
+    
+    mean_short = short_task_tokens / (1.0 - rho)  # 20 / 0.25 = 80
+    mean_long = long_task_tokens / (1.0 - rho)    # 100 / 0.25 = 400
+    
+    assert np.isclose(mean_short, 80.0)
+    assert np.isclose(mean_long, 400.0)
+    assert np.isclose(mean_long / mean_short, 5.0)  # Exactly proportional to token count
+
+

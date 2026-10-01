@@ -200,6 +200,122 @@ Quy trình phỏng vấn AI Engineer tại các công ty công nghệ hàng đ�
   \end{enumerate}
 \end{itemize}
 
+
+
+\paragraph{Câu Hỏi 3: Thiết Kế Hệ Thống AI Code Completion Phục Vụ 50 Triệu Lập Trình Viên}
+\begin{itemize}
+  \item \textbf{Người phỏng vấn}: ``Hãy thiết kế kiến trúc hệ thống gợi ý mã nguồn thông minh (như GitHub Copilot) phục vụ 50 triệu lập trình viên toàn cầu. Ràng buộc khắt khe nhất là độ trễ P99 cho ký tự đầu tiên phải dưới $80\text{ms}$. Bạn sẽ thiết kế hệ thống như thế nào?''
+  \item \textbf{Kịch bản trả lời chuẩn Senior}:
+  \begin{enumerate}
+    \item \textbf{Làm rõ yêu cầu \& Ràng buộc}: Với $P99 < 80\text{ms}$, thời gian truyền gói tin mạng khứ hồi (RTT) qua Internet đã chiếm mất $30 - 45\text{ms}$. Như vậy thời gian suy luận thực tế trên GPU chỉ còn vỏn vẹn $35 - 50\text{ms}$. Điều này loại bỏ hoàn toàn khả năng sử dụng các mô hình khổng lồ 70B!
+    \item \textbf{Lựa chọn kích thước mô hình \& Tối ưu suy luận}:
+    Sử dụng mô hình chuyên biệt cho mã nguồn kích thước nhỏ ($1.5\text{B} - 3\text{B}$ tham số) lượng tử hóa INT4/FP8. Kết hợp kỹ thuật \textbf{Speculative Decoding}: Sử dụng mô hình $0.5\text{B}$ làm Draft Model để đoán trước 5 token tiếp theo và mô hình $3\text{B}$ xác thực song song.
+    \item \textbf{Mạng lưới phân phối biên (Edge Inference with Anycast BGP)}: Đặt các máy chủ GPU L4/L40S tại các PoP phân tán trên toàn cầu (Singapore, Tokyo, Frankfurt, Virginia) để kéo giảm RTT xuống dưới $10\text{ms}$.
+    \item \textbf{Bộ nhớ đệm tiền tố ngữ cảnh (Context Radix Tree Cache)}: Trong IDE, cấu trúc tệp mã nguồn và các thư viện import ở đầu tệp hầu như không thay đổi giữa các lần gõ phím. Bằng cách áp dụng Radix Tree Prefix Caching, bước Prefill cho 2.000 dòng code đầu tiên được tái sử dụng $100\%$ từ VRAM cache với độ trễ $0\text{ms}$!
+  \end{enumerate}
+\end{itemize}
+
+\paragraph{Câu Hỏi 4: Phản Biện Quyết Định Kiến Trúc \& Xử Lý Khủng Hoảng (Leadership \& Conflict Resolution)}
+\begin{itemize}
+  \item \textbf{Người phỏng vấn}: ``Kể về một lần bạn và Tech Lead hoặc Product Manager bất đồng quan điểm sâu sắc về mặt kiến trúc kỹ thuật. Bạn đã giải quyết xung đột đó như thế nào?''
+  \item \textbf{Kịch bản trả lời chuẩn Senior (Phương pháp STAR)}:
+  \begin{enumerate}
+    \item \textbf{Situation}: Trong dự án triển khai nền tảng AI nội bộ, Product Manager muốn sử dụng trực tiếp Cloud API thương mại vì muốn ra mắt sản phẩm nhanh trong 2 tuần, trong khi tôi đề xuất tự host mô hình mã nguồn mở trên cụm GPU riêng.
+    \item \textbf{Task}: Tránh tranh cãi cảm tính; lượng hóa bài toán bằng bảng phân tích tài chính (TCO) và ma trận rủi ro tuân thủ bảo mật dữ liệu.
+    \item \textbf{Action}: Tôi đã xây dựng một bản báo cáo kiểm toán FinOps chi tiết: Chứng minh rằng với quy mô dự kiến $5$ triệu truy vấn/tháng, chi phí gọi Cloud API sẽ vượt ngân sách sau 3 tháng ($\$50.000\text{/tháng}$), đồng thời rò rỉ mã nguồn độc quyền của công ty lên máy chủ bên thứ ba vi phạm cam kết bảo mật SOC 2. Sau đó, tôi đề xuất giải pháp trung dung (\textit{Two-Phase Compromise}): Giai đoạn 1 (ra mắt bản thử nghiệm MVP trong 2 tuần) dùng Cloud API với dữ liệu ẩn danh; song song đó tôi đóng gói container vLLM sẵn sàng chuyển đổi hoàn toàn sang cụm On-Premise ở Giai đoạn 2.
+    \item \textbf{Result}: Sản phẩm ra mắt đúng hạn, công ty tiết kiệm được $85\%$ chi phí vận hành ở quý tiếp theo, và phương pháp phân tích định lượng của tôi được áp dụng làm quy chuẩn cho toàn bộ khối kỹ thuật.
+  \end{enumerate}
+\end{itemize}
+
+---
+
+\section{Kỹ Thuật Ước Tính Định Lượng Nhanh Trên Bảng Trắng (Back-of-the-Envelope Math)}
+\label{sec:ch15-back-of-the-envelope}
+
+Trong các buổi phỏng vấn AI System Design tại Google, Meta hay OpenAI, một kỹ sư cao cấp không bao giờ đoán mò mà luôn sử dụng các \term{Quy tắc ngón tay cái (Rules of Thumb)} để tính nhẩm tài nguyên trực tiếp trên bảng trắng:
+
+\begin{table}[htbp]
+\centering
+\footnotesize
+\caption{Bảng công thức tính nhẩm tài nguyên hệ thống AI trên bảng trắng (Cheat Sheet)}
+\label{tab:back-of-the-envelope-formulas}
+\begin{tabular}{p{3.4cm} p{5.5cm} p{6.0cm}}
+\toprule
+\textbf{Thực Thể Đo Lường} & \textbf{Công Thức Tính Nhanh} & \textbf{Quy Tắc Ngón Tay Cái Thực Tế} \\
+\midrule
+VRAM Trọng số mô hình & $M_{\text{weights}} = P \times \text{Bytes\_per\_param} \times 1.2$ & Mô hình 70B FP16 $\approx 168\text{ GB}$; FP8 $\approx 84\text{ GB}$ \\
+Dung lượng KV Cache & $M_{\text{KV}} = 2 B L n_{\text{layers}} n_{\text{kv\_heads}} d_k \times 2$ & Llama-3-70B: $\approx 1.25\text{ MB}$ cho mỗi token trong batch \\
+FLOPs Giai đoạn Prefill & $\text{FLOPs}_{\text{prefill}} \approx 2 \times P \times L_{\text{prompt}}$ & 70B với 2.000 prompt tokens $\approx 280\text{ TFLOPs}$ \\
+FLOPs Giai đoạn Decode & $\text{FLOPs}_{\text{decode}} \approx 2 \times P \times L_{\text{gen}}$ & 70B với 100 output tokens $\approx 14\text{ TFLOPs}$ \\
+Độ trễ All-Reduce (TP) & $T_{\text{AllReduce}} = \frac{2(TP - 1)}{TP} \times \frac{M_{\text{tensor}}}{B_{\text{bus}}}$ & NVLink ($900\text{ GB/s}$) truyền 100MB trong $\approx 162\mu\text{s}$ \\
+Băng thông bộ nhớ suy luận & $\text{Time}_{\text{token}} \ge \frac{M_{\text{weights}}}{\text{Memory\_Bandwidth}}$ & H100 SXM5 ($3.35\text{ TB/s}$) decode 70B FP8 $\approx 25\text{ms/token}$ \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\subsection{Hiện Thực Hóa Python: Bộ Ước Tính Tài Nguyên Bảng Trắng}
+Dưới đây là mã nguồn của lớp \code{BackOfTheEnvelopeEstimator} giúp kiểm chứng nhanh các tính toán trong phòng phỏng vấn:
+
+\begin{lstlisting}[language=Python]
+import math
+from typing import Tuple
+
+class BackOfTheEnvelopeEstimator:
+    """Cong cu uoc tinh dinh luong nhanh tren bang trang cho phong van System Design."""
+    
+    @staticmethod
+    def estimate_model_weights_vram_gb(params_billions: float, bytes_per_param: float = 2.0) -> float:
+        """Uoc tinh VRAM trong so kem 20% bo dem CUDA context & activations."""
+        raw_gb = params_billions * bytes_per_param
+        with_overhead_gb = raw_gb * 1.2
+        return round(with_overhead_gb, 2)
+
+    @staticmethod
+    def estimate_kv_cache_vram_gb(
+        batch_size: int,
+        context_len: int,
+        num_layers: int,
+        num_kv_heads: int,
+        head_dim: int,
+        bytes_per_elem: float = 2.0
+    ) -> float:
+        """Cong thuc KV Cache: 2 * B * L * layers * kv_heads * head_dim * bytes."""
+        total_bytes = 2 * batch_size * context_len * num_layers * num_kv_heads * head_dim * bytes_per_elem
+        total_gb = total_bytes / (1024 ** 3)
+        return round(total_gb, 2)
+
+    @staticmethod
+    def estimate_allreduce_latency_us(
+        tensor_parallel_size: int,
+        tensor_bytes: int,
+        bus_bandwidth_gb_s: float
+    ) -> float:
+        """Thoi gian truyen thong Ring-AllReduce trong Tensor Parallelism."""
+        if tensor_parallel_size <= 1:
+            return 0.0
+        ring_factor = 2.0 * (tensor_parallel_size - 1) / tensor_parallel_size
+        bytes_per_sec = bus_bandwidth_gb_s * (1024 ** 3)
+        seconds = ring_factor * (tensor_bytes / bytes_per_sec)
+        return round(seconds * 1_000_000, 2)
+
+    @staticmethod
+    def estimate_prefill_decode_tflops(
+        params_billions: float,
+        prompt_tokens: int,
+        output_tokens: int
+    ) -> Tuple[float, float, float]:
+        """Uoc tinh so phep tinh FLOPs: Prefill = 2*P*L_in, Decode = 2*P*L_out."""
+        p = params_billions * 1e9
+        prefill_flops = 2.0 * p * prompt_tokens
+        decode_flops = 2.0 * p * output_tokens
+        total_flops = prefill_flops + decode_flops
+        return (
+            round(prefill_flops / 1e12, 2),
+            round(decode_flops / 1e12, 2),
+            round(total_flops / 1e12, 2)
+        )
+\end{lstlisting}
+
 ---
 
 \section{Cài Đặt Bộ Công Cụ Tự Động Hóa Đánh Giá Hồ Sơ ATS}
@@ -274,6 +390,22 @@ class ATSResumeValidator:
         }
 \end{lstlisting}
 
+\begin{simulationbox}[Prompts AI Mô Phỏng Hoạt Họa 60 FPS: Manim CE Trực Quan Hóa Phòng Phỏng Vấn AI System Design]
+\begin{quote}
+\small\itshape
+``Hãy đóng vai một chuyên gia Manim CE và Principal AI Engineer tại Thung lũng Silicon. \\
+Hãy viết một script Python hoàn chỉnh sử dụng thư viện \code{manim} để tạo video hoạt họa 1080p 60fps trực quan hóa một phiên phỏng vấn AI System Design đỉnh cao:
+\begin{enumerate}
+  \item Nền đen với chiếc bảng trắng kỹ thuật số sang trọng. Đề bài hiện lên ở góc trên bên trái: \code{DESIGN: Global AI Code Completion Platform (50M DAU, P99 < 80ms)}.
+  \item Giai đoạn 1 (Làm rõ yêu cầu): Chiếc bút laser vẽ sơ đồ phân rã độ trễ: \code{RTT Network: 40ms} $\to$ \code{GPU Budget: 40ms}. Dòng chữ màu vàng hiện lên: \code{Rule out 70B LLM; select Speculative 3B Model}.
+  \item Giai đoạn 2 (Tính toán Back-of-the-envelope): Bút viết công thức tính VRAM cho mô hình và KV Cache. Các con số nhảy múa và gom lại thành bảng kích thước gọn gàng: \code{Weights: 6GB}, \code{KV Cache (B=64): 4.2GB} $\to$ Vừa vặn duy nhất trong một GPU L4 (24GB VRAM).
+  \item Giai đoạn 3 (Sơ đồ kiến trúc vi dịch vụ): Các khối hộp kết nối động hiện ra: \code{Client IDE} $\to$ \code{Anycast BGP Edge} $\to$ \code{Gateway + Radix Tree Prefix Cache} $\to$ \code{vLLM Triton Worker}.
+  \item Luồng dữ liệu chạy mượt mà: Các token code tuôn trào với tốc độ $120\text{ tokens/s}$, đồng hồ bấm giờ nhảy số dừng lại ở $62\text{ms} < 80\text{ms}$. Dấu tích xanh lục \code{SYSTEM_DESIGN_PASS} đóng mộc rực rỡ.
+  \item Render bằng lệnh: \code{manim -pql scene.py AISystemDesignInterviewScene}.''
+\end{enumerate}
+\end{quote}
+\end{simulationbox}
+
 ---
 
 \section{Hệ Thống Bài Tập Kỹ Nghệ \& Đánh Giá Năng Lực}
@@ -286,6 +418,8 @@ class ATSResumeValidator:
   \item \textbf{Tư duy phân định đẳng cấp trong System Design}: Trong vòng phỏng vấn thiết kế hệ thống AI (AI System Design), sự khác biệt lớn nhất giữa một ứng viên Middle và một ứng viên Senior khi nhận được đề bài mở (Open-ended prompt) là gì?
   \item \textbf{Phân tích sự đánh đổi kỹ thuật (Engineering Trade-offs)}: Phân tích tầm quan trọng của việc trình bày thất bại (\textit{Failure Modes}) và các đánh đổi kỹ thuật trong phần bảo vệ đồ án trước Hội đồng Kỹ thuật.
   \item \textbf{Chiến lược đàm phán Total Compensation}: Khi nhận được đề nghị làm việc (Offer) từ một công ty khởi nghiệp AI có mức lương cơ bản (Base) thấp nhưng lượng cổ phần (Equity / Stock Options) rất lớn, một kỹ sư AI cần định giá và phân tích rủi ro tài chính này như thế nào?
+  \item \textbf{Bản chất toán học của hệ số $2P$ trong ước tính FLOPs}: Tại sao trong kỹ nghệ LLM, khi tính toán số lượng phép tính cho một lượt Forward Pass trên mỗi token, ta luôn lấy $2 \times P$ (với $P$ là số lượng tham số) thay vì chỉ lấy $1 \times P$?
+  \item \textbf{Đánh đổi giữa Speculative Decoding và Băng thông VRAM}: Trong hệ thống gợi ý code Copilot, khi nào việc sử dụng Draft Model trong Speculative Decoding phản tác dụng và làm tăng độ trễ thay vì giảm độ trễ?
 \end{enumerate}
 
 \subsection{Nhóm B: Tính Toán Giải Tích \& Số Học Bằng Tay}
@@ -296,10 +430,7 @@ class ATSResumeValidator:
   Một ứng viên nộp CV chứa $240$ từ khóa độc nhất. Số lượng từ khóa trùng khớp giữa CV và JD là $60$ từ khóa.
   Hãy tính toán bằng tay:
   \begin{itemize}
-    \item[a)] Chỉ số Jaccard Similarity giữa CV và JD:
-    \begin{equation*}
-    J(\text{CV}, \text{JD}) = \frac{|\text{CV} \cap \text{JD}|}{|\text{CV} \cup \text{JD}|}
-    \end{equation*}
+    \item[a)] Chỉ số Jaccard Similarity giữa CV và JD.
     \item[b)] Độ nhạy (Recall) của CV đối với tập từ khóa của JD.
     \item[c)] Độ chính xác (Precision) của tập từ khóa xuất hiện trong CV.
   \end{itemize}
@@ -307,20 +438,46 @@ class ATSResumeValidator:
   \item \textbf{Tính toán giá trị kỳ vọng của gói đãi ngộ Equity}:
   Một công ty khởi nghiệp AI đưa ra gói chào mời: Lương cơ bản $\$120.000\text{ USD/năm}$ cộng với $50.000$ cổ phần quyền chọn (Options) với giá thực hiện (Strike Price) là $\$2.00\text{ USD}$. Thời gian phân bổ cổ phần (Vesting) là 4 năm với thời hạn cliff 1 năm.
   Chuyên gia tài chính ước tính xác suất công ty IPO thành công sau 4 năm ở mức giá $\$20.00\text{ USD/cổ phần}$ là $25\%$, và xác suất công ty phá sản là $75\%$. Tính giá trị kỳ vọng hàng năm (\textit{Expected Annual Value}) của gói cổ phần này.
+
+  \item \textbf{Tính nhẩm VRAM cho cụm Llama-3-70B FP16 vs FP8 kèm KV Cache}:
+  Một cụm máy chủ phục vụ mô hình Llama-3-70B (80 tầng, 8 KV heads, $d_k = 128$).
+  Hệ thống tiếp nhận đồng thời $B = 32$ yêu cầu với độ dài ngữ cảnh tối đa $L = 8.192$ tokens.
+  Hãy tính nhẩm trực tiếp trên bảng trắng:
+  \begin{itemize}
+    \item[a)] Dung lượng VRAM cần thiết để chứa trọng số mô hình khi chạy ở định dạng FP16 và khi chạy ở định dạng FP8 (tính cả $20\%$ bộ đệm CUDA context).
+    \item[b)] Dung lượng VRAM mà KV Cache chiếm dụng ở định dạng FP16 ($2\text{ bytes/phần tử}$) và FP8 ($1\text{ byte/phần tử}$).
+    \item[c)] Tổng dung lượng VRAM tối thiểu của toàn cụm ở cả hai trường hợp, và xác định số lượng GPU H100 80GB tối thiểu cần thiết để phục vụ tải này.
+  \end{itemize}
+
+  \item \textbf{Ước tính độ trễ All-Reduce trên mạng NVLink vs RoCEv2}:
+  Trong kiến trúc Tensor Parallelism với $TP = 8$, một ma trận kích thước $M = 128\text{ MB}$ cần được đồng bộ All-Reduce giữa 8 GPU sau mỗi tầng Transformer.
+  Hãy tính thời gian truyền thông $T_{\text{AllReduce}}$ trên:
+  \begin{itemize}
+    \item[a)] Cụm máy chủ DGX H100 sử dụng kết nối mạng nội bộ NVLink thế hệ 4 ($B_{\text{bus}} = 900\text{ GB/s}$).
+    \item[b)] Cụm máy chủ dùng mạng RoCEv2 qua thẻ mạng mạng Ethernet 400Gbps ($B_{\text{bus}} = 50\text{ GB/s}$).
+  \end{itemize}
+
+  \item \textbf{Ước tính FLOPs Prefill \& Decode cho tác vụ phân tích tài liệu}:
+  Một mô hình 70B tham số tiếp nhận tài liệu PDF dài $3.000$ prompt tokens và sinh câu trả lời dài $200$ tokens.
+  Tính số lượng TFLOPs phần cứng tiêu tốn cho pha Prefill, pha Decode, và tổng số TFLOPs của toàn bộ truy vấn.
 \end{enumerate}
 
 \subsection{Nhóm C: Thực Hành Kỹ Nghệ \& Lập Trình (Implementation Labs)}
 
 \begin{enumerate}[label=\textbf{C\arabic*.}]
-  \item \textbf{Bộ so sánh bằng Vector Embeddings cho CV \& JD}:
-  Hãy mở rộng lớp Python để tính điểm tương đồng ngữ nghĩa bằng Cosine Similarity giữa vector embedding của toàn bộ CV và vector embedding của JD, sử dụng công thức tích vô hướng chuẩn hóa.
+  \item \textbf{Bộ So Sánh Bằng Vector Embeddings Cho CV \& JD}: \\
+  Cài đặt lớp \code{SemanticResumeMatcher} tính điểm tương đồng Cosine giữa vector CV và JD, xác định độ phù hợp theo ngưỡng $\theta = 0.82$.
+  \item \textbf{Bộ Ước Tính Tài Nguyên Hệ Thống AI Bảng Trắng}: \\
+  Cài đặt lớp \code{BackOfTheEnvelopeEstimator} tính toán dung lượng VRAM trọng số, KV Cache, độ trễ All-Reduce và số phép tính FLOPs phục vụ phỏng vấn kỹ thuật.
 \end{enumerate}
 
 \subsection{Nhóm D: Phân Tích Thất Bại Thực Tế (Post-Mortem Analysis)}
 
 \begin{enumerate}[label=\textbf{D\arabic*.}]
   \item \textbf{Sự cố phỏng vấn: Lỗi thiết kế thừa thãi (Over-Engineering)}:
-  Một ứng viên tài năng trượt vòng phỏng vấn System Design vì đề xuất triển khai cụm Kubernetes phân tán với 64 GPU H100 cho một ứng dụng nội bộ chỉ có 200 người dùng truy vấn mỗi ngày! Hãy viết báo cáo phân tích sự cố: Phân tích cặn kẽ sai lầm ``Over-Engineering'', và thiết kế lại kiến trúc phù hợp với quy mô thực tế giúp tiết kiệm $98\%$ chi phí.
+  Phân tích bài học đắt giá khi ứng viên đề xuất cụm 64 GPU H100 cho ứng dụng nội bộ 200 người dùng/ngày, và thiết kế lại kiến trúc tối ưu chi phí với Serverless API.
+  \item \textbf{Cạm bẫy thời hạn thực hiện quyền mua cổ phần (90-Day PTE Trap)}:
+  Một kỹ sư AI rời khỏi công ty khởi nghiệp sau 3 năm cống hiến với $30.000$ cổ phần đã vest. Tuy nhiên, hợp đồng quy định thời hạn thực hiện quyền sau khi nghỉ việc (Post-Termination Exercise window) chỉ là 90 ngày. Để mua số cổ phần này, kỹ sư phải nộp $\$60.000\text{ USD}$ tiền mặt và đóng thêm $\$40.000\text{ USD}$ thuế thu nhập ước tính, trong khi công ty chưa lên sàn và cổ phiếu không thể thanh khoản. Phân tích bài học đàm phán hợp đồng để tránh mất trắng cổ phần.
 \end{enumerate}
 
 ---
@@ -343,6 +500,22 @@ Khi một ứng viên dũng cảm phân tích điểm yếu của hệ thống (
 \paragraph{Lời giải Câu A4 (Định giá gói Equity)}:
 Kỹ sư cần tính toán theo công thức giá trị thực nhận: $\text{Net Value} = (\text{Fair Market Value} - \text{Strike Price}) \times \text{Shares}$. Đồng thời, phải kiểm tra các điều khoản: Thời hạn thực hiện quyền sau khi nghỉ việc (PTE window), điều khoản chống pha loãng (Anti-dilution), và ưu tiên thanh lý (Liquidation Preference). Không bao giờ coi giá trị cổ phiếu chưa niêm yết tương đương với tiền mặt.
 
+\paragraph{Lời giải Câu A5 (Bản chất hệ số $2P$ trong tính toán FLOPs)}:
+Mỗi phép toán cốt lõi trong mạng nơ-ron sâu là phép nhân tích vô hướng ma trận (\textit{Multiply-Accumulate Operation - MAC}):
+\begin{equation*}
+y = w \cdot x + b
+\end{equation*}
+Một phép MAC bao gồm chính xác \textbf{2 phép tính số thực (Floating-Point Operations)}:
+1. Phép nhân: $w \times x$ (1 FLOP).
+2. Phép cộng tích lũy: Thêm kết quả vào tổng hiện tại (1 FLOP).
+Do đó, với một mô hình có $P$ tham số, một lượt truyền xuôi (Forward Pass) cho đúng 1 token yêu cầu $2 \times P$ FLOPs. Nếu tính cả quá trình huấn luyện ngược (Backward Pass), số phép tính xấp xỉ gấp đôi Forward Pass, dẫn đến tổng số phép tính cho cả chu trình Train là $2P + 4P = 6P\text{ FLOPs/token}$.
+
+\paragraph{Lời giải Câu A6 (Khi nào Speculative Decoding phản tác dụng)}:
+Speculative Decoding chỉ tăng tốc khi tỷ lệ chấp thuận token của Target Model đạt mức cao ($\alpha_{\text{accept}} > 0.70$).
+Các trường hợp phản tác dụng:
+1. Khi tác vụ có độ bất định cao (sáng tạo văn học, sinh mã nguồn ngôn ngữ hiếm) khiến Draft Model đoán sai liên tục ($\alpha_{\text{accept}} < 0.40$).
+2. Khi hệ thống đang bị nghẽn thông lượng ở tải đỉnh (GPU Compute Bound): Việc phải chạy cả Draft Model và Target Model đồng thời làm tiêu tốn thêm VRAM bandwidth và chu kỳ xử lý, khiến độ trễ tổng thể tăng lên so với suy luận đơn lẻ thông thường.
+
 \paragraph{Lời giải Bài B1 (Tính điểm ATS \& Độ tương đồng từ khóa)}:
 \begin{enumerate}
   \item Tập giao $|\text{CV} \cap \text{JD}| = 60$.
@@ -358,7 +531,6 @@ Kỹ sư cần tính toán theo công thức giá trị thực nhận: $\text{Ne
   \begin{equation*}
   \text{Recall} = \frac{|\text{CV} \cap \text{JD}|}{|\text{JD}|} = \frac{60}{80} = \mathbf{0.75} \quad (\mathbf{75\%})
   \end{equation*}
-  CV đã bao phủ được $75\%$ các yêu cầu từ khóa của nhà tuyển dụng.
   \item Độ chính xác (Precision) của CV đối với JD:
   \begin{equation*}
   \text{Precision} = \frac{|\text{CV} \cap \text{JD}|}{|\text{CV}|} = \frac{60}{240} = \mathbf{0.25} \quad (\mathbf{25\%})
@@ -382,10 +554,86 @@ Giá trị kỳ vọng phân bổ hàng năm (trong 4 năm):
 \begin{equation*}
 \text{Expected Annual Value} = \frac{\$225.000}{4} = \mathbf{\$56.250\text{ USD/năm}}
 \end{equation*}
-Như vậy, tổng thu nhập kỳ vọng hàng năm (\textit{Expected Total Compensation}) là $\$120.000 + \$56.250 = \$176.250\text{ USD/năm}$.
+Tổng thu nhập kỳ vọng hàng năm: $\$120.000 + \$56.250 = \mathbf{\$176.250\text{ USD/năm}}$.
 
-\paragraph{Lời giải Bài C1 (Semantic Resume Matcher)}:
-Mã nguồn cài đặt lớp \code{SemanticResumeMatcher} được cung cấp và kiểm thử tự động trong tệp \code{tests/test_ch15_career.py}.
+\paragraph{Lời giải Bài B3 (Tính nhẩm VRAM cho Llama-3-70B kèm KV Cache)}:
+\begin{itemize}
+  \item[a)] VRAM cho trọng số mô hình:
+  \begin{itemize}
+    \item Ở FP16 ($2\text{ bytes/param}$): $70 \times 2 = 140\text{ GB}$. Kèm $20\%$ bộ đệm context:
+    \begin{equation*}
+    M_{\text{weights, FP16}} = 140 \times 1.2 = \mathbf{168.0\text{ GB}}
+    \end{equation*}
+    \item Ở FP8 ($1\text{ byte/param}$): $70 \times 1 = 70\text{ GB}$. Kèm $20\%$ bộ đệm:
+    \begin{equation*}
+    M_{\text{weights, FP8}} = 70 \times 1.2 = \mathbf{84.0\text{ GB}}
+    \end{equation*}
+  \end{itemize}
+
+  \item[b)] Dung lượng KV Cache ($B = 32, L = 8.192, n_{\text{layers}} = 80, n_{\text{kv\_heads}} = 8, d_k = 128$):
+  Số lượng phần tử số thực lưu trong KV Cache:
+  \begin{align*}
+  N_{\text{elements}} &= 2 \times B \times L \times n_{\text{layers}} \times n_{\text{kv\_heads}} \times d_k \\
+  &= 2 \times 32 \times 8.192 \times 80 \times 8 \times 128 \\
+  &= 524.288 \times 81.920 = 42.949.672.960 \text{ phần tử}
+  \end{align*}
+  \begin{itemize}
+    \item Ở FP16 ($2\text{ bytes/phần tử}$):
+    \begin{equation*}
+    M_{\text{KV, FP16}} = \frac{42.949.672.960 \times 2}{1024^3} = \frac{85.899.345.920}{1.073.741.824} = \mathbf{80.0\text{ GB}}
+    \end{equation*}
+    \item Ở FP8 ($1\text{ byte/phần tử}$):
+    \begin{equation*}
+    M_{\text{KV, FP8}} = \frac{80.0}{2} = \mathbf{40.0\text{ GB}}
+    \end{equation*}
+  \end{itemize}
+
+  \item[c)] Tổng dung lượng VRAM tối thiểu \& Số lượng GPU H100 80GB:
+  \begin{itemize}
+    \item Trường hợp FP16 toàn phần: $\text{Total} = 168.0 + 80.0 = \mathbf{248.0\text{ GB}}$.
+    Cần tối thiểu: $\lceil \frac{248}{80} \rceil = 4 \implies$ Cần cụm \textbf{4 GPU H100 80GB} (hoặc $TP=4$).
+    \item Trường hợp FP8 toàn phần: $\text{Total} = 84.0 + 40.0 = \mathbf{124.0\text{ GB}}$.
+    Cần tối thiểu: $\lceil \frac{124}{80} \rceil = 2 \implies$ Chỉ cần \textbf{2 GPU H100 80GB} (tiết kiệm một nửa phần cứng!).
+  \end{itemize}
+\end{itemize}
+
+\paragraph{Lời giải Bài B4 (Ước tính độ trễ All-Reduce trên NVLink vs RoCEv2)}:
+Với $TP = 8$, hệ số Ring-AllReduce là:
+\begin{equation*}
+\frac{2(TP - 1)}{TP} = \frac{2 \times 7}{8} = \frac{14}{8} = 1.75
+\end{equation*}
+Kích thước dữ liệu: $M = 128\text{ MB} = 128 \times 1024 \times 1024 = 134.217.728\text{ bytes}$.
+\begin{itemize}
+  \item[a)] Trên mạng NVLink 4 ($B_{\text{bus}} = 900\text{ GB/s} = 900 \times 1024^3\text{ B/s}$):
+  \begin{equation*}
+  T_{\text{AllReduce, NVLink}} = 1.75 \times \frac{128 \times 1024^2}{900 \times 1024^3} = 1.75 \times \frac{128}{900 \times 1024} \approx 0.000243\text{s} = \mathbf{243.0\mu\text{s}}
+  \end{equation*}
+  \item[b)] Trên mạng RoCEv2 400Gbps ($B_{\text{bus}} = 50\text{ GB/s} = 50 \times 1024^3\text{ B/s}$):
+  \begin{equation*}
+  T_{\text{AllReduce, RoCEv2}} = 1.75 \times \frac{128}{50 \times 1024} \approx 0.00437\text{s} = \mathbf{4.370\mu\text{s}} = \mathbf{4.37\text{ms}}
+  \end{equation*}
+\end{itemize}
+\textbf{Nhận xét}: Mạng NVLink nhanh hơn mạng RoCEv2 tới \textbf{18 lần}! Đây là lý do Tensor Parallelism chỉ nên chạy trong nội bộ một node qua NVLink, không bao giờ chạy xuyên qua switch mạng Ethernet.
+
+\paragraph{Lời giải Bài B5 (Ước tính FLOPs Prefill \& Decode)}:
+Số tham số $P = 70 \times 10^9$.
+\begin{itemize}
+  \item Pha Prefill ($L_{\text{prompt}} = 3.000$ tokens):
+  \begin{equation*}
+  \text{FLOPs}_{\text{prefill}} = 2 \times (70 \times 10^9) \times 3.000 = 420 \times 10^{12}\text{ FLOPs} = \mathbf{420.0\text{ TFLOPs}}
+  \end{equation*}
+  \item Pha Decode ($L_{\text{gen}} = 200$ tokens):
+  \begin{equation*}
+  \text{FLOPs}_{\text{decode}} = 2 \times (70 \times 10^9) \times 200 = 28 \times 10^{12}\text{ FLOPs} = \mathbf{28.0\text{ TFLOPs}}
+  \end{equation*}
+  \item Tổng số phép tính:
+  \begin{equation*}
+  \text{Total FLOPs} = 420.0 + 28.0 = \mathbf{448.0\text{ TFLOPs}}
+  \end{equation*}
+\end{itemize}
+
+\paragraph{Lời giải Bài C1, C2 (Hiện thực hóa công cụ)}: \\
+Mã nguồn cài đặt lớp \code{SemanticResumeMatcher} và \code{BackOfTheEnvelopeEstimator} được cung cấp đầy đủ và kiểm thử tự động trong tệp \code{tests/test_ch15_career.py}.
 
 \paragraph{Lời giải Bài D1 (Báo cáo sự cố phỏng vấn Over-Engineering)}:
 \begin{enumerate}
@@ -398,5 +646,30 @@ Mã nguồn cài đặt lớp \code{SemanticResumeMatcher} được cung cấp v
   \end{itemize}
 \end{enumerate}
 
-\paragraph{Lời kết công trình chuyên khảo}:
-Bạn chính thức hoàn thành xuất sắc toàn bộ công trình chuyên khảo AI Engineer Monograph khi đã làm chủ toàn diện chuỗi mắt xích từ toán học ma trận, lập trình CPython, kiến trúc Transformer, hệ thống RAG, Agent tự hành, serving vLLM, an ninh Guardrails đến thiết kế hệ thống quy mô lớn. Với một bộ CV định lượng chuẩn Google XYZ và một GitHub Portfolio chuyên nghiệp sở hữu Đồ án Kỳ hạm AI-NetSecOps, bạn hoàn toàn tự tin bước vào các vòng phỏng vấn kỹ thuật cấp cao với tâm thế của một Senior AI Engineer thực thụ.
+\paragraph{Lời giải Bài D2 (Cạm bẫy 90-day PTE trap và giải pháp đàm phán)}:
+\begin{enumerate}
+  \item \textbf{Bản chất cạm bẫy}: Quy định chuẩn cũ chỉ cho phép nhân viên có 90 ngày sau khi nghỉ việc để thực hiện quyền mua cổ phiếu (Exercise Options). Với công ty tư nhân chưa IPO, nhân viên phải bỏ tiền túi mua cổ phiếu không thanh khoản và chịu rủi ro mất trắng nếu công ty phá sản, hoặc phải đóng thuế nặng nề. Rất nhiều kỹ sư buộc phải bỏ lại số cổ phần của mình.
+  \item \textbf{Giải pháp đàm phán khi ký Offer}:
+  Yêu cầu công ty cam kết điều khoản \textbf{Extended Post-Termination Exercise Window} (gia hạn thời hạn thực hiện quyền từ 90 ngày lên \textbf{7 năm đến 10 năm}). Rất nhiều công ty công nghệ tiến bộ (Pinterest, Coinbase, Quora, OpenAI) đã áp dụng điều khoản này để bảo vệ quyền lợi hợp pháp của kỹ sư.
+\end{enumerate}
+
+---
+
+\section{Lời Kết Toàn Thư: Bản Tuyên Ngôn Kỹ Sư AI Thế Hệ Mới}
+\label{sec:ch15-epilogue}
+
+\begin{quote}
+\large\itshape
+``Trong một kỷ nguyên mà mô hình AI được sản xuất hàng loạt và ngày càng thông minh hơn, giá trị cốt lõi của một Kỹ sư AI không nằm ở việc gọi các API đóng gói sẵn, mà nằm ở năng lực thấu suốt bản chất toán học, làm chủ hệ thống phân tán, kiểm soát chi phí hạ tầng, và bảo vệ an toàn hệ thống trước mọi nguy cơ thảm họa.''
+\end{quote}
+
+Chúc mừng bạn! Khi bước qua trang sách này, bạn đã chính thức hoàn thành toàn bộ hành trình 15 chương chuyên khảo kinh điển của Giáo trình Kỹ sư AI Toàn Diện:
+\begin{itemize}
+  \item Bạn đã đi từ những khái niệm nền tảng về FinOps, quản lý bộ nhớ CPython, giao thức mạng mạng thấp (RDMA, InfiniBand), và toán học ma trận.
+  \item Bạn đã thấu suốt cấu trúc bên trong của mô hình Transformer, cơ chế PagedAttention của vLLM, công nghệ RAG đa tầng, và hệ thống đa tác tử tự hành với LangGraph.
+  \item Bạn đã làm chủ kỹ thuật lượng tử hóa tiên tiến (FP8, AWQ, DoRA, QLoRA NF4), các phòng tuyến an ninh mạng AI chống tấn công GCG và rò rỉ dữ liệu.
+  \item Bạn đã thiết kế thành công các hệ thống phân tán quy mô toàn cầu và xây dựng 4 Đồ án Kỳ hạm cấp doanh nghiệp đạt chuẩn sản xuất.
+\end{itemize}
+
+Giờ đây, với một hồ sơ năng lực định lượng chuẩn mực, một kho lưu trữ GitHub Monorepo đỉnh cao, và một tư duy kỹ nghệ sắc bén, bạn đã hoàn toàn sẵn sàng dẫn dắt và định hình tương lai của nền công nghiệp Trí tuệ Nhân tạo. Hãy tự tin bước ra thế giới và kiến tạo những kỳ tích công nghệ mới!
+

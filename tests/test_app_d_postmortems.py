@@ -126,3 +126,128 @@ def test_gpu_silent_data_corruption_detector():
     
     # Checksum MUST fail, alerting monitoring system of hardware SDC
     assert golden_hash != corrupted_hash
+
+
+class StepTimeJitterDetector:
+    """Monitors step latencies across distributed training nodes to catch stragglers before NCCL timeout."""
+    def __init__(self, max_allowed_jitter_ratio: float = 0.20, consecutive_threshold: int = 3):
+        self.max_ratio = max_allowed_jitter_ratio
+        self.consecutive_threshold = consecutive_threshold
+        self.consecutive_violations = 0
+
+    def evaluate_step(self, node_latencies: dict[str, float]) -> dict:
+        if not node_latencies:
+            return {"status": "HEALTHY", "violation": False}
+        
+        min_time = min(node_latencies.values())
+        max_time = max(node_latencies.values())
+        
+        jitter = (max_time - min_time) / max(min_time, 1e-6)
+        is_violating = jitter > self.max_ratio
+        
+        if is_violating:
+            self.consecutive_violations += 1
+        else:
+            self.consecutive_violations = 0
+            
+        action = "CONTINUE"
+        if self.consecutive_violations >= self.consecutive_threshold:
+            action = "TRIGGER_SAFETY_CHECKPOINT_AND_ISOLATE"
+            
+        return {
+            "min_time_s": min_time,
+            "max_time_s": max_time,
+            "jitter_ratio": round(jitter, 3),
+            "consecutive_violations": self.consecutive_violations,
+            "action": action
+        }
+
+
+def test_step_time_jitter_detector():
+    """Verify that slow training nodes trigger proactive intervention before NCCL watchdog expires."""
+    detector = StepTimeJitterDetector(max_allowed_jitter_ratio=0.20, consecutive_threshold=3)
+    
+    # Normal steps: jitter < 20%
+    normal_latencies = {"node_0": 1.0, "node_1": 1.05, "node_2": 1.02, "node_3": 1.10}
+    res = detector.evaluate_step(normal_latencies)
+    assert res["action"] == "CONTINUE"
+    
+    # Degraded steps: Node 3 has 50% slowdown due to host RAM thrashing
+    degraded = {"node_0": 1.0, "node_1": 1.02, "node_2": 1.01, "node_3": 1.60}
+    res1 = detector.evaluate_step(degraded)
+    assert res1["action"] == "CONTINUE"
+    assert res1["consecutive_violations"] == 1
+    
+    res2 = detector.evaluate_step(degraded)
+    assert res2["action"] == "CONTINUE"
+    assert res2["consecutive_violations"] == 2
+    
+    res3 = detector.evaluate_step(degraded)
+    assert res3["action"] == "TRIGGER_SAFETY_CHECKPOINT_AND_ISOLATE"
+    assert res3["consecutive_violations"] == 3
+
+
+class TombstoneTraversableGraph:
+    """Simulates HNSW-like graph search with soft-delete tombstones."""
+    def __init__(self):
+        self.adj = {}
+        self.tombstones = set()
+
+    def add_node(self, node_id: str, neighbors: list[str]):
+        self.adj[node_id] = neighbors
+
+    def mark_deleted(self, node_id: str):
+        self.tombstones.add(node_id)
+
+    def naive_search(self, start: str, target: str) -> list[str]:
+        """Naive search that refuses to traverse through tombstones, risking graph disconnection."""
+        visited = set()
+        queue = [start]
+        while queue:
+            curr = queue.pop(0)
+            if curr == target:
+                return [target]
+            if curr in visited or curr in self.tombstones:
+                continue
+            visited.add(curr)
+            queue.extend(self.adj.get(curr, []))
+        return []
+
+    def traversable_search(self, start: str, target: str) -> list[str]:
+        """Tombstone-traversable search: traverses tombstone nodes as routers but excludes them from results."""
+        visited = set()
+        queue = [start]
+        valid_results = []
+        while queue:
+            curr = queue.pop(0)
+            if curr in visited:
+                continue
+            visited.add(curr)
+            if curr == target:
+                valid_results.append(curr)
+                break
+            # Continue traversal even if curr is a tombstone
+            queue.extend(self.adj.get(curr, []))
+        return valid_results
+
+
+def test_tombstone_traversable_prevents_graph_islanding():
+    """Verify that tombstone traversal preserves graph connectivity when hub nodes are soft-deleted."""
+    graph = TombstoneTraversableGraph()
+    # Topology: Entry -> Hub -> NewDocs
+    graph.add_node("entry", ["hub"])
+    graph.add_node("hub", ["doc_a", "doc_b"])
+    graph.add_node("doc_a", [])
+    graph.add_node("doc_b", [])
+    
+    # Hub node expires and is marked deleted
+    graph.mark_deleted("hub")
+    
+    # Naive search fails to reach doc_b because hub is treated as an impassable barrier
+    naive_res = graph.naive_search("entry", "doc_b")
+    assert naive_res == []
+    
+    # Traversable search routes through hub and successfully locates doc_b
+    traversable_res = graph.traversable_search("entry", "doc_b")
+    assert traversable_res == ["doc_b"]
+

@@ -186,6 +186,67 @@ Việc sử dụng các framework web thông thường (FastAPI, Flask) để b�
 \end{tabular}
 \end{table}
 
+\subsection{Continuous Batching (Orca / vLLM): Triệt Tiêu Bong Bóng Nghỉ GPU}
+\label{sec:continuous-batching-deepdive}
+
+Trong các bài toán học sâu truyền thống (như phân loại ảnh ResNet hay dịch máy RNN), kỹ thuật \term{Static Batching} (ghép lô tĩnh) là tiêu chuẩn: hệ thống gom $B$ mẫu dữ liệu có cùng kích thước và đẩy vào GPU cùng một lúc. Tuy nhiên, khi áp dụng vào Large Language Models, Static Batching bộc lộ một điểm nghẽn thảm họa xuất phát từ hai đặc tính nội tại của sinh văn bản tự hồi quy:
+\begin{enumerate}
+  \item \textbf{Độ dài đầu ra không đồng nhất}: Yêu cầu A chỉ cần câu trả lời ngắn $5$ token (ví dụ: phân loại nhãn cảm xúc), trong khi Yêu cầu B cần viết một bài luận $300$ token.
+  \item \textbf{Cơ chế sinh từng token tuần tự (Autoregressive Generation)}: GPU phải chạy lặp lại từng bước giải mã để sinh ra từng token một.
+\end{enumerate}
+
+\paragraph{Thảm họa của Static Batching trong LLM Serving}:
+Nếu ghép Yêu cầu A và Yêu cầu B vào cùng một Static Batch:
+\begin{itemize}
+  \item Ở bước lặp thứ $5$, Yêu cầu A đã gặp ký tự kết thúc chuỗi \code{<eos>} và hoàn thành việc sinh câu trả lời.
+  \item Tuy nhiên, do toàn bộ lô bị khóa cứng theo chu kỳ tính toán của tensor, Yêu cầu A \textbf{không thể rời khỏi GPU}. Hệ thống buộc phải đệm các ký tự rỗng (\code{padding tokens}) cho Yêu cầu A suốt $295$ bước lặp tiếp theo cho đến khi Yêu cầu B kết thúc ở bước $300$!
+  \item Suốt thời gian này, các slot bộ nhớ KV Cache và năng lực tính toán dành cho Yêu cầu A biến thành các \textbf{bong bóng nghỉ lãng phí (Idle Bubbles)}. Người dùng của Yêu cầu A phải chịu độ trễ kéo dài vô ích, trong khi các yêu cầu mới đang xếp hàng chờ ở cửa sổ hàng đợi không được phép nạp vào!
+\end{itemize}
+
+\paragraph{Cuộc cách mạng Lập lịch theo bước lặp (Iteration-level Continuous Batching)}:
+Để xóa bỏ hoàn toàn nghịch lý này, công trình \term{Orca} (Yu et al., OSDI 2022) và động cơ \term{vLLM} (Kwon et al., SOSP 2023) đã đề xuất cơ chế \textbf{Continuous Batching} (hay \textit{Dynamic Cellular Batching}):
+Thay vì lập lịch ở cấp độ toàn bộ yêu cầu (\textit{Request-level}), hệ thống lập lịch ở cấp độ \textbf{từng bước lặp sinh token (\textit{Iteration-level})}:
+
+\begin{figure}[htbp]
+\centering
+\begin{tikzpicture}[node distance=0.6cm, auto,
+    batchslot/.style={rectangle, draw=primarycolor, thick, fill=boxbg, align=center, rounded corners=2pt, minimum width=2.4cm, minimum height=0.7cm, font=\tiny\bfseries},
+    idle/.style={rectangle, draw=dangercolor, dashed, fill=dangercolor!10, align=center, rounded corners=2pt, minimum width=2.4cm, minimum height=0.7cm, font=\tiny},
+    active/.style={rectangle, draw=secondarycolor, thick, fill=accentcolor!25, align=center, rounded corners=2pt, minimum width=2.4cm, minimum height=0.7cm, font=\tiny\bfseries},
+    arrow/.style={draw=primarycolor, -Stealth, thick}
+]
+    % Static Batching Row
+    \node[font=\footnotesize\bfseries] at (-1.8, 1.2) {Static Batching};
+    \node[batchslot] (s1) at (0, 1.2) {Req 1 (Done t=2)};
+    \node[idle] (s1_idle) at (2.6, 1.2) {PAD BUBBLE\\(Wasted VRAM)};
+    \node[idle] (s1_idle2) at (5.2, 1.2) {PAD BUBBLE\\(Wasted VRAM)};
+    \node[batchslot] (s2) at (0, 0.4) {Req 2 (Running)};
+    \node[batchslot] (s2_run) at (2.6, 0.4) {Req 2 (Running)};
+    \node[batchslot] (s2_done) at (5.2, 0.4) {Req 2 (Done t=6)};
+
+    % Continuous Batching Row
+    \node[font=\footnotesize\bfseries] at (-1.8, -1.0) {Continuous Batching};
+    \node[active] (c1) at (0, -1.0) {Req 1 (Done t=2)};
+    \node[active, draw=primarycolor, fill=green!15] (c3) at (2.6, -1.0) {Req 3 (Admitted!)\\Instant Insert};
+    \node[active, draw=primarycolor, fill=green!15] (c4) at (5.2, -1.0) {Req 4 (Admitted!)\\Instant Insert};
+    \node[active] (c2) at (0, -1.8) {Req 2 (Running)};
+    \node[active] (c2_run) at (2.6, -1.8) {Req 2 (Running)};
+    \node[active] (c2_done) at (5.2, -1.8) {Req 2 (Done t=6)};
+
+    \draw[arrow] (-0.5, -2.4) -- node[below, font=\tiny\bfseries] {Trục thời gian các bước sinh token (Iterations $\to$)} (6.0, -2.4);
+\end{tikzpicture}
+\caption{So sánh trực quan cơ chế Static Batching (tạo bong bóng padding) và Continuous Batching (lấp đầy động tức thì ở từng bước lặp)}
+\label{fig:continuous-vs-static-batching}
+\end{figure}
+
+Thuật toán thực thi tại mỗi chu kỳ bước lặp (Iteration Step):
+\begin{enumerate}
+  \item \textbf{Kiểm tra kết thúc (Eviction)}: Với mỗi chuỗi đang chạy trong lô, nếu token vừa sinh ra là \code{<eos>} hoặc đạt ngưỡng giới hạn \code{max_tokens}, sequence đó được lập tức trục xuất (\term{Evict}) khỏi lô tính toán. Trạng thái phản hồi được truyền trực tiếp (Streaming qua Server-Sent Events -- SSE) về cho người dùng.
+  \item \textbf{Cấp phát tức thì (Dynamic Admission)}: Các slot bộ nhớ VRAM và KV Cache vừa được giải phóng sẽ được bộ điều phối (Engine Scheduler) chuyển ngay cho các request mới đang chờ ở hàng đợi (\code{waiting_queue}).
+  \item \textbf{Đồng thời tính toán Prefill \& Decode (Chunked Prefill)}: Các request mới tham gia vào lô sẽ thực hiện pha Prefill (xử lý prompt đầu vào), trong khi các request cũ tiếp tục bước Decode (sinh 1 token). Toàn bộ được gom thành một ma trận tính toán duy nhất gửi tới GPU.
+\end{enumerate}
+Nhờ loại bỏ hoàn toàn các bong bóng padding, Continuous Batching nâng thông lượng phục vụ thực tế của một cụm GPU lên gấp $\mathbf{3\times - 5\times}$ so với Static Batching truyền thống, đồng thời giảm thời gian phản hồi token đầu tiên (TTFT) xuống mức tối thiểu!
+
 \subsection{Kiến Trúc Triton Inference Server: Quản Trị Pipeline Doanh Nghiệp}
 Triton Inference Server (NVIDIA) tổ chức hệ thống theo cấu trúc \textbf{Kho Mô Hình (Model Repository)}:
 \begin{verbatim}
@@ -223,11 +284,11 @@ instance_group [
 Cấu hình trên tạo ra 2 thực thể suy luận trên GPU 0 và 2 thực thể trên GPU 1, cho phép xử lý đồng thời 4 luồng dự đoán độc lập mà không bị chặn bởi tiến trình khác!
 
 \paragraph{3. Business Logic Scripting (BLS) \& Pipeline Ensemble}:
-Trong các hệ thống AI thực tế, dữ liệu thô (như văn bản chưa tách từ, file âm thanh WAV hoặc ảnh JPEG) cần trải qua nhiều bước tiền xử lý trước khi đưa vào mô hình chính. Thay vì gửi dữ liệu qua lại giữa các microservices qua mạng HTTP làm phát sinh độ trễ khổng lồ, Triton cho phép xâu chuỗi các mô hình trực tiếp trong bộ nhớ chia sẻ máy chủ thông qua \textbf{BLS (Business Logic Scripting)}:
+Trong các hệ thống AI thực tế, dữ liệu thô (như văn bản chưa tách từ, file âm thanh WAV hoặc ảnh JPEG) cần trải qua nhiều bước tiền xử lý trước khi đưa vào mô hình chính. Thay vì gửi dữ liệu qua lại giữa các microservices qua mạng HTTP làm phát sinh độ trễ tuần tự hóa JSON và I/O khổng lồ (thường tốn $20-50\text{ ms}$ cho mỗi chặng), Triton cho phép xâu chuỗi các mô hình trực tiếp trong bộ nhớ chia sẻ máy chủ thông qua \textbf{BLS (Business Logic Scripting)}:
 \begin{equation}
 \text{Audio RAW} \xrightarrow[\text{Zero-Copy Memory}]{\text{Python Preprocess}} \text{Spectrogram} \xrightarrow[\text{TensorRT GPU}]{\text{Whisper}} \text{Tokens} \xrightarrow[\text{vLLM Engine}]{\text{Llama-3}} \text{Response}
 \end{equation}
-Toàn bộ chuỗi xử lý diễn ra trên cùng một không gian bộ nhớ máy chủ với độ trễ chuyển giao tiệm cận $0\text{ ms}$!
+Toàn bộ chuỗi xử lý diễn ra trên cùng một không gian bộ nhớ máy chủ (IPC Shared Memory) với độ trễ chuyển giao tiệm cận $0\text{ ms}$, loại bỏ triệt để overhead mạng nội bộ!
 
 ---
 
@@ -281,13 +342,139 @@ Do đó:
 \end{itemize}
 \end{tradeoffbox}
 
-\subsection{Pipeline Parallelism (PP) -- Phân Rã Theo Chiều Sâu Các Tầng}
-Nếu một cụm máy chủ gồm nhiều node mạng và mô hình quá khổng lồ (như Llama-3-405B), chúng ta sử dụng \textbf{Pipeline Parallelism (PP)}:
+\subsection{Pipeline Parallelism (PP) -- Phân Rã Theo Chiều Sâu Các Tầng \& Lập Lịch 1F1B}
+\label{sec:pipeline-parallelism-1f1b}
+
+Khi mô hình có quy mô vượt quá khả năng chứa của một cụm GPU trong cùng một máy chủ vật lý (ví dụ: mô hình Llama-3-405B với dung lượng trọng số lên tới $810\text{ GB}$ FP16, đòi hỏi hàng chục GPU H100), kỹ thuật Tensor Parallelism không thể mở rộng xuyên qua mạng liên máy chủ (Inter-Node) do nghẽn băng thông All-Reduce.
+Giải pháp kiến trúc bắt buộc là kết hợp \textbf{Pipeline Parallelism (PP)}: Phân rã mô hình theo chiều dọc (chiều sâu các tầng Transformer) trên một chuỗi gồm $p$ chặng (Stages):
 \begin{itemize}
-  \item Chia 80 tầng Transformer thành các khối: Node 1 giữ tầng 1--20, Node 2 giữ tầng 21--40, Node 3 giữ tầng 41--60, Node 4 giữ tầng 61--80.
-  \item Giao tiếp giữa các Node chỉ xảy ra ở ranh giới giữa các khối (Node 1 tính xong tầng 20 thì gửi Activation qua mạng cho Node 2).
-  \item Nhược điểm lớn: Hiện tượng \textbf{Bong bóng Pipeline (Pipeline Bubbles)} khi các node phía sau phải ngồi chờ dữ liệu từ các node phía trước. Các thuật toán lập lịch hiện đại như \textbf{1F1B (One-Forward-One-Backward)} được áp dụng để xen kẽ các micro-batch nhằm giảm thiểu thời gian chờ rảnh rỗi này.
+  \item GPU Stage $0$: Nạp các tầng từ $1$ đến $\frac{L}{p}$ (bao gồm cả tầng Token Embedding).
+  \item GPU Stage $i$: Nạp các tầng từ $i \cdot \frac{L}{p} + 1$ đến $(i+1) \cdot \frac{L}{p}$.
+  \item GPU Stage $p-1$: Nạp các tầng cuối cùng và tầng chiếu chuẩn hóa LM Head.
 \end{itemize}
+Ưu điểm lớn nhất của PP là giao tiếp mạng giữa các Stage chỉ là truyền tải véc-tơ kích hoạt trung gian (Point-to-Point Activation Transfers) tại ranh giới phân tách, có khối lượng dữ liệu nhỏ hơn hàng chục lần so với All-Reduce của TP, hoàn toàn tương thích với mạng Ethernet hoặc InfiniBand liên máy chủ.
+
+\paragraph{Nghịch lý Bong Bóng Pipeline (Pipeline Bubbles) trong Lập Lịch Ngây Thơ (GPipe)}:
+Trong cơ chế lập lịch ngây thơ ban đầu (GPipe, Huang et al., 2019), toàn bộ lô lớn (Global Batch) được chia thành $m$ micro-batches.
+GPU Stage 0 tính Forward cho cả $m$ micro-batches, rồi chuyển tiếp sang Stage 1, Stage 2\dots
+Hệ quả là trong khi Stage 0 đang chạy micro-batch 1, các Stage $1, 2, \dots, p-1$ hoàn toàn phải ngồi chơi xơi nước! Tương tự ở pha Backward, Stage 0 phải chờ toàn bộ tín hiệu gradient dội ngược từ Stage cuối cùng về.
+Đặc biệt, GPipe buộc phải lưu trữ toàn bộ Activation của cả $m$ micro-batches trong bộ nhớ VRAM để chờ pha Backward, khiến chi phí bộ nhớ kích hoạt phình to tới $\mathcal{O}(m)$, gây nguy cơ sập OOM khi tăng kích thước batch.
+
+\paragraph{Kiến trúc Lập Lịch 1F1B (One-Forward-One-Backward)}:
+Để triệt tiêu lãng phí bộ nhớ và tối ưu hóa chu kỳ luân chuyển, Narayanan et al. (Megatron-LM, 2021) đã đề xuất lịch biểu \textbf{1F1B}:
+Ngay khi nhận được phản hồi Backward của một micro-batch cũ, GPU lập tức thực thi xen kẽ một bước Forward cho một micro-batch mới.
+
+\begin{figure}[htbp]
+\centering
+\begin{tikzpicture}[scale=0.85, every node/.style={transform shape}]
+    % Stage labels
+    \node[font=\footnotesize\bfseries] at (-1.2, 3) {Stage 3};
+    \node[font=\footnotesize\bfseries] at (-1.2, 2) {Stage 2};
+    \node[font=\footnotesize\bfseries] at (-1.2, 1) {Stage 1};
+    \node[font=\footnotesize\bfseries] at (-1.2, 0) {Stage 0};
+
+    % Styles
+    \tikzset{
+        fwd/.style={rectangle, draw=primarycolor, fill=accentcolor!25, minimum width=0.8cm, minimum height=0.55cm, font=\tiny\bfseries},
+        bwd/.style={rectangle, draw=secondarycolor, fill=secondarycolor!20, minimum width=0.8cm, minimum height=0.55cm, font=\tiny\bfseries},
+        bbl/.style={rectangle, draw=dangercolor, dashed, fill=dangercolor!10, minimum width=0.8cm, minimum height=0.55cm, font=\tiny}
+    }
+
+    % Stage 0
+    \node[fwd] at (0.5, 0) {$F_1$};
+    \node[fwd] at (1.4, 0) {$F_2$};
+    \node[fwd] at (2.3, 0) {$F_3$};
+    \node[fwd] at (3.2, 0) {$F_4$};
+    \node[bwd] at (4.1, 0) {$B_1$};
+    \node[bwd] at (5.0, 0) {$B_2$};
+    \node[bwd] at (5.9, 0) {$B_3$};
+    \node[bwd] at (6.8, 0) {$B_4$};
+
+    % Stage 1
+    \node[bbl] at (0.5, 1) {Idle};
+    \node[fwd] at (1.4, 1) {$F_1$};
+    \node[fwd] at (2.3, 1) {$F_2$};
+    \node[fwd] at (3.2, 1) {$F_3$};
+    \node[fwd] at (4.1, 1) {$F_4$};
+    \node[bwd] at (5.0, 1) {$B_1$};
+    \node[bwd] at (5.9, 1) {$B_2$};
+    \node[bwd] at (6.8, 1) {$B_3$};
+
+    % Stage 2
+    \node[bbl] at (0.5, 2) {Idle};
+    \node[bbl] at (1.4, 2) {Idle};
+    \node[fwd] at (2.3, 2) {$F_1$};
+    \node[fwd] at (3.2, 2) {$F_2$};
+    \node[fwd] at (4.1, 2) {$F_3$};
+    \node[fwd] at (5.0, 2) {$F_4$};
+    \node[bwd] at (5.9, 2) {$B_1$};
+    \node[bwd] at (6.8, 2) {$B_2$};
+
+    % Stage 3
+    \node[bbl] at (0.5, 3) {Idle};
+    \node[bbl] at (1.4, 3) {Idle};
+    \node[bbl] at (2.3, 3) {Idle};
+    \node[fwd] at (3.2, 3) {$F_1$};
+    \node[bwd] at (4.1, 3) {$B_1$};
+    \node[fwd] at (5.0, 3) {$F_2$};
+    \node[bwd] at (5.9, 3) {$B_2$};
+    \node[fwd] at (6.8, 3) {$F_3$};
+
+    % Time axis
+    \draw[-Stealth, thick, draw=primarycolor] (0, -0.6) -- node[below, font=\scriptsize\bfseries] {Trục thời gian các chu kỳ Micro-batch $\to$} (8.0, -0.6);
+\end{tikzpicture}
+\caption{Lịch biểu 1F1B (One-Forward-One-Backward) trên hệ thống Pipeline 4 tầng ($p=4, m=4$)}
+\label{fig:1f1b-pipeline-schedule}
+\end{figure}
+
+Lịch trình 1F1B chia làm 3 pha rõ rệt:
+\begin{enumerate}
+  \item \textbf{Pha khởi động (Warm-up Phase)}: Stage $i$ thực hiện đúng $p - 1 - i$ bước Forward liên tiếp để lấp đầy đường ống truyền dẫn.
+  \item \textbf{Pha trạng thái ổn định (1F1B Steady State)}: Mỗi GPU thực hiện xen kẽ tuần tự: 1 bước Forward kèm 1 bước Backward. Số lượng micro-batch kích hoạt cần giữ lại trong bộ nhớ được chặn trên tối đa ở mức $p$ (thay vì $m$ như GPipe), tiết kiệm tới $\mathbf{70\% - 85\%}$ dung lượng VRAM lưu activation!
+  \item \textbf{Pha hạ nhiệt (Cooldown Phase)}: Hoàn tất các bước Backward còn lại cho đến khi toàn bộ micro-batches hoàn tất.
+\end{enumerate}
+
+\begin{theorem}[Dẫn Xuất Giải Tích Tỷ Lệ Bong Bóng Nghỉ $F_{\text{bubble}}$ Của 1F1B]
+Xét một hệ thống Pipeline Parallelism gồm $p$ chặng (stages) và $m$ micro-batches ($m \ge p$).
+Gọi $t_F$ là thời gian thực thi một bước Forward của một micro-batch trên một chặng, và $t_B$ là thời gian thực thi bước Backward tương ứng ($t_B \approx 2 t_F$).
+Chu kỳ tính toán một cặp Forward-Backward là:
+\begin{equation}
+t_{\text{cycle}} = t_F + t_B
+\end{equation}
+\begin{enumerate}
+  \item \textbf{Tổng thời gian tính toán hữu ích lý tưởng} (không có thời gian chết):
+  \begin{equation}
+  T_{\text{ideal}} = m \cdot t_{\text{cycle}}
+  \end{equation}
+  \item \textbf{Thời gian bong bóng nghỉ (Bubble Idle Time)}:
+  Do Stage 0 phải chờ tín hiệu Forward truyền từ Stage 0 đến Stage $p-1$ (mất $(p-1) t_F$) và tín hiệu Backward truyền ngược từ Stage $p-1$ về Stage 0 (mất $(p-1) t_B$), tổng thời gian chết mà Stage 0 phải ngồi chờ là:
+  \begin{equation}
+  T_{\text{bubble}} = (p - 1) t_F + (p - 1) t_B = (p - 1) \cdot t_{\text{cycle}}
+  \end{equation}
+  \item \textbf{Tổng thời gian thực thi toàn cục}:
+  \begin{equation}
+  T_{\text{total}} = T_{\text{ideal}} + T_{\text{bubble}} = (m + p - 1) \cdot t_{\text{cycle}}
+  \end{equation}
+  \item \textbf{Tỷ lệ bong bóng lãng phí (Bubble Fraction)}:
+  \begin{equation}
+  \label{eq:bubble-fraction-exact}
+  F_{\text{bubble}} = \frac{T_{\text{bubble}}}{T_{\text{total}}} = \frac{(p - 1) t_{\text{cycle}}}{(m + p - 1) t_{\text{cycle}}} = \frac{p - 1}{m + p - 1}
+  \end{equation}
+  Khi số lượng micro-batches đủ lớn so với số chặng ($m \gg p$), ta có xấp xỉ tiệm cận chuẩn công nghiệp:
+  \begin{equation}
+  \label{eq:bubble-fraction-approx}
+  F_{\text{bubble}} \approx \frac{p - 1}{m}
+  \end{equation}
+\end{enumerate}
+\end{theorem}
+
+\begin{corollary}[Quy Tắc Vàng Định Cỡ Micro-batch Trong Huấn Luyện \& Phục Vụ AI]
+Để hiệu suất tính toán của cụm GPU đạt trên $\mathbf{90\%}$ (tức tỷ lệ lãng phí do bong bóng $F_{\text{bubble}} \le 10\%$), kỹ sư AI bắt buộc phải thiết lập số lượng micro-batches $m$ thỏa mãn:
+\begin{equation}
+\frac{p - 1}{m} \le 0.10 \iff m \ge 10 \cdot (p - 1) \approx 10 p
+\end{equation}
+Ví dụ: Nếu phân rã mô hình trên cụm $p = 8$ node Pipeline, hệ thống bắt buộc phải chia Global Batch thành ít nhất $m \ge 70$ micro-batches. Nếu chọn $m = 8$ ($m = p$), tỷ lệ lãng phí lên tới $F_{\text{bubble}} = \frac{7}{15} \approx \mathbf{46.7\%}$, biến gần một nửa năng lực tính toán của cụm thành nhiệt năng vô ích!
+\end{corollary}
 
 ---
 
@@ -490,7 +677,7 @@ Hãy xác định:
 \section{Hiện Thực Hóa: Mã Nguồn Python Chuẩn Kỹ Nghệ}
 \label{sec:python-serving-modules}
 
-Dưới đây là các module Python thuần chuẩn mực, tự chứa và không phụ thuộc vào thư viện ngoài, hiện thực hóa bộ mô phỏng phân rã Tensor Parallelism, bộ lập lịch Dynamic Batching, và công cụ tính toán co giãn pod tự động:
+Dưới đây là các module Python thuần chuẩn mực, tự chứa và không phụ thuộc vào thư viện ngoài, hiện thực hóa bộ mô phỏng phân rã Tensor Parallelism, bộ lập lịch Dynamic Batching, động cơ tính toán co giãn Pod tự động KEDA, bộ lập lịch Continuous Batching vLLM, và công cụ phân tích bong bóng Pipeline Parallelism:
 
 \begin{lstlisting}[language=Python, caption={Mô phỏng phép nhân ma trận Column-Parallel trong Tensor Parallelism.}]
 import numpy as np
@@ -589,6 +776,102 @@ class KEDAAutoscalingCalculator:
         desired_replicas = math.ceil(total_load / self.pod_capacity)
         clamped_replicas = max(self.min_replicas, min(self.max_replicas, desired_replicas))
         return clamped_replicas
+\end{lstlisting}
+
+\begin{lstlisting}[language=Python, caption={Bộ lập lịch Continuous Batching (Iteration-level Scheduling) kiểu Orca/vLLM.}]
+class ContinuousBatchScheduler:
+    """
+    Bo lap lich Continuous Batching cap do buoc lap (Iteration-level Scheduling).
+    Tu dong truc xuat cac request da sinh xong va nap ngay request moi vao GPU slot.
+    """
+    def __init__(self, max_running_requests: int = 4):
+        self.max_running_requests = max_running_requests
+        self.waiting_queue: list[dict] = []
+        self.running_batch: list[dict] = []
+        self.completed_requests: list[dict] = []
+        self.iteration = 0
+
+    def add_request(self, req_id: str, prompt_tokens: int, max_new_tokens: int):
+        self.waiting_queue.append({
+            "req_id": req_id,
+            "prompt_tokens": prompt_tokens,
+            "max_new_tokens": max_new_tokens,
+            "generated_tokens": 0,
+            "arrival_iteration": self.iteration,
+            "status": "WAITING",
+        })
+
+    def step(self) -> dict:
+        self.iteration += 1
+
+        # 1. Nap them cac request dang cho neu con slot trong
+        while self.waiting_queue and len(self.running_batch) < self.max_running_requests:
+            req = self.waiting_queue.pop(0)
+            req["status"] = "RUNNING"
+            req["start_iteration"] = self.iteration
+            self.running_batch.append(req)
+
+        # 2. Sinh 1 token cho moi request dang chay
+        evicted = []
+        still_running = []
+        for req in self.running_batch:
+            req["generated_tokens"] += 1
+            if req["generated_tokens"] >= req["max_new_tokens"]:
+                req["status"] = "FINISHED"
+                req["finish_iteration"] = self.iteration
+                self.completed_requests.append(req)
+                evicted.append(req["req_id"])
+            else:
+                still_running.append(req)
+
+        self.running_batch = still_running
+
+        return {
+            "iteration": self.iteration,
+            "running_count": len(self.running_batch),
+            "waiting_count": len(self.waiting_queue),
+            "evicted_ids": evicted,
+        }
+
+    def run_until_complete(self, max_steps: int = 1000) -> int:
+        while (self.waiting_queue or self.running_batch) and self.iteration < max_steps:
+            self.step()
+        return self.iteration
+\end{lstlisting}
+
+\begin{lstlisting}[language=Python, caption={Công cụ tính toán tỷ lệ bong bóng lãng phí F\_bubble và chu kỳ lịch trình 1F1B.}]
+class PipelineParallelBubbleCalculator:
+    """
+    Cong cu tinh toan ty le bong bong nghi va thoi gian thuc thi cua lich trinh 1F1B.
+    """
+    @staticmethod
+    def calculate_bubble_fraction(p: int, m: int, exact: bool = True) -> float:
+        assert p >= 1, "Do sau Pipeline p phai >= 1"
+        assert m >= p, "So microbatch m phai >= p cho 1F1B"
+        if exact:
+            return (p - 1) / (m + p - 1)
+        return (p - 1) / m
+
+    @staticmethod
+    def calculate_execution_time(
+        p: int,
+        m: int,
+        t_f: float,
+        t_b: float,
+    ) -> dict:
+        assert p >= 1 and m >= p
+        stage_cycle = t_f + t_b
+        t_ideal = m * stage_cycle
+        t_bubble = (p - 1) * stage_cycle
+        t_total = (m + p - 1) * stage_cycle
+        bubble_fraction = t_bubble / t_total
+
+        return {
+            "t_ideal": t_ideal,
+            "t_bubble": t_bubble,
+            "t_total": t_total,
+            "bubble_fraction": bubble_fraction,
+        }
 \end{lstlisting}
 
 ---
@@ -723,6 +1006,39 @@ T_{\text{tree}} = 2 \log_2(P) \alpha + 2 \frac{S}{\beta_{\text{tree}}}
 \end{equation}
 Số bước nhảy giảm ngoạn mục từ $2(P - 1)$ xuống chỉ còn $2 \log_2(P)$! Với $P = 1.024$ GPU, số bước nhảy giảm từ $2.046$ bước xuống chỉ còn $2 \times 10 = 20$ bước, giúp tăng tốc độ trao đổi tensor nhỏ lên hàng chục lần.
 
+\begin{simulationbox}[Mô Phỏng Trực Quan Hóa Continuous Batching \& Hạ Tầng Model Serving]
+Dưới đây là các kịch bản chuẩn để yêu cầu AI sinh mã nguồn hoạt họa 60 FPS bằng thư viện Manim Community Edition (Manim CE):
+
+\paragraph{Prompt 1: Hoạt Họa 60 FPS Continuous Batching (Iteration-level) vs Static Batching}
+\begin{quote}\small\itshape
+``Hãy viết một đoạn mã Python hoàn chỉnh sử dụng thư viện Manim CE (\code{from manim import *}) để tạo một video giải thích trực quan về cơ chế Continuous Batching và triệt tiêu bong bóng padding với các yêu cầu:
+\begin{enumerate}
+  \item \textbf{Cấu hình kỹ thuật}: Tỷ lệ khung hình 16:9, chuẩn màu Monograph Dark (\code{\#0F172A} nền, \code{\#38BDF8} xanh cyan cho request đang chạy, \code{\#F43F5E} đỏ mờ cho bong bóng padding lãng phí, \code{\#10B981} xanh ngọc lục bảo cho request mới được nạp tức thì). Font chữ Serif (Times New Roman / Liberation Serif) cho nhãn văn bản, Monospace (JetBrains Mono) cho mã lệnh.
+  \item \textbf{Cảnh 1: Thảm Họa Static Batching}: Hiển thị 2 rãnh chạy của GPU. Rãnh 1 chứa Request A ($2$ tokens), Rãnh 2 chứa Request B ($6$ tokens). Tại bước lặp $t=2$, Request A hoàn thành nhưng bị giam cứng trong rãnh. Các khối chữ nhật màu đỏ nhấp nháy chữ \code{PAD BUBBLE (Wasted VRAM)} lấp đầy các bước từ $t=3$ đến $t=6$. Đồng hồ lãng phí tăng vọt.
+  \item \textbf{Cảnh 2: Đột Phá Continuous Batching (Iteration-level)}: Tua lại kịch bản với Continuous Batching. Tại bước $t=2$, ngay khi Request A sinh token cuối cùng, rãnh 1 mở khóa, một mũi tên xanh lá cuốn Request A ra ngoài màn hình (Streaming Response). Ngay tại bước $t=3$, Request C ($2$ tokens) từ hàng đợi trượt mượt mà vào thế chỗ rãnh 1. Không có một slot nào bị bỏ trống.
+  \item \textbf{Cảnh 3: Biểu Đồ So Sánh Thông Lượng}: Biểu đồ cột động so sánh: Static Batching mất 8 bước lặp để xử lý 3 request, trong khi Continuous Batching hoàn thành toàn bộ chỉ sau 5 bước lặp (tăng tốc $1.6\times$). Dòng chữ \textbf{Zero Idle Bubbles} bừng sáng rực rỡ.
+  \item Render trực tiếp với lệnh: \code{manim -pql scene.py ContinuousBatchingScene}.''
+\end{enumerate}
+\end{quote}
+
+\paragraph{Prompt 2: Hoạt Họa 60 FPS Lập Lịch 1F1B Pipeline Parallelism \& Tỷ Lệ Bong Bóng Nghỉ}
+\begin{quote}\small\itshape
+``Hãy viết một đoạn mã Python hoàn chỉnh sử dụng thư viện Manim CE (\code{from manim import *}) để tạo một video giải thích trực quan về lịch trình 1F1B Pipeline Parallelism và dẫn xuất toán học của Bubble Fraction với các yêu cầu:
+\begin{enumerate}
+  \item \textbf{Cấu hình kỹ thuật}: 60 FPS, độ phân giải 1080p, nền tối \code{\#0F172A}.
+  \item \textbf{Cảnh 1: Cấu Trúc Lưới 4 Chặng (4-Stage Pipeline Grid)}: Trục tung gồm 4 thanh hàng ngang đại diện cho 4 GPU Stages ($0, 1, 2, 3$). Trục hoành là thời gian các chu kỳ micro-batch.
+  \item \textbf{Cảnh 2: Ba Pha Hoạt Động Của 1F1B}:
+    \begin{itemize}
+      \item \textbf{Warm-up}: Các khối màu xanh cyan ($F_1, F_2, F_3$) được đẩy tuần tự vào từng stage, thể hiện việc lấp đầy đường ống.
+      \item \textbf{1F1B Steady State}: Mỗi GPU chuyển động nhịp nhàng như vũ điệu: 1 khối Forward xanh cyan xen kẽ 1 khối Backward tím thẫm ($B_1, B_2\dots$).
+      \item \textbf{Cooldown}: Các khối Backward hoàn tất nốt các micro-batch cuối cùng.
+    \end{itemize}
+  \item \textbf{Cảnh 3: Dẫn Xuất Giải Tích $F_{\text{bubble}}$}: Vùng tam giác màu đỏ ở góc trái và góc phải sáng lên, biểu thị thời gian bong bóng nghỉ $T_{\text{bubble}} = (p-1) \cdot t_{\text{cycle}}$. Phương trình toán học hiện lên trang trọng: $F_{\text{bubble}} = \frac{p-1}{m+p-1}$. Thanh trượt $m$ kéo từ $4$ lên $32$: Vùng đỏ thu hẹp ngoạn mục từ $42.9\%$ xuống chỉ còn $8.6\%$, minh chứng quy tắc vàng $m \ge 10p$.
+  \item Render trực tiếp với lệnh: \code{manim -pql scene.py Pipeline1F1BScene}.''
+\end{enumerate}
+\end{quote}
+\end{simulationbox}
+
 ---
 
 \section{Hệ Thống Bài Tập \& Câu Hỏi Tư Duy Đa Tầng}
@@ -737,6 +1053,10 @@ Số bước nhảy giảm ngoạn mục từ $2(P - 1)$ xuống chỉ còn $2 \
   \item \textbf{Câu A.5}: Phân biệt sự khác nhau giữa Continuous Batching trong vLLM và Dynamic Batching trong Triton Inference Server. Khi nào một hệ thống nên ưu tiên chọn Triton thay vì vLLM?
   \item \textbf{Câu A.6}: Tại sao mạng InfiniBand và RoCEv2 lại bắt buộc cơ chế điều khiển luồng không mất gói (Lossless Flow Control), trong khi các dịch vụ Web API Internet vẫn hoạt động hoàn hảo trên mạng TCP có tỷ lệ mất gói $0.1\%-1\%$?
   \item \textbf{Câu A.7}: Trong thuật toán Ring-AllReduce, tại sao tổng lượng dữ liệu truyền qua mỗi card mạng lại độc lập với số lượng GPU $P$ khi $P \to \infty$? Khi nào thì thuật toán Tree-AllReduce vượt trội hơn Ring-AllReduce?
+  \item \textbf{Câu A.8 (Định Lượng Độ Trễ \& Tỷ Lệ Chiếm Dụng VRAM Của Continuous Batching)}: Phân tích tại sao Continuous Batching (Iteration-level Scheduling) lại giải quyết triệt để bài toán lãng phí VRAM và bong bóng nghỉ (Padding Bubbles) so với Static Batching khi phân phối độ dài chuỗi tạo sinh có phương sai lớn. Cơ chế Chunked Prefill hỗ trợ Continuous Batching kiểm soát độ trễ sinh token (Inter-Token Latency) như thế nào?
+  \item \textbf{Câu A.9 (Triton Business Logic Scripting vs Microservices HTTP Overheads)}: So sánh chi phí I/O, thời gian tuần tự hóa dữ liệu (Serialization/Deserialization) và mức độ chiếm dụng CPU giữa hai kiến trúc:
+  1) Tách rời các bước tiền xử lý, mô hình học sâu và hậu xử lý thành các container microservice độc lập giao tiếp qua HTTP/gRPC.
+  2) Tích hợp toàn bộ thành một Pipeline thống nhất trong Triton Inference Server thông qua BLS (Business Logic Scripting) và IPC Shared Memory.
 \end{enumerate}
 
 \subsection{Nhóm B: Bài Toán Tính Toán Giải Tích Bằng Tay (Analytical Problems)}
@@ -776,6 +1096,21 @@ Số bước nhảy giảm ngoạn mục từ $2(P - 1)$ xuống chỉ còn $2 \
   Một cổng Switch Ethernet $400\text{ Gbps}$ nối tới card mạng H100 qua cáp quang dài $L = 50\text{ mét}$ (tốc độ truyền tín hiệu trong sợi quang $v = 2 \times 10^8\text{ m/s}$).
   Thời gian phát hiện nghẽn và phản hồi khung PAUSE của phần cứng Switch và NIC là $t_{\text{proc}} = 400\text{ ns}$.
   Tính dung lượng bộ đệm tối thiểu (Headroom Buffer) cần dự trữ trên cổng switch để đảm bảo không một bit dữ liệu nào bị tràn rơi khi kích hoạt cơ chế PFC.
+
+  \item \textbf{Bài B.6 (Mô Hình Hóa So Sánh Chu Kỳ Hoàn Thành Của Continuous Batching vs Static Batching)}: \\
+  Xét một hệ thống phục vụ LLM với dung lượng GPU tối đa $B_{\max} = 2$ request cùng chạy đồng thời.
+  Có 3 request gửi đến đồng thời tại thời điểm ban đầu ($t = 0$):
+  \begin{itemize}
+    \item Request A: Cần sinh $N_A = 2$ tokens.
+    \item Request B: Cần sinh $N_B = 4$ tokens.
+    \item Request C: Cần sinh $N_C = 2$ tokens.
+  \end{itemize}
+  Thời gian sinh 1 token ở mỗi bước lặp là $t_{\text{step}} = 20\text{ ms}$.
+  \begin{itemize}
+    \item[a)] Với cơ chế Static Batching (Request A và B vào Lô 1; sau khi Lô 1 kết thúc hoàn toàn thì Request C mới vào Lô 2): Tính số bước lặp và tổng thời gian để hoàn thành cả 3 requests. Tính tổng số token bong bóng lãng phí (Padding Tokens) đã bị tính toán thừa.
+    \item[b)] Với cơ chế Continuous Batching (Iteration-level): Mô tả trạng thái của batch ở từng bước lặp $t=1, 2, 3, 4$. Tính số bước lặp và tổng thời gian để hoàn thành cả 3 requests.
+    \item[c)] Tính tỷ lệ cải thiện tốc độ hoàn thành (Speedup) và so sánh độ trễ trung bình của người dùng giữa hai cơ chế.
+  \end{itemize}
 \end{enumerate}
 
 \subsection{Nhóm C: Thực Hành Kỹ Nghệ \& Lập Trình (Implementation Labs)}
@@ -793,6 +1128,12 @@ Số bước nhảy giảm ngoạn mục từ $2(P - 1)$ xuống chỉ còn $2 \
 
   \item \textbf{Bài C.3 (Tự Động Sinh Tệp Cấu Hình Triton config.pbtxt)}: \\
   Viết một hàm Python tự động nhận vào các thông số kích thước tensor đầu vào, kiểu dữ liệu, và kích thước batch mong muốn, xuất ra nội dung tệp \code{config.pbtxt} chuẩn cú pháp Protobuf của NVIDIA Triton.
+
+  \item \textbf{Bài C.4 (Hiện Thực Hóa Bộ Lập Lịch Continuous Batching Scheduler)}: \\
+  Cài đặt hoàn chỉnh lớp Python \code{ContinuousBatchScheduler} mô phỏng nguyên lý lập lịch cấp độ bước lặp của vLLM. Hệ thống tự động kiểm tra điều kiện kết thúc của từng request sau mỗi bước lặp, trục xuất request đã hoàn thành và lập tức nạp request mới từ hàng đợi để duy trì tối đa công suất GPU.
+
+  \item \textbf{Bài C.5 (Hiện Thực Hóa Công Cụ Tính Toán Bong Bóng Pipeline Parallelism)}: \\
+  Cài đặt lớp Python \code{PipelineParallelBubbleCalculator} tính toán tỷ lệ bong bóng chính xác $\frac{p-1}{m+p-1}$ và tỷ lệ xấp xỉ $\frac{p-1}{m}$ cho lịch biểu 1F1B, kèm theo hàm tính toán chi tiết tổng thời gian lý tưởng $T_{\text{ideal}}$, thời gian chết $T_{\text{bubble}}$ và tổng thời gian chạy $T_{\text{total}}$.
 \end{enumerate}
 
 \subsection{Nhóm D: Phân Tích Thất Bại \& Debugging Thực Tế (Post-Mortem Analysis)}
@@ -834,6 +1175,17 @@ Số bước nhảy giảm ngoạn mục từ $2(P - 1)$ xuống chỉ còn $2 \
   \item \textbf{Lời giải Câu A.7}:
   Trong thuật toán Ring-AllReduce, lượng dữ liệu mỗi GPU truyền đi qua hai pha là $2 \frac{P-1}{P} S$. Khi số lượng GPU $P \to \infty$, tỷ số $\frac{P-1}{P} \to 1$, do đó lượng dữ liệu truyền tiệm cận hằng số $2S$, hoàn toàn không phụ thuộc vào kích thước cụm.
   Tuy nhiên, số bước truyền là $2(P-1)$. Khi kích thước tensor $S$ nhỏ (ví dụ vài chục Kilobytes trong pha Decode), thời gian truyền bị chi phối bởi độ trễ $\alpha$ qua $2(P-1)$ bước nhảy. Tree-AllReduce tổ chức phân tán theo cây nhị phân kép chỉ mất $2\log_2(P)$ bước, giúp giảm độ trễ trao đổi tensor nhỏ lên hàng chục lần so với Ring-AllReduce.
+
+  \item \textbf{Lời giải Câu A.8}:
+  Trong Static Batching, khi phân phối độ dài có phương sai lớn, các chuỗi ngắn hoàn thành sớm nhưng vẫn bị giam trong slot, buộc GPU phải tính toán các padding token vô ích và giữ chặt bộ đệm KV Cache. Continuous Batching giải phóng slot VRAM ngay khi gặp \code{<eos>} ở từng bước lặp, kéo request mới vào thế chỗ lập tức.
+  Đặc biệt, kỹ thuật \term{Chunked Prefill} chia nhỏ prompt đầu vào dài thành các chunk (ví dụ $512$ token). Nhờ đó, bước Prefill của request mới được tính toán xen kẽ cùng bước Decode của các request cũ mà không gây đột biến thời gian của một chu kỳ bước lặp, giữ cho độ trễ giữa các token (Inter-Token Latency) luôn ổn định mượt mà khi streaming.
+
+  \item \textbf{Lời giải Câu A.9}:
+  Kiến trúc Microservices HTTP/gRPC độc lập phát sinh 3 điểm nghẽn nghiêm trọng:
+  1) Chi phí tuần tự hóa (Serialization Overhead): Việc chuyển đổi qua lại giữa tensor số thực và JSON/Protobuf tiêu tốn chu kỳ CPU đáng kể;
+  2) Độ trễ mạng (Network Latency): Mỗi chặng truyền HTTP/TCP nội bộ mất từ $2-10\text{ ms}$, cộng dồn qua 3 chặng có thể lên tới $30-50\text{ ms}$;
+  3) Sao chép bộ nhớ: Dữ liệu phải sao chép qua lại nhiều lần giữa User Space và Kernel Socket Buffer.
+  Ngược lại, Triton BLS (Business Logic Scripting) cho phép module Python gọi trực tiếp các mô hình C++ qua con trỏ C API và bộ nhớ chia sẻ IPC Shared Memory. Toàn bộ tensor được truyền theo cơ chế \textbf{Zero-Copy} ngay trong RAM hoặc VRAM, đưa độ trễ chuyển giao giữa các mô hình về mức vi-giây ($\approx 0\text{ ms}$), tiết kiệm hàng chục mili-giây độ trễ đầu cuối.
 \end{itemize}
 
 \subsection{Lời Giải Nhóm B: Bài Toán Tính Toán Giải Tích Bằng Tay}
@@ -939,8 +1291,55 @@ Dung lượng bộ đệm tối thiểu cần thiết để không rơi gói tin
 \text{Headroom} = T_{\text{drain}} \times \text{Bandwidth} = 900 \times 10^{-9}\text{s} \times 50 \times 10^9\text{ Bytes/s} = \mathbf{45.000\text{ Bytes}} \approx \mathbf{43.95\text{ KiB}}
 \end{equation*}
 
+\paragraph{Lời giải Bài B.6}:
+\begin{itemize}
+  \item[a)] \textbf{Với cơ chế Static Batching}:
+  - Lô 1 gồm Request A ($2$ tokens) và Request B ($4$ tokens). Số bước lặp để hoàn thành Lô 1 là:
+  \begin{equation*}
+  N_{\text{batch\_1}} = \max(N_A, N_B) = \max(2, 4) = 4\text{ bước lặp}
+  \end{equation*}
+  Thời gian thực thi Lô 1: $4 \times 20\text{ ms} = 80\text{ ms}$.
+  Trong đó, Request A hoàn thành ở bước 2 nhưng phải đợi hết bước 4 mới rời GPU $\to$ tạo ra $4 - 2 = 2$ token padding vô ích.
+  - Lô 2 gồm Request C ($2$ tokens). Số bước lặp: $N_C = 2$ bước. Thời gian thực thi Lô 2: $2 \times 20\text{ ms} = 40\text{ ms}$.
+  - Tổng số bước lặp: $4 + 2 = \mathbf{6\text{ bước lặp}}$.
+  - Tổng thời gian hoàn thành cả 3 requests: $80 + 40 = \mathbf{120\text{ ms}}$.
+  - Số token bong bóng lãng phí: $\mathbf{2\text{ tokens}}$.
+
+  \item[b)] \textbf{Với cơ chế Continuous Batching (Iteration-level)}:
+  - Bước 1 ($t = 20\text{ ms}$): GPU nạp Request A và Request B. A sinh token 1/2, B sinh token 1/4. Hàng đợi: Request C.
+  - Bước 2 ($t = 40\text{ ms}$): A sinh token 2/2 ($\to$ Hoàn thành! Lập tức trục xuất và trả phản hồi streaming), B sinh token 2/4. Slot của A được giải phóng.
+  - Bước 3 ($t = 60\text{ ms}$): Request C được nạp ngay lập tức vào thế chỗ A! B sinh token 3/4, C sinh token 1/2.
+  - Bước 4 ($t = 80\text{ ms}$): B sinh token 4/4 ($\to$ Hoàn thành!), C sinh token 2/2 ($\to$ Hoàn thành!).
+  Cả 3 requests hoàn thành trọn vẹn chỉ sau đúng $\mathbf{4\text{ bước lặp}}$!
+  Tổng thời gian hoàn thành: $4 \times 20\text{ ms} = \mathbf{80\text{ ms}}$.
+  Số token padding: $\mathbf{0\text{ token}}$ (Zero Wasted Bubbles).
+
+  \item[c)] \textbf{So sánh hiệu năng}:
+  - Tỷ lệ tăng tốc toàn cục:
+  \begin{equation*}
+  \text{Speedup} = \frac{120\text{ ms}}{80\text{ ms}} = \mathbf{1.5\times} \quad (\text{tiết kiệm } 33.3\%\text{ tổng thời gian GPU})
+  \end{equation*}
+  - Thời gian trễ trung bình của người dùng (Average Latency):
+  \begin{itemize}
+    \item Static Batching: Request A xong ở $80\text{ ms}$, Request B xong ở $80\text{ ms}$, Request C xong ở $120\text{ ms}$:
+    \begin{equation*}
+    \bar{T}_{\text{static}} = \frac{80 + 80 + 120}{3} = \frac{280}{3} \approx \mathbf{93.33\text{ ms}}
+    \end{equation*}
+    \item Continuous Batching: Request A xong ở $40\text{ ms}$, Request B xong ở $80\text{ ms}$, Request C xong ở $80\text{ ms}$:
+    \begin{equation*}
+    \bar{T}_{\text{continuous}} = \frac{40 + 80 + 80}{3} = \frac{200}{3} \approx \mathbf{66.67\text{ ms}}
+    \end{equation*}
+  \end{itemize}
+  Độ trễ trung bình giảm tới $\mathbf{28.6\%}$, chứng minh ưu thế áp đảo của kiến trúc lập lịch bước lặp!
+\end{itemize}
+
 \subsection{Lời Giải Nhóm C: Thực Hành Kỹ Nghệ \& Lập Trình}
-Cấu hình `docker-compose.yml` chuẩn mực và mã nguồn Python đã được trình bày chi tiết trong Mục~\ref{sec:production-docker-keda} và Mục~\ref{sec:python-serving-modules}.
+Mã nguồn cấu hình và các module Python kiểm chứng đã được trình bày chi tiết trong Mục~\ref{sec:production-docker-keda} và Mục~\ref{sec:python-serving-modules}, bao gồm:
+1. Cấu hình \code{docker-compose.yml} tích hợp vLLM, Prometheus và Grafana (Bài C.1).
+2. Lớp \code{DynamicBatchScheduler} với rào chắn timeout và giới hạn kích thước lô (Bài C.2).
+3. Cấu hình chuẩn Protobuf \code{config.pbtxt} cho NVIDIA Triton (Bài C.3).
+4. Lớp \code{ContinuousBatchScheduler} mô phỏng lập lịch cấp độ bước lặp của vLLM (Bài C.4).
+5. Lớp \code{PipelineParallelBubbleCalculator} tính toán tỷ lệ bong bóng lãng phí 1F1B (Bài C.5).
 
 \subsection{Lời Giải Nhóm D: Phân Tích Thất Bại \& Debugging Thực Tế}
 

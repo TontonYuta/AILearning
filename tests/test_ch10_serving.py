@@ -109,6 +109,113 @@ class KEDAAutoscalingCalculator:
         return max(self.min_replicas, min(self.max_replicas, desired))
 
 
+class ContinuousBatchScheduler:
+    """
+    Simulates iteration-level scheduling (Continuous Batching / Orca / vLLM style).
+    Unlike static batching which locks the entire batch until all sequences finish,
+    continuous batching evicts finished sequences and inserts new requests token-by-token.
+    """
+    def __init__(self, max_running_requests: int = 4):
+        self.max_running_requests = max_running_requests
+        self.waiting_queue: list[dict] = []
+        self.running_batch: list[dict] = []
+        self.completed_requests: list[dict] = []
+        self.iteration = 0
+
+    def add_request(self, req_id: str, prompt_tokens: int, max_new_tokens: int):
+        self.waiting_queue.append({
+            "req_id": req_id,
+            "prompt_tokens": prompt_tokens,
+            "max_new_tokens": max_new_tokens,
+            "generated_tokens": 0,
+            "arrival_iteration": self.iteration,
+            "status": "WAITING",
+        })
+
+    def step(self) -> dict:
+        """Executes one iteration: schedule waiting requests, generate 1 token per running request."""
+        self.iteration += 1
+
+        # 1. Admit waiting requests up to capacity
+        while self.waiting_queue and len(self.running_batch) < self.max_running_requests:
+            req = self.waiting_queue.pop(0)
+            req["status"] = "RUNNING"
+            req["start_iteration"] = self.iteration
+            self.running_batch.append(req)
+
+        # 2. Advance generation: generate 1 token for each running request
+        evicted = []
+        still_running = []
+        for req in self.running_batch:
+            req["generated_tokens"] += 1
+            if req["generated_tokens"] >= req["max_new_tokens"]:
+                req["status"] = "FINISHED"
+                req["finish_iteration"] = self.iteration
+                self.completed_requests.append(req)
+                evicted.append(req["req_id"])
+            else:
+                still_running.append(req)
+
+        self.running_batch = still_running
+
+        return {
+            "iteration": self.iteration,
+            "running_count": len(self.running_batch),
+            "waiting_count": len(self.waiting_queue),
+            "evicted_ids": evicted,
+        }
+
+    def run_until_complete(self, max_steps: int = 1000) -> int:
+        while (self.waiting_queue or self.running_batch) and self.iteration < max_steps:
+            self.step()
+        return self.iteration
+
+
+class PipelineParallelBubbleCalculator:
+    """
+    Calculates bubble fraction and execution times for 1F1B (One-Forward-One-Backward)
+    Pipeline Parallelism schedule across p pipeline stages and m microbatches.
+    """
+    @staticmethod
+    def calculate_bubble_fraction(p: int, m: int, exact: bool = True) -> float:
+        """
+        Calculates pipeline bubble fraction:
+        - Exact: F_bubble = (p - 1) / (m + p - 1)
+        - Asymptotic (m >> p): F_bubble = (p - 1) / m
+        """
+        assert p >= 1, "Pipeline depth p must be >= 1"
+        assert m >= p, "Microbatches m must be >= p for 1F1B schedule"
+        if exact:
+            return (p - 1) / (m + p - 1)
+        return (p - 1) / m
+
+    @staticmethod
+    def calculate_execution_time(
+        p: int,
+        m: int,
+        t_f: float,
+        t_b: float,
+    ) -> dict:
+        """
+        Computes ideal computation time, bubble idle time, and total time for 1F1B schedule.
+        - t_f: Forward pass execution time per microbatch stage
+        - t_b: Backward pass execution time per microbatch stage
+        """
+        assert p >= 1 and m >= p
+        stage_cycle = t_f + t_b
+        t_ideal = m * stage_cycle
+        t_bubble = (p - 1) * stage_cycle
+        t_total = (m + p - 1) * stage_cycle
+        bubble_fraction = t_bubble / t_total
+
+        return {
+            "t_ideal": t_ideal,
+            "t_bubble": t_bubble,
+            "t_total": t_total,
+            "bubble_fraction": bubble_fraction,
+        }
+
+
 # ==============================================================================
 # TESTS
 # ==============================================================================
@@ -240,4 +347,61 @@ def test_pfc_headroom_buffer_sizing():
     headroom_bytes = t_drain * bandwidth_Bps
     assert math.isclose(headroom_bytes, 45000.0)
     assert headroom_bytes / 1024 < 45.0  # ~43.95 KiB
+
+
+def test_continuous_batch_scheduler():
+    scheduler = ContinuousBatchScheduler(max_running_requests=2)
+    scheduler.add_request("req_A", prompt_tokens=10, max_new_tokens=2)
+    scheduler.add_request("req_B", prompt_tokens=20, max_new_tokens=4)
+    scheduler.add_request("req_C", prompt_tokens=15, max_new_tokens=2)
+
+    # Iteration 1: req_A and req_B admitted, generate 1 token each
+    step1 = scheduler.step()
+    assert step1["iteration"] == 1
+    assert step1["running_count"] == 2
+    assert step1["waiting_count"] == 1  # req_C waiting
+    assert step1["evicted_ids"] == []
+
+    # Iteration 2: req_A completes (2 tokens), evicted!
+    step2 = scheduler.step()
+    assert step2["iteration"] == 2
+    assert "req_A" in step2["evicted_ids"]
+    assert len(scheduler.completed_requests) == 1
+
+    # Iteration 3: req_C admitted to replace req_A immediately!
+    step3 = scheduler.step()
+    assert step3["iteration"] == 3
+    assert step3["waiting_count"] == 0  # req_C is now running
+    assert step3["running_count"] == 2  # req_B and req_C
+
+    # Run remaining iterations
+    scheduler.run_until_complete()
+    assert len(scheduler.completed_requests) == 3
+    # req_B finishes at iter 4 (4 tokens), req_C (admitted iter 3) also finishes at iter 4 (2 tokens)!
+    assert scheduler.iteration == 4  # Continuous batching finishes in 4 iterations vs 6 for static batching!
+
+
+def test_pipeline_parallel_bubble_calculator():
+    calc = PipelineParallelBubbleCalculator()
+
+    # 1. 1F1B schedule with p = 8, m = 64
+    f_exact = calc.calculate_bubble_fraction(p=8, m=64, exact=True)
+    f_approx = calc.calculate_bubble_fraction(p=8, m=64, exact=False)
+
+    # Exact: 7 / 71 = 0.09859...
+    assert math.isclose(f_exact, 7.0 / 71.0, rel_tol=1e-5)
+    # Approx: 7 / 64 = 0.109375
+    assert math.isclose(f_approx, 7.0 / 64.0, rel_tol=1e-5)
+
+    # 2. Extreme bubble: m = p = 8
+    f_high_bubble = calc.calculate_bubble_fraction(p=8, m=8, exact=True)
+    assert math.isclose(f_high_bubble, 7.0 / 15.0, rel_tol=1e-5)
+
+    # 3. Execution time
+    res = calc.calculate_execution_time(p=8, m=64, t_f=10.0, t_b=20.0)
+    assert res["t_ideal"] == 64 * 30.0    # 1920.0 ms
+    assert res["t_bubble"] == 7 * 30.0     # 210.0 ms
+    assert res["t_total"] == 71 * 30.0     # 2130.0 ms
+    assert math.isclose(res["bubble_fraction"], 7.0 / 71.0)
+
 

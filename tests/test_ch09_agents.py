@@ -331,6 +331,43 @@ def test_retry_context_fatigue_math():
     assert pytest.approx(p_ideal, 1e-5) == 0.992
 
 
+def calculate_reflexion_success(
+    p0: float,
+    beta: float,
+    max_attempts: int,
+) -> tuple[list[float], float]:
+    """
+    Computes per-step success probabilities and overall reliability for Reflexion loop
+    with verbal feedback learning: p_k = p_{k-1} + (1 - p_{k-1}) * beta.
+    """
+    p_list = [p0]
+    for _ in range(1, max_attempts):
+        prev_p = p_list[-1]
+        next_p = prev_p + (1.0 - prev_p) * beta
+        p_list.append(next_p)
+
+    fail_prob = 1.0
+    for p in p_list:
+        fail_prob *= (1.0 - p)
+    success_prob = 1.0 - fail_prob
+    return p_list, success_prob
+
+
+def test_reflexion_success_math():
+    p_list, p_success = calculate_reflexion_success(p0=0.5, beta=0.4, max_attempts=3)
+    assert pytest.approx(p_list[0], 1e-5) == 0.50
+    assert pytest.approx(p_list[1], 1e-5) == 0.70
+    assert pytest.approx(p_list[2], 1e-5) == 0.82
+
+    # Overall failure: 0.50 * 0.30 * 0.18 = 0.027
+    # Overall success: 1 - 0.027 = 0.973
+    assert pytest.approx(p_success, 1e-5) == 0.9730
+
+    # Compare with context fatigue retry (gamma = 0.7)
+    _, p_fatigue = calculate_retry_success_with_fatigue(p0=0.5, gamma=0.7, max_attempts=3)
+    assert pytest.approx(p_fatigue, 1e-5) == 0.754625
+
+
 # ==============================================================================
 # 8. MULTI-AGENT DEBATE ENGINE (EXERCISE C.5)
 # ==============================================================================
@@ -440,5 +477,188 @@ def test_debate_engine_max_rounds():
     assert result["status"] == "MAX_ROUNDS_REACHED"
     assert result["rounds_completed"] == 3
     assert "Compromise solution C" in result["final_verdict"]
+
+
+# ==============================================================================
+# 9. REFLEXION AGENT WITH EPISODIC MEMORY (SHINN ET AL., 2023)
+# ==============================================================================
+
+class ReflexionAgent:
+    """
+    Simulates Reflexion agent architecture (Shinn et al., NeurIPS 2023).
+    Iteratively refines reasoning via self-reflection stored in episodic memory buffer,
+    avoiding raw trace pollution (context fatigue) while improving task success rate.
+    """
+    def __init__(
+        self,
+        actor_fn: Callable[[str, list[str]], str],
+        evaluator_fn: Callable[[str], tuple[bool, float, str]],
+        reflector_fn: Callable[[str, str], str],
+        max_trials: int = 3,
+    ):
+        self.actor_fn = actor_fn
+        self.evaluator_fn = evaluator_fn
+        self.reflector_fn = reflector_fn
+        self.max_trials = max_trials
+        self.episodic_memory: list[str] = []
+
+    def solve(self, task_prompt: str) -> dict:
+        self.episodic_memory.clear()
+        trajectory_history = []
+
+        for trial in range(1, self.max_trials + 1):
+            attempt = self.actor_fn(task_prompt, list(self.episodic_memory))
+            is_success, score, feedback = self.evaluator_fn(attempt)
+            trajectory_history.append({
+                "trial": trial,
+                "attempt": attempt,
+                "score": score,
+                "feedback": feedback,
+            })
+
+            if is_success:
+                return {
+                    "status": "SUCCESS",
+                    "trials_needed": trial,
+                    "final_output": attempt,
+                    "reflections": list(self.episodic_memory),
+                    "history": trajectory_history,
+                }
+
+            # Generate reflection and store in episodic memory for next trial
+            reflection = self.reflector_fn(attempt, feedback)
+            self.episodic_memory.append(reflection)
+
+        return {
+            "status": "MAX_TRIALS_EXCEEDED",
+            "trials_needed": self.max_trials,
+            "final_output": attempt,
+            "reflections": list(self.episodic_memory),
+            "history": trajectory_history,
+        }
+
+
+def test_reflexion_agent_success():
+    def mock_actor(task: str, memory: list[str]) -> str:
+        if not memory:
+            # First attempt: naive buggy code with off-by-one error
+            return "def sum_n(n): return sum(range(n))"
+        # Second attempt: incorporates reflection to fix range(1, n+1)
+        if "include n" in memory[-1]:
+            return "def sum_n(n): return sum(range(1, n + 1))"
+        return "def sum_n(n): return 0"
+
+    def mock_evaluator(code: str) -> tuple[bool, float, str]:
+        # Evaluate sum_n(5) == 15
+        if "range(1, n + 1)" in code:
+            return True, 1.0, "All tests passed (sum_n(5) == 15)"
+        return False, 0.0, "Test failed: sum_n(5) returned 10, expected 15 (missing 5)"
+
+    def mock_reflector(attempt: str, feedback: str) -> str:
+        return "Reflection: The loop stopped at n-1. In next trial, include n using range(1, n + 1)."
+
+    agent = ReflexionAgent(
+        actor_fn=mock_actor,
+        evaluator_fn=mock_evaluator,
+        reflector_fn=mock_reflector,
+        max_trials=3,
+    )
+    result = agent.solve("Implement sum from 1 to n")
+
+    assert result["status"] == "SUCCESS"
+    assert result["trials_needed"] == 2
+    assert len(result["reflections"]) == 1
+    assert "include n" in result["reflections"][0]
+    assert "range(1, n + 1)" in result["final_output"]
+
+
+# ==============================================================================
+# 10. AST TOOL SECURITY VALIDATOR (SANDBOX GUARDRAILS)
+# ==============================================================================
+
+import ast
+
+class ASTToolSecurityValidator:
+    """
+    Static Abstract Syntax Tree (AST) analyzer to prevent arbitrary code execution,
+    dangerous imports, and system tampering in dynamic tool-calling LLM agents.
+    """
+    ALLOWED_MODULES = {"math", "json", "datetime", "random", "re"}
+    DANGEROUS_CALLS = {
+        "eval", "exec", "open", "__import__", "globals", "locals",
+        "getattr", "setattr", "delattr", "compile", "breakpoint"
+    }
+    DANGEROUS_ATTRIBUTES = {
+        "__subclasses__", "__class__", "__base__", "__globals__",
+        "__code__", "__closure__", "__builtins__"
+    }
+
+    @classmethod
+    def validate_python_code(cls, code_str: str) -> tuple[bool, str]:
+        try:
+            tree = ast.parse(code_str)
+        except SyntaxError as e:
+            return False, f"SyntaxError: {str(e)}"
+
+        for node in ast.walk(tree):
+            # Check imports
+            if isinstance(node, ast.Import):
+                for alias in node.names:
+                    root_mod = alias.name.split(".")[0]
+                    if root_mod not in cls.ALLOWED_MODULES:
+                        return False, f"Unauthorized module import: '{alias.name}'"
+
+            elif isinstance(node, ast.ImportFrom):
+                if node.module:
+                    root_mod = node.module.split(".")[0]
+                    if root_mod not in cls.ALLOWED_MODULES:
+                        return False, f"Unauthorized module import: '{node.module}'"
+
+            # Check dangerous built-in function calls
+            elif isinstance(node, ast.Call):
+                if isinstance(node.func, ast.Name):
+                    if node.func.id in cls.DANGEROUS_CALLS:
+                        return False, f"Dangerous function call detected: '{node.func.id}()'"
+
+            # Check attribute access (dunder exploits)
+            elif isinstance(node, ast.Attribute):
+                if node.attr in cls.DANGEROUS_ATTRIBUTES:
+                    return False, f"Restricted dunder attribute access: '{node.attr}'"
+
+        return True, "SAFE"
+
+
+def test_ast_tool_security_validator():
+    # Safe mathematical code
+    safe_code = """
+import math
+import json
+
+def calculate_mortgage(p, r, n):
+    monthly_r = r / 12.0
+    factor = math.pow(1.0 + monthly_r, n)
+    return p * (monthly_r * factor) / (factor - 1.0)
+"""
+    is_safe, msg = ASTToolSecurityValidator.validate_python_code(safe_code)
+    assert is_safe
+    assert msg == "SAFE"
+
+    # Malicious code 1: OS system call
+    bad_code_os = "import os\nos.system('rm -rf /')"
+    is_safe, msg = ASTToolSecurityValidator.validate_python_code(bad_code_os)
+    assert not is_safe
+    assert "Unauthorized module import: 'os'" in msg
+
+    # Malicious code 2: eval() call
+    bad_code_eval = "x = '1 + 1'\nres = eval(x)"
+    is_safe, msg = ASTToolSecurityValidator.validate_python_code(bad_code_eval)
+    assert not is_safe
+    assert "Dangerous function call detected: 'eval()'" in msg
+
+    # Malicious code 3: Dunder breakout (__subclasses__)
+    bad_code_dunder = "subclasses = ().__class__.__base__.__subclasses__()"
+    is_safe, msg = ASTToolSecurityValidator.validate_python_code(bad_code_dunder)
+    assert not is_safe
+    assert "Restricted dunder attribute access" in msg
 
 

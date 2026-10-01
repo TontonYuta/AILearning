@@ -307,6 +307,428 @@ class AINetSecOpsPlatform:
         return record
 \end{lstlisting}
 
+
+\begin{simulationbox}[Prompts AI Mô Phỏng Hoạt Họa 60 FPS: Manim CE Trực Quan Hóa Điều Phối Tác Tử AI-NetSecOps \& Can Thiệp HITL]
+Dưới đây là kịch bản prompt chi tiết cho các công cụ AI tạo mã hoạt họa Manim CE để trực quan hóa sinh động quy trình chẩn đoán sự cố mạng và phê duyệt an toàn của con người (HITL):
+
+\begin{quote}
+\small\itshape
+``Hãy đóng vai một chuyên gia Manim CE (Community Edition) và Kiến trúc sư An ninh Mạng Cấp cao. \\
+Hãy viết một script Python hoàn chỉnh sử dụng thư viện \code{manim} để tạo video hoạt họa 1080p 60fps trực quan hóa chu trình vận hành tự hành AI-NetSecOps:
+\begin{enumerate}
+  \item Màn hình chia làm 3 vùng: Phía trên là luồng Syslog thời gian thực; ở giữa là Đồ thị đa tác tử LangGraph (gồm nút Supervisor, NetOpsNode, SecOpsNode, RemediationNode); bên phải là Bảng điều khiển SOC Dashboard.
+  \item Giai đoạn 1 (Cảnh báo \& Phân luồng): Một thông điệp Syslog màu đỏ nhấp nháy: \code{CRITICAL: SYN Flood from 198.51.100.25}. Hạt năng lượng mang thông tin bay vào Supervisor Node. Supervisor lập tức chuyển giao công việc cho SecOpsNode.
+  \item Giai đoạn 2 (Truy vấn RAG \& Sinh lệnh): SecOpsNode chiếu một tia sáng xanh quét qua cơ sở dữ liệu vector Qdrant, trích xuất mã kỹ thuật MITRE ATT\&CK \code{T1498 (Network DoS)}. Kế đó, RemediationNode tổng hợp thông tin và sinh ra câu lệnh cấu hình: \code{iptables -I INPUT -s 198.51.100.25 -j DROP}.
+  \item Giai đoạn 3 (Chốt chặn An toàn \& Điểm ngắt HITL): Câu lệnh đi qua Static Policy Guardrail (quét Allowlist \& Blocklist). Đèn xanh bật sáng: \code{SAFE_COMMAND}. Tuy nhiên, đồ thị dừng lại tại điểm ngắt \code{interrupt_before}.
+  \item Giai đoạn 4 (Phê duyệt của Con người): Trên màn hình SOC Dashboard xuất hiện hộp thoại: ``Yêu cầu phê duyệt cách ly IP 198.51.100.25''. Con trỏ chuột của kỹ sư nhấp vào nút ``Approve''. Hạt năng lượng tiếp tục bay vào Firewall, lưu lượng tấn công bị dập tắt hoàn toàn, bảng chỉ số MTTR hạ xuống mức $1.5\text{ phút}$.
+  \item Render bằng lệnh: \code{manim -pql scene.py AINetSecOpsHITLScene}.''
+\end{enumerate}
+\end{quote}
+\end{simulationbox}
+
+---
+
+\section{Đồ Án Kỳ Hạm 2: Trợ Lý Kiểm Toán Tài Chính Doanh Nghiệp \& Phát Hiện Gian Lận (Financial Audit Copilot)}
+\label{sec:ch14-financial-copilot}
+
+\subsection{Bối Cảnh Nghiệp Vụ \& Yêu Cầu Tuân Thủ SOX 404}
+Trong ngành tài chính và kiểm toán doanh nghiệp (Big 4, ngân hàng đầu tư, các tập đoàn đa quốc gia), khối lượng chứng từ kế toán, báo cáo thường niên (SEC Form 10-K), hóa đơn thuế GTGT và hợp đồng thương mại lên tới hàng triệu trang mỗi quý.
+Kiểm toán viên truyền thống chỉ có thể chọn mẫu ngẫu nhiên khoảng $1\% - 5\%$ số lượng giao dịch để kiểm tra thủ công. Quy trình này để lọt các hành vi gian lận tinh vi:
+\begin{itemize}
+  \item \textbf{Cắt nhỏ hóa đơn dưới ngưỡng phê duyệt (Structuring / Smurfing)}: Chia nhỏ một khoản chi $50.000\text{ USD}$ thành 55 hóa đơn trị giá $950 - 990\text{ USD}$ để lọt qua ngưỡng kiểm soát nội bộ $1.000\text{ USD}$.
+  \item \textbf{Gian lận số liệu kế toán (Fabricated Accounting Numbers)}: Kế toán viên tự bịa đặt các số liệu doanh thu hoặc chi phí để làm đẹp báo cáo tài chính mà không nhận biết rằng các con số do con người tự bịa đặt luôn vi phạm các quy luật phân phối tự nhiên.
+  \item \textbf{Dòng tiền giao dịch tuần hoàn (Circular Transactions)}: Chuyển tiền qua lại giữa các công ty con (A $\to$ B $\to$ C $\to$ A) để phóng đại doanh thu ảo.
+\end{itemize}
+
+\subsection{Cơ Sở Toán Học: Quy Luật Benford \& Kiểm Định Chi-Square (\texorpdfstring{$\chi^2$}{Chi-Square})}
+Trong thống kê tài chính thực nghiệm, hiện tượng các con số tự nhiên không phân bố đồng đều từ 1 đến 9 được lượng hóa bởi \term{Quy luật Benford (Benford's Law)}.
+Xác suất để chữ số đầu tiên khác 0 của một số liệu kế toán tự nhiên nhận giá trị $d \in \{1, 2, \dots, 9\}$ tuân theo công thức logarit:
+\begin{equation}
+P(d) = \log_{10} \left( 1 + \frac{1}{d} \right)
+\label{eq:benford-law}
+\end{equation}
+
+\begin{table}[htbp]
+\centering
+\small
+\caption{Phân phối xác suất chữ số đầu tiên theo Quy luật Benford}
+\label{tab:benford-distribution}
+\begin{tabular}{lccccccccc}
+\toprule
+\textbf{Chữ số $d$} & \textbf{1} & \textbf{2} & \textbf{3} & \textbf{4} & \textbf{5} & \textbf{6} & \textbf{7} & \textbf{8} & \textbf{9} \\
+\midrule
+$P(d)$ lý thuyết & $30.10\%$ & $17.61\%$ & $12.49\%$ & $9.69\%$ & $7.92\%$ & $6.69\%$ & $5.80\%$ & $5.12\%$ & $4.58\%$ \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+Để kiểm định xem một tập hợp $N$ giao dịch tài chính có tuân thủ quy luật Benford hay có dấu hiệu bị con người làm giả, ta áp dụng \term{Kiểm định độ phù hợp Chi-Square (Goodness-of-Fit)}:
+\begin{equation}
+\chi^2 = \sum_{d=1}^{9} \frac{\big( O_d - E_d \big)^2}{E_d}
+\label{eq:benford-chi-square}
+\end{equation}
+Trong đó $O_d$ là tần số quan sát thực tế của chữ số $d$, và $E_d = N \times P(d)$ là tần số kỳ vọng lý thuyết theo Benford.
+Với $k = 9$ nhóm, bậc tự do là $\text{df} = k - 1 = 8$.
+Ở mức ý nghĩa $\alpha = 0.05$ (độ tin cậy $95\%$), giá trị tới hạn chuẩn từ bảng phân phối Chi-Square là:
+\begin{equation*}
+\chi^2_{\text{critical}} = \chi^2_{0.05, 8} \approx 15.507
+\end{equation*}
+Nếu giá trị thống kê tính toán $\chi^2 > 15.507$, ta bác bỏ giả thuyết $H_0$ (tập dữ liệu không tuân theo quy luật tự nhiên), và hệ thống AI lập tức gắn cờ cảnh báo nghi vấn gian lận sổ sách kế toán (\code{ANOMALY_DETECTED})!
+
+\subsection{Hiện Thực Hóa Python: Lớp Kiểm Định Gian Lận Benford}
+Dưới đây là mã nguồn chuẩn kỹ nghệ của lớp \code{BenfordFraudDetector}:
+
+\begin{lstlisting}[language=Python]
+import math
+from typing import Dict, Any, List, Optional
+
+class BenfordFraudDetector:
+    """Bo kiem dinh gian lan ke toan & tai chinh dua tren quy luat Benford.
+    P(d) = log10(1 + 1/d) cho d tu 1 den 9.
+    Kiem dinh Chi-Square voi 8 bac tu do (alpha = 0.05, chi2_crit = 15.507).
+    """
+    BENFORD_PROBABILITIES = {
+        d: math.log10(1.0 + 1.0 / d) for d in range(1, 10)
+    }
+    CHI_SQUARE_CRITICAL_8DF_95 = 15.507
+
+    @staticmethod
+    def extract_leading_digit(amount: float) -> Optional[int]:
+        if amount <= 0:
+            return None
+        s = f"{amount:.10f}".lstrip("0.")
+        for ch in s:
+            if ch in "123456789":
+                return int(ch)
+        return None
+
+    def analyze_transactions(self, amounts: List[float]) -> Dict[str, Any]:
+        digits = [self.extract_leading_digit(a) for a in amounts]
+        valid_digits = [d for d in digits if d is not None]
+        n = len(valid_digits)
+        if n < 10:
+            return {
+                "sample_size": n,
+                "is_fraud_suspected": False,
+                "chi_square_stat": 0.0,
+                "reason": "Sample size too small (< 10)"
+            }
+
+        counts = {d: 0 for d in range(1, 10)}
+        for d in valid_digits:
+            counts[d] += 1
+
+        chi_square = 0.0
+        expected_counts = {}
+        observed_counts = {}
+        for d in range(1, 10):
+            e_d = n * self.BENFORD_PROBABILITIES[d]
+            o_d = counts[d]
+            expected_counts[d] = round(e_d, 2)
+            observed_counts[d] = o_d
+            chi_square += ((o_d - e_d) ** 2) / e_d
+
+        is_fraud = chi_square > self.CHI_SQUARE_CRITICAL_8DF_95
+        return {
+            "sample_size": n,
+            "chi_square_stat": round(chi_square, 3),
+            "critical_threshold": self.CHI_SQUARE_CRITICAL_8DF_95,
+            "is_fraud_suspected": is_fraud,
+            "observed_distribution": observed_counts,
+            "expected_distribution": expected_counts,
+            "status": "ANOMALY_DETECTED" if is_fraud else "CONFORMS_TO_BENFORD"
+        }
+\end{lstlisting}
+
+\begin{simulationbox}[Prompts AI Mô Phỏng Hoạt Họa 60 FPS: Manim CE Trực Quan Hóa Quy Luật Benford \& Phát Hiện Gian Lận Kế Toán]
+\begin{quote}
+\small\itshape
+``Hãy đóng vai một chuyên gia Manim CE và Nhà Khoa học Dữ liệu Tài chính. \\
+Hãy viết một script Python hoàn chỉnh sử dụng thư viện \code{manim} để tạo video hoạt họa 1080p 60fps trực quan hóa Quy luật Benford:
+\begin{enumerate}
+  \item Vẽ hệ trục tọa độ với trục hoành là các chữ số từ 1 đến 9, trục tung là tỷ lệ phần trăm từ $0\%$ đến $35\%$.
+  \item Vẽ đường cong lý thuyết mượt mà màu xanh dương thể hiện hàm $P(d) = \log_{10}(1 + 1/d)$, với chữ số 1 đạt đỉnh $30.1\%$, chữ số 9 chỉ còn $4.6\%$.
+  \item Giai đoạn 1 (Dữ liệu trong sạch): Hiển thị $1.000$ thanh bar biểu đồ cột màu xanh lá cây đại diện cho dữ liệu hóa đơn thật. Các cột bám sát đường cong lý thuyết, chỉ số $\chi^2 = 4.2 < 15.5$, nhãn hiển thị: \code{STATUS: AUDIT_PASSED}.
+  \item Giai đoạn 2 (Dữ liệu gian lận do con người bịa đặt): Chuyển cảnh sang một công ty đang làm đẹp báo cáo. Cột số 9 vọt lên cao bất thường ($40\%$) do hàng trăm hóa đơn bị cố ý định giá $\$990$ để lách luật. Cột đổi sang màu đỏ rực.
+  \item Công thức $\chi^2$ hiện ra và nhảy số vọt lên $145.8 > 15.507$. Dấu mộc cảnh báo \code{FRAUD_SUSPECTED} màu đỏ đóng sầm xuống giữa màn hình.
+  \item Render bằng lệnh: \code{manim -pql scene.py BenfordFraudDetectionScene}.''
+\end{enumerate}
+\end{quote}
+\end{simulationbox}
+
+---
+
+\section{Đồ Án Kỳ Hạm 3: Hệ Thống Gợi Ý \& Tìm Kiếm Ngữ Nghĩa Hai Tháp (Two-Tower Recommender \& Neural Search)}
+\label{sec:ch14-two-tower-recommender}
+
+\subsection{Kiến Trúc 4 Tầng Chuẩn Công Nghiệp Của Sàn Thương Mại Điện Tử}
+Tại các nền tảng thương mại điện tử quy mô lớn (Shopee, Amazon, Tiki), hệ thống tìm kiếm và gợi ý sản phẩm phục vụ hàng chục triệu người dùng với danh mục hơn $50.000.000$ sản phẩm.
+Để đáp ứng ràng buộc độ trễ nghiêm ngặt $P99 < 30\text{ms}$, hệ thống triển khai kiến trúc lọc phễu 4 tầng:
+\begin{enumerate}
+  \item \textbf{Tầng 1: Query Expansion \& Semantic Intent (Xử lý truy vấn)}:
+  Sử dụng mô hình ngôn ngữ nhẹ (SLM) để sửa lỗi chính tả, mở rộng từ đồng nghĩa, và trích xuất thực thể có cấu trúc (\code{Category}, \code{Brand}, \code{PriceRange}).
+  \item \textbf{Tầng 2: Two-Tower Candidate Retrieval (Thu hồi ứng viên)}:
+  Mạng nơ-ron Two-Tower gồm Tháp Người dùng/Truy vấn (\textit{Query Tower} $u(x)$) và Tháp Sản phẩm (\textit{Item Tower} $v(y)$), ánh xạ hai thực thể vào cùng một không gian vector $d = 256$ chiều.
+  Độ tương đồng ngữ nghĩa được tính bằng tích vô hướng chuẩn hóa (Cosine Similarity):
+  \begin{equation}
+  \text{sim}(u, v) = \frac{\mathbf{u} \cdot \mathbf{v}}{\|\mathbf{u}\|_2 \|\mathbf{v}\|_2}
+  \label{eq:two-tower-cosine}
+  \end{equation}
+  Nhờ cấu trúc này, toàn bộ vector của $50$ triệu sản phẩm được tính toán offline và lập chỉ mục bằng giải thuật ANN (HNSW / ScaNN). Khi người dùng gõ từ khóa, hệ thống chỉ cần tính vector tháp truy vấn và quét ANN để lấy ra Top $1.000$ ứng viên tiềm năng nhất trong vòng $5\text{ms}$!
+  \item \textbf{Tầng 3: Multi-Task Ranking (Chấm điểm eCPM)}:
+  Mô hình học máy đa nhiệm (DLRM / DeepFM) dự đoán xác suất nhấp chuột ($p\text{CTR}$) và xác suất chuyển đổi đơn hàng ($p\text{CVR}$). Điểm số xếp hạng kinh tế (eCPM) được xác định:
+  \begin{equation}
+  \text{eCPM} = p\text{CTR} \times p\text{CVR} \times \text{Bid} \times 1.000
+  \label{eq:ecpm-ranking}
+  \end{equation}
+  \item \textbf{Tầng 4: Re-ranking \& MMR Diversity (Tái xếp hạng đa dạng hóa)}:
+  Nếu chỉ xếp hạng theo điểm số cao nhất, trang kết quả sẽ ngập tràn các sản phẩm giống hệt nhau (ví dụ 10 chiếc áo thun cùng màu đỏ của cùng một shop).
+  Để giải quyết sự nhàm chán này, hệ thống áp dụng thuật toán \term{Maximal Marginal Relevance (MMR)}:
+  \begin{equation}
+  \text{MMR}(d_i) = \arg\max_{d_i \in R \setminus S} \left[ \lambda \cdot \text{Sim}_1(d_i, Q) - (1 - \lambda) \max_{d_j \in S} \text{Sim}_2(d_i, d_j) \right]
+  \label{eq:mmr-formula}
+  \end{equation}
+  Trong đó $\lambda \in [0, 1]$ là hệ số đánh đổi giữa độ liên quan với truy vấn ($\text{Sim}_1$) và độ đa dạng hóa so với các sản phẩm đã được chọn trước đó trong danh sách kết quả ($S$).
+\end{enumerate}
+
+\subsection{Hiện Thực Hóa Python: Two-Tower Retrieval \& MMR Reranking}
+Dưới đây là mã nguồn cài đặt của bộ đôi \code{TwoTowerSimilarityRetriever} và \code{MMRDiversityReranker}:
+
+\begin{lstlisting}[language=Python]
+import math
+from typing import Dict, Any, List
+
+class TwoTowerSimilarityRetriever:
+    """Bo truy van ung vien Two-Tower su dung Cosine Similarity."""
+    @staticmethod
+    def cosine_similarity(vec_a: List[float], vec_b: List[float]) -> float:
+        dot = sum(a * b for a, b in zip(vec_a, vec_b))
+        norm_a = math.sqrt(sum(a * a for a in vec_a))
+        norm_b = math.sqrt(sum(b * b for b in vec_b))
+        if norm_a == 0.0 or norm_b == 0.0:
+            return 0.0
+        return dot / (norm_a * norm_b)
+
+    def retrieve_top_k(
+        self,
+        query_vector: List[float],
+        item_database: List[Dict[str, Any]],
+        top_k: int = 5
+    ) -> List[Dict[str, Any]]:
+        scored = []
+        for item in item_database:
+            sim = self.cosine_similarity(query_vector, item["embedding"])
+            scored.append({
+                "item_id": item["item_id"],
+                "name": item.get("name", ""),
+                "category": item.get("category", ""),
+                "score": round(sim, 4),
+                "embedding": item["embedding"]
+            })
+        scored.sort(key=lambda x: x["score"], reverse=True)
+        return scored[:top_k]
+
+class MMRDiversityReranker:
+    """Tai xep hang da dang hoa Maximal Marginal Relevance (MMR)."""
+    @staticmethod
+    def rerank(
+        candidates: List[Dict[str, Any]],
+        lambda_param: float = 0.5,
+        top_k: int = 3
+    ) -> List[Dict[str, Any]]:
+        if not candidates or top_k <= 0:
+            return []
+        
+        selected: List[Dict[str, Any]] = []
+        remaining = candidates.copy()
+
+        # Phan tu dau tien luon la phan tu co relevance score cao nhat
+        first = max(remaining, key=lambda x: x["score"])
+        selected.append(first)
+        remaining.remove(first)
+
+        while len(selected) < top_k and remaining:
+            best_item = None
+            best_mmr_score = -float("inf")
+
+            for item in remaining:
+                relevance = item["score"]
+                max_sim_to_selected = max(
+                    TwoTowerSimilarityRetriever.cosine_similarity(item["embedding"], s["embedding"])
+                    for s in selected
+                )
+                mmr_score = lambda_param * relevance - (1.0 - lambda_param) * max_sim_to_selected
+                if mmr_score > best_mmr_score:
+                    best_mmr_score = mmr_score
+                    best_item = item
+
+            if best_item:
+                selected.append(best_item)
+                remaining.remove(best_item)
+            else:
+                break
+
+        return selected
+\end{lstlisting}
+
+\begin{simulationbox}[Prompts AI Mô Phỏng Hoạt Họa 60 FPS: Manim CE Trực Quan Hóa Không Gian Tiềm Ẩn Two-Tower \& MMR]
+\begin{quote}
+\small\itshape
+``Hãy đóng vai một chuyên gia Manim CE và Kỹ sư Trưởng Hệ Thống Gợi Ý. \\
+Hãy viết một script Python hoàn chỉnh sử dụng thư viện \code{manim} để tạo video hoạt họa 1080p 60fps trực quan hóa thuật toán Two-Tower và Maximal Marginal Relevance:
+\begin{enumerate}
+  \item Vẽ không gian tiềm ẩn đa chiều dạng quả cầu vector 3D xoay nhẹ.
+  \item Một vector truy vấn của người dùng (Query Vector màu vàng rực) xuất hiện từ tâm quả cầu: ``Giày chạy bộ nam thoáng khí''.
+  \item Hàng ngàn điểm chấm sản phẩm (Item embeddings) phân bố xung quanh. Một hình nón tìm kiếm quét qua và gom lấy cụm 10 sản phẩm gần nhất.
+  \item Chuyển sang góc nhìn 2D phẳng: 3 sản phẩm đầu tiên đều là ``Giày chạy bộ đỏ v1, v2, v3'' nằm sát rạt nhau (độ tương đồng chéo giữa chúng là $0.99$).
+  \item Thuật toán MMR được kích hoạt với thanh trượt tham số $\lambda = 0.5$. Công thức MMR hiện lên màn hình: Thành phần phạt tương đồng đẩy lùi sản phẩm thứ 2; thay vào đó, một sản phẩm ở xa hơn nhưng thuộc danh mục bổ trợ (``Tất thể thao chống trơn'') được kéo lên thế chỗ!
+  \item Render bằng lệnh: \code{manim -pql scene.py TwoTowerMMRScene}.''
+\end{enumerate}
+\end{quote}
+\end{simulationbox}
+
+---
+
+\section{Đồ Án Kỳ Hạm 4: Kỹ Sư SRE AI Tự Hành \& Chẩn Đoán Sự Cố Chuỗi Vết Phân Tán (Autonomous Enterprise SRE)}
+\label{sec:ch14-autonomous-sre}
+
+\subsection{Bối Cảnh Vận Hành Hệ Thống Phân Tán Quy Mô Lớn}
+Trong các hệ thống phân tán vi dịch vụ (Kubernetes với hàng trăm pods), một yêu cầu của người dùng có thể kích hoạt một chuỗi gọi đệ quy qua hàng chục dịch vụ (API Gateway $\to$ Auth $\to$ Cart $\to$ Inventory $\to$ Payment $\to$ Database).
+Khi chỉ số $P99$ bùng nổ hoặc xuất hiện lỗi HTTP 500, các kỹ sư SRE đối mặt với cây vết \term{Distributed Tracing (OpenTelemetry)} gồm hàng ngàn spans chồng chéo.
+Việc tìm ra chính xác đâu là microservice gây nghẽn hoặc nguồn gốc phát sinh lỗi thường tốn từ $30$ phút đến $2$ giờ nếu phân tích thủ công.
+
+\subsection{Toán Học Định Vị Nguyên Nhân Gốc Rễ: Duration vs Self-Time}
+Mỗi đơn vị đo lường trong distributed trace được gọi là một \term{Span $S$}, có thời gian bắt đầu $\text{Start}(S)$ và thời gian kết thúc $\text{End}(S)$.
+Tổng thời lượng của span được tính:
+\begin{equation}
+\text{Duration}(S) = \text{End}(S) - \text{Start}(S)
+\label{eq:span-duration}
+\end{equation}
+Tuy nhiên, nếu dịch vụ $A$ gọi dịch vụ con $B$, thì $\text{Duration}(A)$ bao gồm cả thời gian chờ $B$ trả lời. Nếu dịch vụ $B$ chạy chậm, $\text{Duration}(A)$ cũng sẽ hiển thị rất lớn, gây ra hiện tượng nhận diện nhầm thủ phạm!
+Do đó, chỉ số cốt lõi để xác định chính xác nút thắt cổ chai là \term{Thời gian tự thân (Self-Time)}:
+\begin{equation}
+\text{SelfTime}(S) = \text{Duration}(S) - \sum_{C \in \text{Children}(S)} \text{Duration}(C)
+\label{eq:self-time}
+\end{equation}
+Microservice nào có $\text{SelfTime}$ lớn nhất (hoặc là nơi phát sinh cờ lỗi \code{is_error = True} sâu nhất trong cây phả hệ gọi hàm) chính là \textbf{Nguyên nhân gốc rễ (Root Cause)} cần khắc phục!
+
+\subsection{Hiện Thực Hóa Python: Bộ Phân Tích Chuỗi Vết SRE Phân Tán}
+Dưới đây là mã nguồn của lớp \code{DistributedTraceRootCauseAnalyzer}:
+
+\begin{lstlisting}[language=Python]
+from typing import Dict, Any, List, Optional, TypedDict
+
+class TraceSpan(TypedDict):
+    span_id: str
+    parent_id: Optional[str]
+    service_name: str
+    start_time_ms: float
+    end_time_ms: float
+    is_error: bool
+
+class DistributedTraceRootCauseAnalyzer:
+    """Phan tich cay vet Distributed Tracing de xac dinh Root Cause Service."""
+    @staticmethod
+    def analyze_trace(spans: List[TraceSpan]) -> Dict[str, Any]:
+        if not spans:
+            return {"root_cause_service": None, "total_trace_duration_ms": 0.0}
+
+        durations = {}
+        children_map: Dict[str, List[str]] = {s["span_id"]: [] for s in spans}
+        span_by_id = {s["span_id"]: s for s in spans}
+
+        for s in spans:
+            durations[s["span_id"]] = max(0.0, s["end_time_ms"] - s["start_time_ms"])
+            if s["parent_id"] and s["parent_id"] in children_map:
+                children_map[s["parent_id"]].append(s["span_id"])
+
+        self_times = {}
+        for s in spans:
+            s_id = s["span_id"]
+            child_dur = sum(durations[c_id] for c_id in children_map[s_id])
+            self_times[s_id] = max(0.0, durations[s_id] - child_dur)
+
+        error_spans = [s for s in spans if s["is_error"]]
+        if error_spans:
+            root_cause_span = error_spans[-1]
+            reason = f"Error flag raised in service {root_cause_span['service_name']}"
+        else:
+            max_self_id = max(self_times, key=lambda sid: self_times[sid])
+            root_cause_span = span_by_id[max_self_id]
+            reason = f"Latency bottleneck with maximum self-time ({round(self_times[max_self_id], 2)}ms)"
+
+        root_span = next((s for s in spans if s["parent_id"] is None), spans[0])
+        total_trace_duration = durations[root_span["span_id"]]
+
+        return {
+            "root_cause_service": root_cause_span["service_name"],
+            "root_cause_span_id": root_cause_span["span_id"],
+            "reason": reason,
+            "total_trace_duration_ms": round(total_trace_duration, 2),
+            "self_time_ms": round(self_times[root_cause_span["span_id"]], 2)
+        }
+\end{lstlisting}
+
+\begin{simulationbox}[Prompts AI Mô Phỏng Hoạt Họa 60 FPS: Manim CE Trực Quan Hóa Cây Vết Waterfall Distributed Trace]
+\begin{quote}
+\small\itshape
+``Hãy đóng vai một chuyên gia Manim CE và Kỹ sư Trưởng SRE của Google. \\
+Hãy viết một script Python hoàn chỉnh sử dụng thư viện \code{manim} để tạo video hoạt họa 1080p 60fps trực quan hóa cây vết Waterfall Distributed Trace:
+\begin{enumerate}
+  \item Màn hình hiển thị biểu đồ thác nước thời gian (Waterfall Trace Chart) từ $0\text{ms}$ đến $200\text{ms}$.
+  \item Thanh ngang trên cùng là \code{API-Gateway} (kéo dài từ $0$ đến $200\text{ms}$, màu xám nhạt).
+  \item Phía dưới là các thanh con thụt đầu dòng: \code{Auth-Service} ($5 - 25\text{ms}$), và \code{Database-Postgres} ($30 - 190\text{ms}$).
+  \item Hiệu ứng phân rã Self-Time: Phần thời gian chờ của Gateway biến thành trong suốt; một hộp màu đỏ rực phát sáng bao phủ thanh \code{Database-Postgres} với nhãn: \code{Self-Time: 160ms (80\% of total trace)}.
+  \item Một kính lúp AI phóng to vào câu lệnh SQL chậm của Database, tự động đề xuất tạo chỉ số: \code{CREATE INDEX CONCURRENTLY idx_orders_user_id}.
+  \item Render bằng lệnh: \code{manim -pql scene.py DistributedTraceWaterfallScene}.''
+\end{enumerate}
+\end{quote}
+\end{simulationbox}
+
+---
+
+\section{Thiết Kế Cơ Sở Dữ Liệu SQL Chuẩn Doanh Nghiệp \& Audit Trail Bất Biến}
+\label{sec:ch14-database-schema}
+
+Để đảm bảo tuân thủ các quy chuẩn bảo mật quốc tế ISO 27001 và SOC 2 Type II, toàn bộ nhật ký quyết định của các tác tử AI bắt buộc phải được lưu trữ trong một cấu trúc cơ sở dữ liệu có tính toàn vẹn mật mã học (\textit{Cryptographic Audit Ledger}):
+
+\begin{lstlisting}[language=SQL]
+-- Bang 1: Quan ly Su co An ninh & Ha tang (Incidents)
+CREATE TABLE enterprise_incidents (
+    incident_id VARCHAR(64) PRIMARY KEY,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    incident_type VARCHAR(32) NOT NULL, -- 'NET_OUTAGE', 'FRAUD', 'SRE_LATENCY'
+    severity_level VARCHAR(16) NOT NULL, -- 'LOW', 'MEDIUM', 'HIGH', 'CRITICAL'
+    source_identifier VARCHAR(128) NOT NULL,
+    status VARCHAR(32) DEFAULT 'TRIAGED',
+    metadata JSONB NOT NULL DEFAULT '{}'::jsonb
+);
+
+-- Bang 2: Nhat ky Chuoi vet Da tac tu LangGraph (Agent Spans)
+CREATE TABLE agent_execution_spans (
+    span_id VARCHAR(64) PRIMARY KEY,
+    incident_id VARCHAR(64) REFERENCES enterprise_incidents(incident_id),
+    agent_name VARCHAR(64) NOT NULL,
+    prompt_tokens INT NOT NULL,
+    completion_tokens INT NOT NULL,
+    latency_ms NUMERIC(10, 2) NOT NULL,
+    tool_calls JSONB,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Bang 3: So cai Kiem toan Bat bien (Immutable Audit Ledger voi SHA-256 Chaining)
+CREATE TABLE immutable_audit_ledger (
+    ledger_index BIGSERIAL PRIMARY KEY,
+    incident_id VARCHAR(64) NOT NULL,
+    action_command TEXT NOT NULL,
+    approved_by VARCHAR(64) NOT NULL,
+    previous_hash VARCHAR(64) NOT NULL,
+    current_hash VARCHAR(64) NOT NULL,
+    timestamp TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
+CREATE INDEX idx_audit_incident ON immutable_audit_ledger(incident_id);
+\end{lstlisting}
+
 ---
 
 \section{Hệ Thống Bài Tập Kỹ Nghệ \& Đánh Giá Năng Lực}
@@ -319,6 +741,9 @@ class AINetSecOpsPlatform:
   \item \textbf{So sánh Supervisor tập trung vs Handoff ngang hàng}: Phân tích sự khác biệt giữa mô hình Supervisor tập trung (\textit{Centralized Orchestration}) và mô hình Handoff mạng ngang hàng (\textit{Peer-to-Peer Chaining}) trong LangGraph khi áp dụng vào bài toán NetSecOps. Mô hình nào dễ quản lý trạng thái kiểm toán (\textit{Audit Trail}) hơn?
   \item \textbf{Phòng thủ trước tấn công Log Injection}: Nếu kẻ tấn công cố tình bơm hàng ngàn thông điệp Syslog giả mạo chứa văn bản tiêm lệnh (\textit{Log Injection Attack}), các tầng bảo vệ của hệ thống AI-NetSecOps sẽ ngăn chặn nguy cơ này như thế nào?
   \item \textbf{Nguyên lý Allowlist vs Blocklist trong Guardrail}: Tại sao trong an ninh hạ tầng mạng, việc chỉ sử dụng danh sách đen các câu lệnh nguy hiểm (Blocklist Regex) là hoàn toàn không đủ để ngăn chặn thảm họa?
+  \item \textbf{Bản chất quy luật Benford trong dữ liệu kế toán tự nhiên}: Tại sao các con số kế toán thực tế lại có xu hướng bắt đầu bằng chữ số 1 với xác suất lên tới $30.1\%$, trong khi chữ số 9 chỉ chiếm $4.6\%$? Trường hợp nào quy luật Benford không thể áp dụng (False Positive)?
+  \item \textbf{Đánh đổi giữa Relevance và Diversity trong MMR}: Phân tích vai trò của tham số $\lambda$ trong thuật toán MMR. Nếu đặt $\lambda = 1.0$, hệ thống suy biến thành thuật toán gì? Nếu đặt $\lambda = 0.0$, điều gì sẽ xảy ra với kết quả gợi ý?
+  \item \textbf{Ý nghĩa của Self-Time trong xử lý sự cố vi dịch vụ}: Tại sao khi phân tích chuỗi vết Distributed Tracing, kỹ sư SRE không được phép chỉ nhìn vào tổng thời lượng (Duration) của span mà bắt buộc phải tính toán Self-Time?
 \end{enumerate}
 
 \subsection{Nhóm B: Tính Toán Giải Tích \& Số Học Bằng Tay}
@@ -347,30 +772,53 @@ class AINetSecOpsPlatform:
 
   \item \textbf{Tính toán độ trễ chu trình khép kín (End-to-End Latency)}:
   Một chu trình xử lý sự cố gồm 4 bước nối tiếp: Triage (mô hình 8B, $300\text{ms}$), RAG Retrieval (Qdrant HNSW, $25\text{ms}$), Remediation Synthesis (mô hình 70B FP8, $1.200\text{ms}$), và Guardrail Verification ($5\text{ms}$). Tính tổng thời gian hệ thống sẵn sàng trình đề xuất lên màn hình chuyên viên và xác định thành phần chiếm tỷ trọng độ trễ lớn nhất.
+
+  \item \textbf{Tính toán kiểm định gian lận Benford $\chi^2$ bằng tay}:
+  Một kiểm toán viên thu thập mẫu gồm $N = 100$ hóa đơn thanh toán của phòng mua hàng. Kết quả đếm số lượng chữ số đầu tiên thực tế quan sát được ($O_d$) như sau:
+  Chữ số 1: $10$ hóa đơn; Chữ số 2 đến 8: mỗi chữ số có đúng $10$ hóa đơn; Chữ số 9: $20$ hóa đơn.
+  Biết rằng tần số kỳ vọng theo Benford cho $N=100$ là: $E_1 = 30.1$, $E_2 = 17.6$, $E_3 = 12.5$, $E_4 = 9.7$, $E_5 = 7.9$, $E_6 = 6.7$, $E_7 = 5.8$, $E_8 = 5.1$, $E_9 = 4.6$.
+  Hãy tính giá trị thống kê $\chi^2$ và kết luận bộ dữ liệu có bị nghi ngờ gian lận hay không với ngưỡng tới hạn $\chi^2_{0.05, 8} = 15.507$.
+
+  \item \textbf{Tính toán điểm số đa dạng hóa MMR}:
+  Xét một truy vấn người dùng có điểm tương đồng với 3 sản phẩm ứng viên:
+  - Sản phẩm $d_1$: $\text{Sim}(d_1, Q) = 0.95$ (với embedding $[1.0, 0.0]$).
+  - Sản phẩm $d_2$: $\text{Sim}(d_2, Q) = 0.90$ (với embedding $[0.99, 0.05]$).
+  - Sản phẩm $d_3$: $\text{Sim}(d_3, Q) = 0.80$ (với embedding $[0.0, 1.0]$).
+  Giả sử sản phẩm $d_1$ đã được chọn vào danh sách kết quả ($S = \{d_1\}$).
+  Với hệ số $\lambda = 0.5$, hãy tính điểm MMR cho hai ứng viên còn lại ($d_2$ và $d_3$), và xác định sản phẩm nào sẽ được thuật toán chọn ở vị trí thứ hai.
+
+  \item \textbf{Xác định Root Cause Service theo Self-Time}:
+  Một chuỗi trace phân tán có cấu trúc:
+  - Span gốc $S_1$ (API Gateway): từ $t = 0\text{ms}$ đến $t = 150\text{ms}$.
+  - Span con $S_2$ (Order Service): từ $t = 10\text{ms}$ đến $t = 140\text{ms}$ (gọi bởi $S_1$).
+  - Span con $S_3$ (Payment Service): từ $t = 20\text{ms}$ đến $t = 135\text{ms}$ (gọi bởi $S_2$).
+  Hãy tính toán Duration và Self-Time của từng span, và chỉ ra microservice nào là nguyên nhân chính gây ra độ trễ của toàn bộ chuỗi trace.
 \end{enumerate}
 
 \subsection{Nhóm C: Thực Hành Kỹ Nghệ \& Lập Trình (Implementation Labs)}
 
 \begin{enumerate}[label=\textbf{C\arabic*.}]
-  \item \textbf{Bộ Quản Lý Rollback Giao Dịch Cấu Hình Mạng}:
-  Xây dựng lớp Python quản lý hoàn nguyên giao dịch mạng, cho phép:
-  \begin{itemize}
-    \item Trước khi thực thi bất kỳ câu lệnh nào (ví dụ câu lệnh chèn luật chặn IP \code{-I INPUT}), tự động sinh ra câu lệnh hoàn nguyên tương ứng (đổi sang lệnh xóa luật \code{-D INPUT}).
-    \item Lưu trữ cặp lệnh \code{(execute_cmd, rollback_cmd)} vào cơ chế ngăn xếp (Stack).
-    \item Khi có sự cố hoặc người dùng nhấn nút ``Hoàn tác (Rollback)'', hệ thống tự động thực thi các lệnh rollback theo thứ tự LIFO (Last-In, First-Out).
-  \end{itemize}
-
-  \item \textbf{Triển khai Immutable Allowlist Guardrail}:
-  Cài đặt hàm kiểm tra địa chỉ IP đích: Nếu IP nằm trong mạng con của Gateway hoặc DNS Resolver, lập tức từ chối sinh lệnh khóa IP và kích hoạt cảnh báo nguy cấp.
+  \item \textbf{Bộ Quản Lý Rollback Giao Dịch Cấu Hình Mạng}: \\
+  Xây dựng lớp \code{TransactionalNetworkConfigurator} quản lý hoàn nguyên giao dịch, tự động sinh lệnh rollback tương ứng và hỗ trợ hoàn nguyên LIFO.
+  \item \textbf{Triển khai Immutable Allowlist Guardrail}: \\
+  Cài đặt hàm kiểm tra IP đích: Nếu IP thuộc Gateway hoặc DNS Resolver, lập tức từ chối sinh lệnh khóa IP và kích hoạt cảnh báo nguy cấp.
+  \item \textbf{Bộ Kiểm Định Gian Lận Kế Toán Benford}: \\
+  Xây dựng lớp \code{BenfordFraudDetector} tính toán tần số chữ số đầu tiên, kiểm định Chi-Square với 8 bậc tự do và tự động phân loại rủi ro gian lận.
+  \item \textbf{Thuật Toán Tìm Kiếm Two-Tower Kết Hợp Tái Xếp Hạng MMR}: \\
+  Cài đặt lớp \code{TwoTowerSimilarityRetriever} và \code{MMRDiversityReranker} nhằm thực hiện truy vấn ứng viên và tái xếp hạng đa dạng hóa.
+  \item \textbf{Bộ Phân Tích Cây Vết Phân Tán Root Cause SRE}: \\
+  Cài đặt lớp \code{DistributedTraceRootCauseAnalyzer} tự động tính Self-Time trên đồ thị vết OpenTelemetry và phát hiện nút thắt cổ chai độ trễ.
 \end{enumerate}
 
 \subsection{Nhóm D: Phân Tích Thất Bại \& Debugging Thực Tế (Post-Mortem Analysis)}
 
 \begin{enumerate}[label=\textbf{D\arabic*.}]
   \item \textbf{Tự cắt đứt kết nối mạng do khóa nhầm Default Gateway}:
-  Trong một đợt tấn công từ chối dịch vụ (DDoS) nhắm vào máy chủ Web của ngân hàng, Agent tự hành phát hiện lưu lượng bất thường đến từ địa chỉ IP của Default Gateway (\code{10.0.0.1}). Do không có cơ chế Whitelist, Agent đã tự động tạo và thực thi lệnh khóa IP này, gây ra sự cố mất kết nối hoàn toàn (\textit{Network Blackhole Outage}). Hãy viết báo cáo phân tích sự cố và thiết kế giải pháp bảo vệ vĩnh viễn.
+  Phân tích sự cố Agent tự hành khóa IP Gateway (\code{10.0.0.1}) trong một đợt tấn công SYN Flood và thiết kế kiến trúc bảo vệ vĩnh viễn bằng Hardcoded Allowlist.
   \item \textbf{Vòng lặp tự điều chỉnh vô tận giữa 2 Agent}:
-  NetOps Agent phát hiện mất gói nên yêu cầu chuyển luồng sang Interface B. SecOps Agent phát hiện Interface B có lưu lượng lạ nên yêu cầu chuyển ngược lại Interface A. Hai tác tử tranh cãi lặp lại liên tục 50 lần làm tắc nghẽn đồ thị LangGraph. Phân tích nguyên nhân và thiết kế cơ chế hòa giải (\textit{Conflict Resolution Arbiter}).
+  Phân tích nguyên nhân NetOps và SecOps Agent tranh cãi chuyển luồng liên tục 50 lần và xây dựng cơ chế hòa giải xung đột (\textit{Conflict Resolution Arbiter}).
+  \item \textbf{Cảnh báo giả mạo Benford do chính sách đồng giá}:
+  Một chuỗi cửa hàng bán lẻ áp dụng chính sách đồng giá $99.000\text{ VNĐ}$ cho toàn bộ sản phẩm. Khi bộ kiểm định Benford quét qua kho dữ liệu này, nó phát ra cảnh báo gian lận khẩn cấp vì $100\%$ hóa đơn bắt đầu bằng chữ số 9! Hãy phân tích nguyên nhân và thiết kế bộ tiền lọc dữ liệu phù hợp trước khi áp dụng định luật Benford.
 \end{enumerate}
 
 ---
@@ -397,6 +845,26 @@ Khi kẻ tấn công bơm log độc hại (Log Injection):
 
 \paragraph{Lời giải Câu A4 (Allowlist vs Blocklist)}:
 Blocklist luôn là một chiến lược phòng thủ thất bại trong an ninh mạng vì không gian các chuỗi lệnh nguy hiểm là vô hạn: Kẻ tấn công có thể dùng ký tự thoát (Escape sequences), mã hóa Base64 (\code{echo cm0g... | base64 -d | sh}), hoặc các bí danh lệnh (Aliases). Do đó, việc kết hợp một danh sách trắng các thực thể được bảo vệ (\textit{Immutable Allowlist}) là phòng tuyến bắt buộc cuối cùng.
+
+\paragraph{Lời giải Câu A5 (Bản chất quy luật Benford \& Giới hạn áp dụng)}:
+Quy luật Benford xuất phát từ bản chất tăng trưởng theo cấp số nhân (hệ tọa độ Logarit) của các hiện tượng tự nhiên và kinh tế xã hội. Để một đại lượng tăng từ $1.000$ lên $2.000$, nó cần tăng trưởng $100\%$; nhưng để tăng từ $9.000$ lên $10.000$, nó chỉ cần tăng trưởng thêm khoảng $11.1\%$. Do đó, các đại lượng dành nhiều thời gian hơn trong các khoảng giá trị bắt đầu bằng chữ số 1 so với chữ số 9.
+\textbf{Trường hợp không thể áp dụng (False Positive)}:
+\begin{enumerate}
+  \item Dữ liệu bị giới hạn nhân tạo trong một khoảng hẹp (ví dụ giá vé xe buýt cố định $10.000 - 15.000\text{ VNĐ}$).
+  \item Dữ liệu mã hóa nhân tạo (số điện thoại, mã bưu chính, số căn cước công dân).
+  \item Các mặt hàng đồng giá hoặc có ngưỡng giá trần/sàn theo quy định của pháp luật.
+\end{enumerate}
+
+\paragraph{Lời giải Câu A6 (Đánh đổi Relevance và Diversity trong MMR)}:
+\begin{itemize}
+  \item Khi $\lambda = 1.0$: Thành phần phạt độ tương đồng nội bộ $(1 - \lambda)\max \text{Sim}_2$ bị triệt tiêu hoàn toàn. Thuật toán suy biến thành giải thuật tham lam ngây thơ (\textit{Standard Greedy Top-K Ranking}), chỉ chọn các tài liệu có độ tương đồng cao nhất với truy vấn, dẫn đến danh sách kết quả bị trùng lặp nội dung nghiêm trọng.
+  \item Khi $\lambda = 0.0$: Thành phần độ liên quan với truy vấn bị triệt tiêu hoàn toàn. Thuật toán chỉ tìm cách tối đa hóa khoảng cách giữa các tài liệu với nhau, dẫn đến các kết quả hoàn toàn phân tán và xa rời ý định ban đầu của người dùng!
+  \item Giá trị cân bằng tối ưu trong thực tế công nghiệp thường là $\lambda \in [0.5, 0.7]$.
+\end{itemize}
+
+\paragraph{Lời giải Câu A7 (Ý nghĩa của Self-Time trong RCA)}:
+Trong kiến trúc microservices, thời lượng thực thi của dịch vụ cha (Caller) bao hàm toàn bộ thời gian chờ dịch vụ con (Callee) phản hồi qua mạng. Nếu một dịch vụ Gateway gọi Database mất $500\text{ms}$, thì Gateway cũng sẽ có thời lượng hiển thị $500\text{ms}$. Nếu chỉ dựa vào Duration, kỹ sư sẽ đánh giá nhầm Gateway bị lỗi.
+Chỉ số Self-Time trừ đi toàn bộ thời gian của các span con, phản ánh chính xác lượng thời gian mà bản thân vi dịch vụ đó thực sự chiếm dụng CPU, đĩa hoặc luồng xử lý nội bộ. Do đó, vi dịch vụ có Self-Time lớn nhất mới chính là nút thắt cổ chai thực sự.
 
 \paragraph{Lời giải Bài B1 (Tính toán MTTR \& Tiết kiệm chi phí)}:
 \begin{enumerate}
@@ -440,7 +908,6 @@ Blocklist luôn là một chiến lược phòng thủ thất bại trong an nin
   \begin{equation*}
   \text{Total Storage} = 5.13 \times 1.2 \approx \mathbf{6.16 \text{ GB}}
   \end{equation*}
-  Dung lượng này hoàn toàn nằm trong khả năng lưu trữ của một ổ cứng SSD tiêu chuẩn với chi phí lưu trữ chưa đầy $\$1\text{/tháng}$ trên AWS EBS hoặc PostgreSQL RDS.
 \end{itemize}
 
 \paragraph{Lời giải Bài B3 (Độ trễ chu trình khép kín)}:
@@ -448,10 +915,92 @@ Tổng thời gian xử lý:
 \begin{equation*}
 T_{\text{total}} = 300\text{ms} + 25\text{ms} + 1.200\text{ms} + 5\text{ms} = 1.530\text{ms} = 1.53\text{ giây}.
 \end{equation*}
-Thành phần chiếm tỷ trọng lớn nhất là Remediation Synthesis trên mô hình 70B ($1.200\text{ms}$, chiếm $\approx 78.4\%$). Do đó, việc áp dụng Lượng tử hóa FP8/AWQ và Speculative Decoding là chìa khóa để giảm độ trễ của khâu này.
+Thành phần chiếm tỷ trọng lớn nhất là Remediation Synthesis trên mô hình 70B ($1.200\text{ms}$, chiếm $\approx 78.43\%$).
 
-\paragraph{Lời giải Bài C1 (Bộ Quản Lý Rollback Giao Dịch Cấu Hình Mạng)}:
-Mã nguồn cài đặt lớp \code{TransactionalNetworkConfigurator} hoàn chỉnh được cung cấp và kiểm thử tự động trong tệp kiểm định mã nguồn mẫu (\code{test_ch14_capstone.py}).
+\paragraph{Lời giải Bài B4 (Tính toán kiểm định gian lận Benford $\chi^2$ bằng tay)}:
+Ta tính từng số hạng trong công thức kiểm định Chi-Square:
+\begin{align*}
+\frac{(O_1 - E_1)^2}{E_1} &= \frac{(10 - 30.1)^2}{30.1} = \frac{(-20.1)^2}{30.1} = \frac{404.01}{30.1} \approx 13.42 \\
+\frac{(O_2 - E_2)^2}{E_2} &= \frac{(10 - 17.6)^2}{17.6} = \frac{(-7.6)^2}{17.6} = \frac{57.76}{17.6} \approx 3.28 \\
+\frac{(O_3 - E_3)^2}{E_3} &= \frac{(10 - 12.5)^2}{12.5} = \frac{(-2.5)^2}{12.5} = \frac{6.25}{12.5} = 0.50 \\
+\frac{(O_4 - E_4)^2}{E_4} &= \frac{(10 - 9.7)^2}{9.7} = \frac{0.3^2}{9.7} \approx 0.01 \\
+\frac{(O_5 - E_5)^2}{E_5} &= \frac{(10 - 7.9)^2}{7.9} = \frac{2.1^2}{7.9} \approx 0.56 \\
+\frac{(O_6 - E_6)^2}{E_6} &= \frac{(10 - 6.7)^2}{6.7} = \frac{3.3^2}{6.7} \approx 1.63 \\
+\frac{(O_7 - E_7)^2}{E_7} &= \frac{(10 - 5.8)^2}{5.8} = \frac{4.2^2}{5.8} \approx 3.04 \\
+\frac{(O_8 - E_8)^2}{E_8} &= \frac{(10 - 5.1)^2}{5.1} = \frac{4.9^2}{5.1} \approx 4.71 \\
+\frac{(O_9 - E_9)^2}{E_9} &= \frac{(20 - 4.6)^2}{4.6} = \frac{15.4^2}{4.6} = \frac{237.16}{4.6} \approx 51.56
+\end{align*}
+Cộng tổng toàn bộ 9 số hạng:
+\begin{align*}
+\chi^2 &= 13.42 + 3.28 + 0.50 + 0.01 + 0.56 + 1.63 + 3.04 + 4.71 + 51.56 \\
+&= \mathbf{78.71}
+\end{align*}
+\textbf{Kết luận}:
+Vì $\chi^2 = 78.71 \gg \chi^2_{\text{critical}} = 15.507$, ta bác bỏ giả thuyết dữ liệu phân phối tự nhiên $H_0$. Bộ hóa đơn này có sự bất thường nghiêm trọng ở chữ số 9 (cao bất thường gấp 4.3 lần kỳ vọng) và thiếu hụt chữ số 1, phản ánh dấu hiệu gian lận sổ sách kế toán có chủ đích!
+
+\paragraph{Lời giải Bài B5 (Tính toán điểm số đa dạng hóa MMR)}:
+Sản phẩm $d_1$ đã được chọn ($S = \{d_1\}$).
+Xét hai ứng viên còn lại:
+\begin{itemize}
+  \item \textbf{Ứng viên $d_2$}:
+  \begin{align*}
+  \text{Sim}(d_2, Q) &= 0.90 \\
+  \text{Sim}(d_2, d_1) &= \frac{0.99 \times 1.0 + 0.05 \times 0.0}{\sqrt{0.99^2 + 0.05^2} \times 1.0} \approx \frac{0.99}{0.9912} \approx 0.9988
+  \end{align*}
+  Điểm MMR của $d_2$:
+  \begin{equation*}
+  \text{MMR}(d_2) = 0.5 \times 0.90 - (1 - 0.5) \times 0.9988 = 0.45 - 0.4994 = \mathbf{-0.0494}
+  \end{equation*}
+
+  \item \textbf{Ứng viên $d_3$}:
+  \begin{align*}
+  \text{Sim}(d_3, Q) &= 0.80 \\
+  \text{Sim}(d_3, d_1) &= \frac{0.0 \times 1.0 + 1.0 \times 0.0}{1.0 \times 1.0} = 0.0
+  \end{align*}
+  Điểm MMR của $d_3$:
+  \begin{equation*}
+  \text{MMR}(d_3) = 0.5 \times 0.80 - (1 - 0.5) \times 0.0 = 0.40 - 0.0 = \mathbf{0.4000}
+  \end{equation*}
+\end{itemize}
+\textbf{Kết luận}:
+Vì $\text{MMR}(d_3) = 0.4000 > \text{MMR}(d_2) = -0.0494$, thuật toán MMR sẽ \textbf{chọn sản phẩm $d_3$} làm kết quả xếp thứ hai.
+Mặc dù $d_2$ có điểm liên quan trực tiếp cao hơn ($0.90 > 0.80$), nhưng do nó quá giống sản phẩm $d_1$ đã chọn ($\text{Sim} \approx 0.999$), thành phần phạt đa dạng hóa đã loại trừ nó để mang lại trải nghiệm phong phú cho người dùng!
+
+\paragraph{Lời giải Bài B6 (Xác định Root Cause Service theo Self-Time)}:
+\begin{itemize}
+  \item \textbf{Span $S_3$ (Payment Service)}:
+  Là nút lá (không có con).
+  \begin{align*}
+  \text{Duration}(S_3) &= 135\text{ms} - 20\text{ms} = 115\text{ms} \\
+  \text{SelfTime}(S_3) &= \text{Duration}(S_3) - 0 = \mathbf{115\text{ms}}
+  \end{align*}
+
+  \item \textbf{Span $S_2$ (Order Service)}:
+  Có con trực tiếp là $S_3$.
+  \begin{align*}
+  \text{Duration}(S_2) &= 140\text{ms} - 10\text{ms} = 130\text{ms} \\
+  \text{SelfTime}(S_2) &= \text{Duration}(S_2) - \text{Duration}(S_3) = 130\text{ms} - 115\text{ms} = \mathbf{15\text{ms}}
+  \end{align*}
+
+  \item \textbf{Span $S_1$ (API Gateway)}:
+  Có con trực tiếp là $S_2$.
+  \begin{align*}
+  \text{Duration}(S_1) &= 150\text{ms} - 0\text{ms} = 150\text{ms} \\
+  \text{SelfTime}(S_1) &= \text{Duration}(S_1) - \text{Duration}(S_2) = 150\text{ms} - 130\text{ms} = \mathbf{20\text{ms}}
+  \end{align*}
+\end{itemize}
+\textbf{Kết luận}:
+Microservice có Self-Time lớn nhất là \textbf{Payment Service} ($115\text{ms}$, chiếm $\frac{115}{150} \approx 76.67\%$ tổng thời gian yêu cầu). Đây chính là nguyên nhân gốc rễ (Root Cause) gây ra độ trễ của toàn bộ chu trình xử lý!
+
+\paragraph{Lời giải Bài C1, C2, C3, C4, C5 (Hiện thực hóa hệ thống)}:
+Toàn bộ mã nguồn hoàn chỉnh, được bao phủ $100\%$ bởi các ca kiểm thử tự động (\textit{Unit Tests}), được cung cấp trong tệp kiểm thử \code{tests/test_ch14_capstone.py}:
+\begin{itemize}
+  \item \textbf{Bài C1} (\code{TransactionalNetworkConfigurator}): Cơ chế hoàn nguyên lệnh mạng LIFO.
+  \item \textbf{Bài C2} (\code{validate_command_safety}): Kiểm tra Allowlist bảo vệ Gateway/DNS.
+  \item \textbf{Bài C3} (\code{BenfordFraudDetector}): Kiểm định gian lận Benford và Chi-Square thống kê.
+  \item \textbf{Bài C4}: Lớp \code{TwoTowerSimilarityRetriever} và \code{MMRDiversityReranker} (truy vấn vector và tái xếp hạng MMR).
+  \item \textbf{Bài C5} (\code{DistributedTraceRootCauseAnalyzer}): Phân tích chuỗi vết phân tán và tính Self-Time định vị Root Cause.
+\end{itemize}
 
 \paragraph{Lời giải Bài D1 (Post-Mortem: Tự cắt kết nối mạng do khóa Default Gateway)}:
 \begin{enumerate}
@@ -467,3 +1016,15 @@ Mã nguồn cài đặt lớp \code{TransactionalNetworkConfigurator} hoàn ch�
 
 \paragraph{Lời giải Bài D2 (Vòng lặp tự điều chỉnh vô tận)}:
 Cần bổ sung một biến đếm số vòng chuyển hướng trong State Schema: \code{reroute_count: int = 0}. Khi \code{reroute_count >= 3}, Supervisor phát hiện xung đột và chuyển toàn bộ sự việc sang nút \code{EscalateToHumanNode} để chuyên viên con người can thiệp, ngăn chặn hoàn toàn vòng lặp vô tận giữa các Agent.
+
+\paragraph{Lời giải Bài D3 (Xử lý cảnh báo giả Benford do chính sách đồng giá)}:
+\begin{enumerate}
+  \item \textbf{Nguyên nhân}: Quy luật Benford chỉ áp dụng cho dữ liệu trải dài trên nhiều bậc độ lớn (\textit{Spanning Multiple Orders of Magnitude}) và biến thiên tự nhiên. Khi công ty áp dụng chính sách đồng giá $99.000\text{ VNĐ}$, phân phối dữ liệu bị cố định nhân tạo, vi phạm giả định nền tảng của luật Benford.
+  \item \textbf{Giải pháp kiến trúc}:
+  Triển khai bộ lọc tiền kiểm toán (\textit{Pre-Audit Data Profiling}):
+  \begin{itemize}
+    \item Bước 1: Tính độ phân tán (Orders of Magnitude Spread): $\log_{10}(\text{Max}) - \log_{10}(\text{Min})$. Nếu độ trải rộng $< 3$ bậc độ lớn, tạm thời vô hiệu hóa bộ kiểm tra Benford.
+    \item Bước 2: Kiểm tra tỷ lệ tập trung giá trị đơn nhất (Uniqueness Ratio). Nếu hơn $30\%$ số giao dịch có cùng một giá trị chính xác, chuyển sang áp dụng mô hình phân cụm bất thường (\textit{Isolation Forest}) thay vì kiểm định Benford.
+  \end{itemize}
+\end{enumerate}
+

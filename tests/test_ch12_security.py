@@ -275,3 +275,206 @@ eval("__import__('os').system('ls')")
     assert not success
     assert "[SECURITY ERROR]" in msg
     assert "eval" in msg
+
+# ==============================================================================
+# 5. AI SECURITY LOG PARSER & IOC EXTRACTOR
+# ==============================================================================
+
+from urllib.parse import unquote
+
+class AISecurityLogParser:
+    """Security Log Parser extracting IOCs and detecting common attack signatures."""
+    
+    IP_REGEX = re.compile(r"\b(?:\d{1,3}\.){3}\d{1,3}\b")
+    CVE_REGEX = re.compile(r"CVE-\d{4}-\d{4,7}", re.IGNORECASE)
+    
+    ATTACK_SIGNATURES = {
+        "SQL_INJECTION": re.compile(r"(union\s+select|select\s+.*\s+from|'\s*or\s*'1'='1|information_schema)", re.IGNORECASE),
+        "PATH_TRAVERSAL": re.compile(r"(\.\./\.\./|\.\.\\\.\.\\|/etc/passwd|/windows/win\.ini)", re.IGNORECASE),
+        "SSRF_CLOUD_METADATA": re.compile(r"(169\.254\.169\.254|metadata\.google\.internal)", re.IGNORECASE),
+        "COMMAND_INJECTION": re.compile(r"(;\s*(cat|ls|id|whoami|curl|wget|nc|sh|bash)\b|\|\s*(cat|ls|id|whoami)\b)", re.IGNORECASE),
+        "PROMPT_INJECTION": re.compile(r"(ignore\s+(all\s+)?(previous|prior)\s+instructions?|system\s+override)", re.IGNORECASE),
+    }
+
+    def parse_log_line(self, log_line: str) -> Dict[str, Any]:
+        """Parses a log line, extracts IP, CVE, and detects attack signatures."""
+        decoded_line = unquote(log_line)
+        ips = self.IP_REGEX.findall(decoded_line)
+        cves = self.CVE_REGEX.findall(decoded_line)
+        
+        detected_threats = []
+        for threat_name, pattern in self.ATTACK_SIGNATURES.items():
+            if pattern.search(decoded_line):
+                detected_threats.append(threat_name)
+
+        return {
+            "source_ip": ips[0] if ips else None,
+            "all_ips": ips,
+            "cves": list(set(cves)),
+            "detected_threats": detected_threats,
+            "is_suspicious": len(detected_threats) > 0,
+        }
+
+def test_ai_security_log_parser_sqli_and_ssrf():
+    parser = AISecurityLogParser()
+    
+    # Test SQLi Log
+    log_sqli = '192.168.1.105 - - [01/Oct/2026:12:00:00] "GET /api/v1/users?id=1%20UNION%20SELECT%20username,password%20FROM%20users HTTP/1.1" 200'
+    res_sqli = parser.parse_log_line(log_sqli)
+    assert res_sqli["source_ip"] == "192.168.1.105"
+    assert "SQL_INJECTION" in res_sqli["detected_threats"]
+    assert res_sqli["is_suspicious"] is True
+
+    # Test Cloud Metadata SSRF Log
+    log_ssrf = '10.0.0.50 - - [01/Oct/2026:12:00:05] "POST /proxy?url=http://169.254.169.254/latest/meta-data/ HTTP/1.1" 403'
+    res_ssrf = parser.parse_log_line(log_ssrf)
+    assert "SSRF_CLOUD_METADATA" in res_ssrf["detected_threats"]
+    assert res_ssrf["is_suspicious"] is True
+
+    # Test Benign Log
+    log_clean = '10.0.0.2 - - [01/Oct/2026:12:00:10] "GET /health HTTP/1.1" 200'
+    res_clean = parser.parse_log_line(log_clean)
+    assert len(res_clean["detected_threats"]) == 0
+    assert res_clean["is_suspicious"] is False
+
+# ==============================================================================
+# 6. NETFLOW ANOMALY DETECTOR
+# ==============================================================================
+
+class NetFlowAnomalyDetector:
+    """Detects network anomalies (SYN Flood, Port Scan) from flow statistics."""
+    
+    def __init__(self, syn_flood_ratio_threshold: float = 0.85, port_entropy_threshold: float = 4.0):
+        self.syn_ratio_threshold = syn_flood_ratio_threshold
+        self.entropy_threshold = port_entropy_threshold
+
+    def analyze_flow_window(
+        self,
+        packets_count: int,
+        syn_count: int,
+        ack_count: int,
+        port_counts: Dict[int, int]
+    ) -> Dict[str, Any]:
+        if packets_count == 0:
+            return {"status": "NO_TRAFFIC", "threat": None, "entropy": 0.0}
+
+        syn_ratio = syn_count / packets_count
+        entropy = calculate_shannon_entropy(port_counts)
+        unique_ports = len(port_counts)
+
+        # 1. Check for SYN Flood: Very high SYN ratio, minimal ACKs, high volume
+        if packets_count >= 1000 and syn_ratio > self.syn_ratio_threshold and ack_count < packets_count * 0.05:
+            return {
+                "status": "ALERT",
+                "threat": "SYN_FLOOD",
+                "syn_ratio": syn_ratio,
+                "entropy": entropy,
+                "severity": "CRITICAL"
+            }
+
+        # 2. Check for Horizontal Port Scan: High entropy, many unique ports
+        if unique_ports >= 20 and entropy >= self.entropy_threshold:
+            return {
+                "status": "ALERT",
+                "threat": "PORT_SCAN",
+                "syn_ratio": syn_ratio,
+                "entropy": entropy,
+                "severity": "HIGH"
+            }
+
+        return {
+            "status": "NORMAL",
+            "threat": None,
+            "syn_ratio": syn_ratio,
+            "entropy": entropy,
+            "severity": "INFO"
+        }
+
+def test_netflow_anomaly_detector_scenarios():
+    detector = NetFlowAnomalyDetector()
+
+    # Scenario 1: Normal web browsing (Port 443 and 80)
+    normal_res = detector.analyze_flow_window(
+        packets_count=500,
+        syn_count=50,
+        ack_count=450,
+        port_counts={443: 400, 80: 100}
+    )
+    assert normal_res["status"] == "NORMAL"
+    assert normal_res["threat"] is None
+
+    # Scenario 2: Massive SYN Flood on single port 443
+    syn_flood_res = detector.analyze_flow_window(
+        packets_count=10000,
+        syn_count=9800,
+        ack_count=100,
+        port_counts={443: 10000}
+    )
+    assert syn_flood_res["status"] == "ALERT"
+    assert syn_flood_res["threat"] == "SYN_FLOOD"
+    assert syn_flood_res["severity"] == "CRITICAL"
+
+    # Scenario 3: Horizontal Port Scan across 50 ports
+    scan_ports = {p: 10 for p in range(1000, 1050)}
+    scan_res = detector.analyze_flow_window(
+        packets_count=500,
+        syn_count=200,
+        ack_count=200,
+        port_counts=scan_ports
+    )
+    assert scan_res["status"] == "ALERT"
+    assert scan_res["threat"] == "PORT_SCAN"
+    assert scan_res["severity"] == "HIGH"
+
+# ==============================================================================
+# 7. AUTOMATED FIREWALL ORCHESTRATOR
+# ==============================================================================
+
+class AutomatedFirewallOrchestrator:
+    """Generates secure iptables blocking commands with safety allowlists and rollback."""
+    
+    SYSTEM_ALLOWLIST = {"127.0.0.1", "10.0.0.1", "192.168.1.1"}
+
+    def __init__(self, chain: str = "INPUT"):
+        self.chain = chain
+        self.active_blocks: Dict[str, float] = {}
+
+    def block_ip(self, ip_address: str, duration_sec: int = 3600) -> Tuple[bool, str, str]:
+        """
+        Generates safe iptables command.
+        Returns: (success, apply_command, rollback_command)
+        """
+        # Safety Check: Never block localhost or critical gateways
+        if ip_address in self.SYSTEM_ALLOWLIST:
+            return False, "", f"CRITICAL: Cannot block allowlisted IP {ip_address}"
+
+        # Validate IPv4 format
+        octets = ip_address.split(".")
+        if len(octets) != 4 or not all(o.isdigit() and 0 <= int(o) <= 255 for o in octets):
+            return False, "", f"INVALID_IP: {ip_address}"
+
+        apply_cmd = f"iptables -I {self.chain} 1 -s {ip_address} -j DROP"
+        rollback_cmd = f"iptables -D {self.chain} -s {ip_address} -j DROP"
+        
+        self.active_blocks[ip_address] = time.time() + duration_sec
+        return True, apply_cmd, rollback_cmd
+
+def test_automated_firewall_orchestrator():
+    fw = AutomatedFirewallOrchestrator()
+    
+    # 1. Block attacker
+    success, apply_cmd, rollback_cmd = fw.block_ip("203.0.113.55", duration_sec=1800)
+    assert success
+    assert apply_cmd == "iptables -I INPUT 1 -s 203.0.113.55 -j DROP"
+    assert rollback_cmd == "iptables -D INPUT -s 203.0.113.55 -j DROP"
+
+    # 2. Prevent blocking gateway
+    success_gw, _, err_gw = fw.block_ip("10.0.0.1")
+    assert not success_gw
+    assert "Cannot block allowlisted IP" in err_gw
+
+    # 3. Invalid IP rejection
+    success_inv, _, err_inv = fw.block_ip("999.12.34.56")
+    assert not success_inv
+    assert "INVALID_IP" in err_inv
+

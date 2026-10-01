@@ -1,209 +1,492 @@
 % ==============================================================================
 % PHỤ LỤC B: CẨM NANG CÔNG THỨC TOÁN HỌC & ĐỊNH LÝ CỐT LÕI (MATHEMATICAL CODEX)
 % ==============================================================================
+% Phong cách: Sách chuyên khảo kinh điển (Classic Academic & Engineering Monograph)
+% Tiêu chuẩn: Chuẩn xác, chứng minh tuần tự, không lược bớt các bước biến đổi cốt lõi
+% ==============================================================================
 
 \chapter{Cẩm Nang Công Thức Toán Học \& Định Lý Cốt Lõi (Mathematical Codex)}
 \label{ch:appendix-math-codex}
 
-Toán học trong Kỹ nghệ AI không phải là những bài tập chứng minh trừu tượng, mà là chiếc compa và thước đo định hướng mọi quyết định kiến trúc: Từ việc tại sao phải chia cho $\sqrt{d_k}$ trong Attention, tại sao AdamW lại vượt trội hơn Adam truyền thống, cho đến việc tính toán chính xác từng Gigabyte VRAM của KV Cache. Phụ lục này tổng hợp toàn diện các công thức giải tích, đại số và xác suất cốt lõi nhất được sử dụng trong cuốn sách để bạn đọc có thể tra cứu nhanh chóng và vững vàng.
+Toán học trong Kỹ nghệ Trí tuệ Nhân tạo không tồn tại dưới dạng những bài tập chứng minh trừu tượng thuần túy, mà đóng vai trò là chiếc compa, thước đo và bản thiết kế định hướng cho mọi quyết định kiến trúc: Từ việc tại sao phải chia cho $\sqrt{d_k}$ trong Attention, tại sao AdamW lại ổn định hơn Adam truyền thống, vì sao kỹ thuật nén LoRA lại bảo toàn được tri thức mô hình, cho đến việc giải bài toán tối ưu Pareto giữa số lượng tham số $N$ và tập dữ liệu $D$ trong định luật Chinchilla Scaling Law.
+
+Phụ lục chuyên khảo này tổng hợp có hệ thống toàn bộ các định lý toán học, bổ đề, phép biến đổi vi phân ma trận và các bất đẳng thức nền tảng nhất. Mỗi công thức đều đi kèm với chứng minh toán học chuẩn mực, trực giác hình học và ứng dụng thực tiễn tương ứng trong kỹ nghệ AI sản xuất.
 
 ---
 
-\section{Đại Số Tuyến Tính \& Phân Rã Ma Trận}
+\section{Đại Số Tuyến Tính, Không Gian Véc-Tơ \& Phân Rã Ma Trận}
 \label{sec:app-math-linalg}
 
-\subsection{Các Chuẩn Véc-Tơ \& Chuẩn Ma Trận Phổ Biến}
+\subsection{Các Chuẩn Véc-Tơ \& Chuẩn Ma Trận Trong Không Gian Hilbert}
+
 Cho véc-tơ $\mathbf{x} = [x_1, x_2, \dots, x_n]^T \in \mathbb{R}^n$:
 \begin{itemize}
   \item \textbf{Chuẩn $L_1$ (Manhattan Norm)}:
   \begin{equation}
   \|\mathbf{x}\|_1 = \sum_{i=1}^n |x_i|
   \end{equation}
-  Đặc tính: Tạo ra tính chất thưa (\textit{Sparsity}) cho các trọng số khi dùng làm số hạng điều chuẩn (L1 Regularization).
+  \textit{Ý nghĩa kỹ nghệ}: Đạo hàm của $\|\mathbf{x}\|_1$ đối với $x_i$ là $\text{sign}(x_i)$ (hằng số $\pm 1$). Khi sử dụng làm hàm điều chuẩn (L1 Regularization trong Lasso hoặc Sparse Autoencoder), nó liên tục triệt tiêu các trọng số nhỏ về đúng giá trị 0 tuyệt đối, tạo nên tính thưa (\textit{Sparsity}) vượt trội, rất quan trọng trong giải mã cấu trúc nơ-ron (Mechanistic Interpretability).
 
   \item \textbf{Chuẩn $L_2$ (Euclidean Norm)}:
   \begin{equation}
   \|\mathbf{x}\|_2 = \sqrt{\sum_{i=1}^n x_i^2} = \sqrt{\mathbf{x}^T \mathbf{x}}
   \end{equation}
-  Đặc tính: Đo độ dài hình học của véc-tơ trong không gian Euclid; đạo hàm liên tục trơn tru $\nabla_{\mathbf{x}} \|\mathbf{x}\|_2^2 = 2\mathbf{x}$.
+  \textit{Ý nghĩa kỹ nghệ}: Thước đo khoảng cách vật lý và hình học không gian. Đạo hàm liên tục trơn tru $\nabla_{\mathbf{x}} \|\mathbf{x}\|_2^2 = 2\mathbf{x}$. Trong huấn luyện mạng sâu, điều chuẩn $L_2$ chính là cơ chế Weight Decay kinh điển ép biên độ trọng số không bùng nổ.
 
-  \item \textbf{Chuẩn $L_\infty$ (Max Norm)}:
+  \item \textbf{Chuẩn $L_\infty$ (Chebyshev hay Max Norm)}:
   \begin{equation}
   \|\mathbf{x}\|_\infty = \max_{1 \le i \le n} |x_i|
   \end{equation}
-  Đặc tính: Cốt lõi của lượng tử hóa đối xứng INT8 ($S = \frac{\|\mathbf{x}\|_\infty}{127}$).
+  \textit{Ý nghĩa kỹ nghệ}: Đây là nền tảng toán học của kỹ thuật lượng tử hóa đối xứng số nguyên (Symmetric INT8/FP8 Quantization). Hệ số tỷ lệ (\textit{Scale factor}) được tính trực tiếp từ chuẩn cực đại: $S = \frac{\|\mathbf{x}\|_\infty}{2^{b-1} - 1}$.
 
   \item \textbf{Chuẩn Frobenius Cho Ma Trận $\mathbf{A} \in \mathbb{R}^{m \times n}$}:
   \begin{equation}
   \|\mathbf{A}\|_F = \sqrt{\sum_{i=1}^m \sum_{j=1}^n a_{ij}^2} = \sqrt{\text{Tr}(\mathbf{A}^T \mathbf{A})}
   \end{equation}
+  \textit{Ý nghĩa kỹ nghệ}: Đo lường tổng năng lượng biến thiên của toàn bộ trọng số ma trận, được sử dụng làm hàm mục tiêu tối ưu trong các thuật toán xấp xỉ ma trận hạng thấp (LoRA, SVD pruning).
 \end{itemize}
 
-\subsection{Định Lý Phân Rã SVD \& Xấp Xỉ Hạng Thấp Tối Ưu}
-\begin{theorem}[Phân Rã Giá Trị Suy Biến - Singular Value Decomposition]
-Mọi ma trận thực $\mathbf{A} \in \mathbb{R}^{m \times n}$ đều có thể phân rã thành:
+\subsection{Bổ Đề Johnson-Lindenstrauss \& Cơ Sở Nén Vector Database}
+
+Một câu hỏi mang tính sống còn đối với các hệ thống Vector Database (FAISS, Milvus, Qdrant): Khi ta nhúng hàng triệu văn bản vào không gian $d$ chiều rất lớn (ví dụ $d = 4096$ của LLaMA-3), liệu ta có thể chiếu các véc-tơ này xuống không gian $k \ll d$ chiều mà không làm sai lệch khoảng cách ngữ nghĩa giữa chúng hay không? Bổ đề Johnson-Lindenstrauss (JL Lemma) đưa ra câu trả lời khẳng định bằng toán học.
+
+\begin{theorem}[Bổ Đề Johnson-Lindenstrauss - JL Lemma]
+Cho trước một tập hợp gồm $p$ điểm bất kỳ $\mathcal{P} \subset \mathbb{R}^d$ và sai số cho phép $\epsilon \in (0, 1)$. Tồn tại một phép ánh xạ tuyến tính $f: \mathbb{R}^d \to \mathbb{R}^k$ với số chiều đích:
 \begin{equation}
-\mathbf{A} = \mathbf{U} \mathbf{\Sigma} \mathbf{V}^T
+k \ge \frac{8 \ln(p)}{\epsilon^2}
 \end{equation}
-trong đó:
-\begin{itemize}
-  \item $\mathbf{U} \in \mathbb{R}^{m \times m}$ là ma trận trực giao chứa các véc-tơ kỳ dị trái ($\mathbf{U}^T \mathbf{U} = \mathbf{I}$).
-  \item $\mathbf{V} \in \mathbb{R}^{n \times n}$ là ma trận trực giao chứa các véc-tơ kỳ dị phải ($\mathbf{V}^T \mathbf{V} = \mathbf{I}$).
-  \item $\mathbf{\Sigma} \in \mathbb{R}^{m \times n}$ là ma trận đường chéo chứa các giá trị kỳ dị giảm dần: $\sigma_1 \ge \sigma_2 \ge \dots \ge \sigma_r > 0$.
-\end{itemize}
+sao cho với mọi cặp điểm $\mathbf{u}, \mathbf{v} \in \mathcal{P}$, khoảng cách Euclid sau khi chiếu được bảo toàn trong phạm vi sai số $\epsilon$:
+\begin{equation}
+(1 - \epsilon) \|\mathbf{u} - \mathbf{v}\|_2^2 \le \|f(\mathbf{u}) - f(\mathbf{v})\|_2^2 \le (1 + \epsilon) \|\mathbf{u} - \mathbf{v}\|_2^2
+\end{equation}
 \end{theorem}
 
-\begin{theorem}[Định Lý Eckart-Young-Mirsky]
-Cho ma trận $\mathbf{A}$ có hạng $r$. Ma trận hạng $k < r$ gần nhất với $\mathbf{A}$ theo chuẩn Frobenius là ma trận $\mathbf{A}_k$ được tạo bởi $k$ giá trị kỳ dị lớn nhất:
+\begin{proof}
+Để thiết lập phép ánh xạ $f$, ta sử dụng một ma trận chiếu ngẫu nhiên $\mathbf{R} \in \mathbb{R}^{k \times d}$, trong đó mỗi phần tử $R_{ij}$ được lấy mẫu độc lập từ phân phối Gauss chuẩn:
+\begin{equation*}
+R_{ij} \sim \mathcal{N}\left(0, \frac{1}{k}\right)
+\end{equation*}
+Khi đó phép ánh xạ được xác định bởi: $f(\mathbf{x}) = \mathbf{R}\mathbf{x}$.
+
+Xét hiệu véc-tơ $\mathbf{w} = \mathbf{u} - \mathbf{v}$. Chuẩn Euclid của hiệu sau khi chiếu qua ma trận ngẫu nhiên là:
+\begin{equation*}
+\|f(\mathbf{w})\|_2^2 = \|\mathbf{R}\mathbf{w}\|_2^2 = \sum_{i=1}^k \left(\sum_{j=1}^d R_{ij} w_j\right)^2
+\end{equation*}
+Đặt $Y_i = \sum_{j=1}^d R_{ij} w_j$. Do $R_{ij}$ là các biến ngẫu nhiên Gauss độc lập:
+\begin{equation*}
+\mathbb{E}[Y_i] = 0, \quad \text{Var}(Y_i) = \sum_{j=1}^d w_j^2 \text{Var}(R_{ij}) = \frac{1}{k} \|\mathbf{w}\|_2^2
+\end{equation*}
+Do đó, $Z_i = \frac{\sqrt{k} Y_i}{\|\mathbf{w}\|_2}$ là các biến ngẫu nhiên chuẩn $\mathcal{N}(0, 1)$. Tổng bình phương của $k$ biến chuẩn độc lập tuân theo phân phối Chi-bình phương với $k$ bậc tự do:
+\begin{equation*}
+X = \sum_{i=1}^k Z_i^2 = \frac{k \|\mathbf{R}\mathbf{w}\|_2^2}{\|\mathbf{w}\|_2^2} \sim \chi^2(k)
+\end{equation*}
+Áp dụng bất đẳng thức cận đuôi Chernoff đối với phân phối Chi-bình phương, với mọi $\epsilon \in (0, 1)$:
+\begin{equation*}
+P\left( |X - k| \ge \epsilon k \right) \le 2 \exp\left( -\frac{k (\epsilon^2 - \epsilon^3)}{4} \right) \le 2 \exp\left( -\frac{k \epsilon^2}{8} \right)
+\end{equation*}
+Tập hợp $\mathcal{P}$ gồm $p$ điểm có chính xác $\binom{p}{2} = \frac{p(p-1)}{2} < \frac{p^2}{2}$ cặp điểm phân biệt.
+Áp dụng cận hợp (Union Bound) trên tất cả các cặp điểm, xác suất tồn tại ít nhất một cặp điểm vi phạm dung sai khoảng cách $\epsilon$ bị chặn trên bởi:
+\begin{equation*}
+P(\text{Thất bại}) \le \frac{p^2}{2} \times 2 \exp\left(-\frac{k \epsilon^2}{8}\right) = p^2 \exp\left(-\frac{k \epsilon^2}{8}\right)
+\end{equation*}
+Để xác suất thất bại này nhỏ hơn 1 (tức phép chiếu luôn thành công với xác suất dương lớn), ta giải bất phương trình:
+\begin{equation*}
+p^2 \exp\left(-\frac{k \epsilon^2}{8}\right) < 1 \iff 2 \ln(p) - \frac{k \epsilon^2}{8} < 0 \iff k > \frac{16 \ln(p)}{\epsilon^2}
+\end{equation*}
+Điều này chứng minh rằng số chiều đích $k$ chỉ phụ thuộc logarit vào số lượng điểm $p$, và hoàn toàn độc lập với số chiều gốc ban đầu $d$.
+\end{proof}
+
+\textit{Ứng dụng Kỹ nghệ AI}: Bổ đề này là nền móng lý thuyết của kỹ thuật LSH (Locality-Sensitive Hashing), Random Projection trong nén embedding của Vector Database, và giải thích tại sao mô hình có thể nén véc-tơ ngữ cảnh mà không làm mất cấu trúc cụm tương đồng.
+
+\subsection{Phân Rã Ma Trận SVD \& Định Lý Eckart-Young-Mirsky}
+
+\begin{theorem}[Phân Rã Giá Trị Suy Biến - Singular Value Decomposition]
+Mọi ma trận thực $\mathbf{A} \in \mathbb{R}^{m \times n}$ có hạng $r \le \min(m, n)$ đều phân rã được thành:
+\begin{equation}
+\mathbf{A} = \mathbf{U} \mathbf{\Sigma} \mathbf{V}^T = \sum_{i=1}^r \sigma_i \mathbf{u}_i \mathbf{v}_i^T
+\end{equation}
+trong đó $\mathbf{U} \in \mathbb{R}^{m \times m}$ và $\mathbf{V} \in \mathbb{R}^{n \times n}$ là các ma trận trực giao ($\mathbf{U}^T \mathbf{U} = \mathbf{I}$, $\mathbf{V}^T \mathbf{V} = \mathbf{I}$), còn $\mathbf{\Sigma} \in \mathbb{R}^{m \times n}$ là ma trận đường chéo chứa các giá trị kỳ dị giảm dần: $\sigma_1 \ge \sigma_2 \ge \dots \ge \sigma_r > 0$.
+\end{theorem}
+
+\begin{theorem}[Định Lý Eckart-Young-Mirsky Cho Xấp Xỉ Hạng Thấp]
+Cho ma trận $\mathbf{A} \in \mathbb{R}^{m \times n}$ có hạng $r$. Trong số tất cả các ma trận có hạng không vượt quá $k < r$, ma trận $\mathbf{A}_k$ được xây dựng bằng cách giữ lại $k$ giá trị kỳ dị lớn nhất chính là lời giải tối ưu tiệm cận gần $\mathbf{A}$ nhất theo cả chuẩn Frobenius lẫn chuẩn phổ tử số (Spectral 2-Norm):
 \begin{equation}
 \mathbf{A}_k = \sum_{i=1}^k \sigma_i \mathbf{u}_i \mathbf{v}_i^T = \arg\min_{\text{rank}(\mathbf{B}) \le k} \|\mathbf{A} - \mathbf{B}\|_F
 \end{equation}
-với sai số xấp xỉ nhỏ nhất bằng tổng bình phương các giá trị kỳ dị bị bỏ qua:
+Sai số xấp xỉ tối thiểu bằng:
 \begin{equation}
-\|\mathbf{A} - \mathbf{A}_k\|_F^2 = \sum_{i=k+1}^r \sigma_i^2
+\|\mathbf{A} - \mathbf{A}_k\|_F = \sqrt{\sum_{i=k+1}^r \sigma_i^2}, \quad \|\mathbf{A} - \mathbf{A}_k\|_2 = \sigma_{k+1}
 \end{equation}
 \end{theorem}
 
----
-
-\section{Giải Tích Đa Biến \& Lan Truyền Ngược (Matrix Calculus \& Backprop)}
-\label{sec:app-math-calculus}
-
-\subsection{Các Đạo Hàm Ma Trận Cốt Lõi}
-Cho các véc-tơ $\mathbf{x} \in \mathbb{R}^n$, $\mathbf{y} \in \mathbb{R}^m$ và ma trận $\mathbf{W} \in \mathbb{R}^{m \times n}$:
-\begin{align}
-\nabla_{\mathbf{x}} (\mathbf{a}^T \mathbf{x}) &= \mathbf{a} \\
-\nabla_{\mathbf{x}} (\mathbf{x}^T \mathbf{A} \mathbf{x}) &= (\mathbf{A} + \mathbf{A}^T)\mathbf{x} \quad (\text{bằng } 2\mathbf{A}\mathbf{x} \text{ nếu } \mathbf{A} \text{ đối xứng}) \\
-\frac{\partial (\mathbf{W}\mathbf{x})}{\partial \mathbf{x}} &= \mathbf{W} \\
-\frac{\partial (\mathbf{W}\mathbf{x})}{\partial \mathbf{W}} &\implies \nabla_{\mathbf{W}} (\mathbf{y}^T \mathbf{W} \mathbf{x}) = \mathbf{y} \mathbf{x}^T
-\end{align}
-
-\subsection{Quy Tắc Dây Chuyền Lan Truyền Ngược Cho Tầng Tuyến Tính}
-Xét tầng tuyến tính: $\mathbf{z} = \mathbf{W}\mathbf{x} + \mathbf{b}$, với hàm mất mát vô hướng $\mathcal{L}$.
-Ký hiệu véc-tơ gradient lan truyền ngược từ tầng sau về là $\mathbf{\delta} = \frac{\partial \mathcal{L}}{\partial \mathbf{z}} \in \mathbb{R}^m$:
-\begin{align}
-\frac{\partial \mathcal{L}}{\partial \mathbf{W}} &= \mathbf{\delta} \mathbf{x}^T \in \mathbb{R}^{m \times n} \\
-\frac{\partial \mathcal{L}}{\partial \mathbf{b}} &= \mathbf{\delta} \in \mathbb{R}^m \\
-\frac{\partial \mathcal{L}}{\partial \mathbf{x}} &= \mathbf{W}^T \mathbf{\delta} \in \mathbb{R}^n
-\end{align}
-
-\subsection{Đạo Hàm Ma Trận Softmax \& Mất Mát Cross-Entropy}
-Hàm Softmax với véc-tơ logits $\mathbf{z} \in \mathbb{R}^K$:
-\begin{equation}
-S_i = \frac{e^{z_i}}{\sum_{k=1}^K e^{z_k}}
-\end{equation}
-Ma trận Jacobian của hàm Softmax:
-\begin{equation}
-\frac{\partial S_i}{\partial z_j} = S_i (\delta_{ij} - S_j) = \begin{cases}
-S_i (1 - S_i) & \text{khi } i = j \\
-- S_i S_j & \text{khi } i \neq j
-\end{cases}
-\end{equation}
-trong đó $\delta_{ij}$ là ký hiệu Kronecker delta ($\delta_{ij} = 1$ nếu $i=j$, ngược lại bằng 0).
-
-Khi kết hợp với hàm mất mát Cross-Entropy $\mathcal{L} = - \sum_{k=1}^K y_k \log(S_k)$, đạo hàm riêng đối với logit $z_i$ đạt được dạng tối giản tuyệt đối:
-\begin{equation}
-\frac{\partial \mathcal{L}}{\partial z_i} = S_i - y_i = \hat{y}_i - y_i \implies \nabla_{\mathbf{z}} \mathcal{L} = \hat{\mathbf{y}} - \mathbf{y}
-\end{equation}
+\textit{Ý nghĩa kỹ nghệ}: Đây là nền tảng toán học của kỹ thuật LoRA (Low-Rank Adaptation). Khi tinh chỉnh một mô hình LLM với ma trận trọng số $\mathbf{W}_0 \in \mathbb{R}^{d \times k}$, ma trận cập nhật $\Delta \mathbf{W}$ có phổ giá trị kỳ dị suy giảm cực kỳ nhanh. Định lý Eckart-Young-Mirsky khẳng định rằng việc phân rã $\Delta \mathbf{W} \approx \mathbf{B}\mathbf{A}$ với hạng $r \ll d$ nắm giữ phần lớn năng lượng biến thiên của gradient mà tốn ít hơn 99\% bộ nhớ tham số.
 
 ---
 
-\section{Hình Học Không Gian \& Cơ Chế Attention}
-\label{sec:app-math-attention}
+\section{Các Bất Đẳng Thức Nền Tảng \& Lý Thuyết Tối Ưu Hóa}
+\label{sec:app-math-inequalities}
 
-\subsection{Scaled Dot-Product Attention \& Động Cơ Hệ Số Tỷ Lệ}
-Cho ma trận truy vấn $\mathbf{Q} \in \mathbb{R}^{N \times d_k}$, ma trận khóa $\mathbf{K} \in \mathbb{R}^{M \times d_k}$, và ma trận giá trị $\mathbf{V} \in \mathbb{R}^{M \times d_v}$:
+\subsection{Bất Đẳng Thức Jensen \& Cận Dưới Bằng Chứng ELBO}
+
+\begin{theorem}[Bất Đẳng Thức Jensen]
+Cho hàm số $f: \mathbb{R} \to \mathbb{R}$ là một hàm lồi (Convex function) trên khoảng khả vi và $X$ là một biến ngẫu nhiên. Khi đó:
 \begin{equation}
-\text{Attention}(\mathbf{Q}, \mathbf{K}, \mathbf{V}) = \text{Softmax}\left(\frac{\mathbf{Q}\mathbf{K}^T}{\sqrt{d_k}}\right)\mathbf{V}
+f(\mathbb{E}[X]) \le \mathbb{E}[f(X)]
 \end{equation}
-\textbf{Chứng minh toán học cho hệ số $\sqrt{d_k}$}:
-Giả sử các thành phần của $\mathbf{q}$ và $\mathbf{k}$ là các biến ngẫu nhiên độc lập có kỳ vọng bằng 0 và phương sai bằng 1:
-\begin{equation*}
-\mathbb{E}[q_i] = \mathbb{E}[k_i] = 0, \quad \text{Var}(q_i) = \text{Var}(k_i) = 1
-\end{equation*}
-Tích vô hướng giữa hai véc-tơ $d_k$ chiều: $x = \mathbf{q} \cdot \mathbf{k} = \sum_{i=1}^{d_k} q_i k_i$.
+Ngược lại, nếu hàm $g(x)$ là hàm lõm (Concave function, ví dụ hàm $\ln(x)$), bất đẳng thức đổi chiều:
+\begin{equation}
+\mathbb{E}[\ln(X)] \le \ln(\mathbb{E}[X])
+\end{equation}
+Dấu đẳng thức xảy ra khi và chỉ khi $X$ là một hằng số xác định hoặc hàm số là hàm tuyến tính.
+\end{theorem}
+
+\begin{proof}[Ứng dụng: Thiết lập Cận Dưới Bằng Chứng ELBO]
+Xét mô hình sinh tiềm ẩn với dữ liệu quan sát $\mathbf{x}$ và biến tiềm ẩn $\mathbf{z}$. Ta muốn cực đại hóa log-likelihood biên: $\ln p(\mathbf{x}) = \ln \int p(\mathbf{x}, \mathbf{z}) d\mathbf{z}$.
+Do tích phân không thể tính trực tiếp (\textit{Intractable}), ta đưa vào một phân phối biến phân xấp xỉ $q(\mathbf{z} \mid \mathbf{x})$:
 \begin{align*}
-\mathbb{E}[x] &= \sum_{i=1}^{d_k} \mathbb{E}[q_i k_i] = \sum_{i=1}^{d_k} \mathbb{E}[q_i] \mathbb{E}[k_i] = 0 \\
-\text{Var}(x) &= \sum_{i=1}^{d_k} \text{Var}(q_i k_i) = \sum_{i=1}^{d_k} \Big( \text{Var}(q_i)\text{Var}(k_i) + \text{Var}(q_i)\mathbb{E}[k_i]^2 + \text{Var}(k_i)\mathbb{E}[q_i]^2 \Big) \\
-&= \sum_{i=1}^{d_k} (1 \cdot 1 + 0 + 0) = d_k
+\ln p(\mathbf{x}) &= \ln \int q(\mathbf{z} \mid \mathbf{x}) \frac{p(\mathbf{x}, \mathbf{z})}{q(\mathbf{z} \mid \mathbf{x})} d\mathbf{z} = \ln \mathbb{E}_{\mathbf{z} \sim q}\left[ \frac{p(\mathbf{x}, \mathbf{z})}{q(\mathbf{z} \mid \mathbf{x})} \right]
 \end{align*}
-Độ lệch chuẩn của tích vô hướng tăng theo $\sqrt{d_k}$. Khi $d_k$ lớn (ví dụ $d_k = 128$), giá trị tích vô hướng có thể đạt biên độ lớn hơn 30, đẩy hàm Softmax vào vùng bão hòa cực biên nơi đạo hàm tiệm cận về 0 (\textit{Vanishing Gradient}).
-Bằng cách chuẩn hóa chia cho $\sqrt{d_k}$, ta đưa phương sai trở về đúng 1:
-\begin{equation}
-\text{Var}\left(\frac{\mathbf{q} \cdot \mathbf{k}}{\sqrt{d_k}}\right) = \frac{\text{Var}(\mathbf{q} \cdot \mathbf{k})}{d_k} = \frac{d_k}{d_k} = 1
-\end{equation}
-
-\subsection{Cơ Chế Quay Hình Học Rotary Position Embedding (RoPE)}
-Biến đổi RoPE tác động lên cặp tọa độ $(x_{2i}, x_{2i+1})$ của véc-tơ tại vị trí token $m$:
-\begin{equation}
-\mathbf{R}_{\Theta, m}^{(i)} = \begin{pmatrix} \cos(m\theta_i) & -\sin(m\theta_i) \\ \sin(m\theta_i) & \cos(m\theta_i) \end{pmatrix}, \quad \text{với } \theta_i = 10000^{-2(i-1)/d}
-\end{equation}
-Tích vô hướng giữa hai véc-tơ sau khi quay:
-\begin{equation}
-\langle \mathbf{R}_{\Theta, m} \mathbf{q}, \mathbf{R}_{\Theta, n} \mathbf{k} \rangle = \mathbf{q}^T \mathbf{R}_{\Theta, m}^T \mathbf{R}_{\Theta, n} \mathbf{k} = \mathbf{q}^T \mathbf{R}_{\Theta, n-m} \mathbf{k}
-\end{equation}
-Do tính chất trực giao của ma trận quay: $\mathbf{R}_m^T \mathbf{R}_n = \mathbf{R}_{-m} \mathbf{R}_n = \mathbf{R}_{n-m}$.
-Tích vô hướng chỉ phụ thuộc vào khoảng cách tương đối $n - m$, mang lại cho mô hình khả năng ngoại suy ngữ cảnh vượt trội.
-
----
-
-\section{Lý Thuyết Xác Suất \& Thuật Toán Tối Ưu Hóa}
-\label{sec:app-math-prob-opt}
-
-\subsection{Thuật Toán Tối Ưu AdamW Hoàn Chỉnh}
-Tại bước lặp $t$, với hàm mất mát $\mathcal{L}(\theta)$ và gradient $g_t = \nabla_\theta \mathcal{L}(\theta_{t-1})$:
+Áp dụng Bất đẳng thức Jensen với hàm lõm $\ln(t)$:
 \begin{align}
-m_t &= \beta_1 m_{t-1} + (1 - \beta_1) g_t \quad (\text{Momentum bậc 1}) \\
-v_t &= \beta_2 v_{t-1} + (1 - \beta_2) g_t^2 \quad (\text{Momentum bậc 2}) \\
-\hat{m}_t &= \frac{m_t}{1 - \beta_1^t}, \quad \hat{v}_t = \frac{v_t}{1 - \beta_2^t} \quad (\text{Hiệu chỉnh độ lệch khởi tạo}) \\
-\theta_t &= \theta_{t-1} - \eta_t \left( \frac{\hat{m}_t}{\sqrt{\hat{v}_t} + \epsilon} + \lambda \theta_{t-1} \right) \quad (\text{Cập nhật tách rời Weight Decay } \lambda)
+\ln p(\mathbf{x}) &\ge \mathbb{E}_{\mathbf{z} \sim q}\left[ \ln \frac{p(\mathbf{x}, \mathbf{z})}{q(\mathbf{z} \mid \mathbf{x})} \right] \equiv \text{ELBO}(q) \\
+&= \mathbb{E}_{\mathbf{z} \sim q}[\ln p(\mathbf{x} \mid \mathbf{z})] - D_{\text{KL}}(q(\mathbf{z} \mid \mathbf{x}) \parallel p(\mathbf{z}))
 \end{align}
-Cấu hình siêu tham số mặc định chuẩn công nghiệp: $\beta_1 = 0.9$, $\beta_2 = 0.95$ (hoặc $0.999$), $\epsilon = 10^{-8}$, $\lambda = 0.1$.
+Cận dưới ELBO gồm hai số hạng đối ngẫu: Số hạng tái tạo (\textit{Reconstruction}) và số hạng phạt độ phân kỳ KL với tiền nghiệm chuẩn.
+\end{proof}
 
-\subsection{Định Lý Bayes \& Nghịch Lý Tỷ Lệ Cơ Sở (Base Rate Fallacy)}
+\subsection{Điều Kiện Tối Ưu Karush-Kuhn-Tucker (KKT)}
+
+Xét bài toán tối ưu hóa tổng quát có ràng buộc bất đẳng thức và đẳng thức:
 \begin{equation}
-P(A \mid T) = \frac{P(T \mid A) P(A)}{P(T \mid A) P(A) + P(T \mid \neg A) P(\neg A)}
+\min_{\mathbf{x}} f(\mathbf{x}) \quad \text{sao cho } \begin{cases} g_i(\mathbf{x}) \le 0, & i = 1, \dots, m \\ h_j(\mathbf{x}) = 0, & j = 1, \dots, p \end{cases}
 \end{equation}
-trong đó:
-\begin{itemize}
-  \item $P(A)$: Tỷ lệ cơ sở của biến cố cần tìm (Base Rate).
-  \item $P(T \mid A)$: Độ nhạy (True Positive Rate hay Recall).
-  \item $P(T \mid \neg A)$: Tỷ lệ báo động giả (False Positive Rate).
-  \item $P(A \mid T)$: Độ chuẩn xác thực tế (Precision hay Positive Predictive Value).
-\end{itemize}
+Hàm Lagrange mở rộng:
+\begin{equation}
+\mathcal{L}(\mathbf{x}, \mathbf{\lambda}, \mathbf{\nu}) = f(\mathbf{x}) + \sum_{i=1}^m \lambda_i g_i(\mathbf{x}) + \sum_{j=1}^p \nu_j h_j(\mathbf{x})
+\end{equation}
+
+\begin{theorem}[Hệ Điều Kiện KKT Bắt Buộc Tại Điểm Cực Trị $\mathbf{x}^*$]
+Nếu $\mathbf{x}^*$ là điểm cực tiểu cục bộ và thỏa mãn điều kiện quy chuẩn ràng buộc (Slater's condition), tồn tại các nhân tử Lagrange $\mathbf{\lambda}^*, \mathbf{\nu}^*$ thỏa mãn đồng thời 4 điều kiện sau:
+\begin{enumerate}
+  \item \textbf{Tính dừng Gradient (Stationarity)}:
+  \begin{equation}
+  \nabla_{\mathbf{x}} f(\mathbf{x}^*) + \sum_{i=1}^m \lambda_i^* \nabla_{\mathbf{x}} g_i(\mathbf{x}^*) + \sum_{j=1}^p \nu_j^* \nabla_{\mathbf{x}} h_j(\mathbf{x}^*) = \mathbf{0}
+  \end{equation}
+  \item \textbf{Khả thi nguyên thủy (Primal Feasibility)}:
+  \begin{equation}
+  g_i(\mathbf{x}^*) \le 0 \quad (\forall i), \quad h_j(\mathbf{x}^*) = 0 \quad (\forall j)
+  \end{equation}
+  \item \textbf{Khả thi đối ngẫu (Dual Feasibility)}:
+  \begin{equation}
+  \lambda_i^* \ge 0 \quad (\forall i = 1, \dots, m)
+  \end{equation}
+  \item \textbf{Độ bù triệt tiêu (Complementary Slackness)}:
+  \begin{equation}
+  \lambda_i^* g_i(\mathbf{x}^*) = 0 \quad (\forall i = 1, \dots, m)
+  \end{equation}
+\end{enumerate}
+\end{theorem}
+
+\textit{Ứng dụng Kỹ nghệ AI}: Điều kiện bổ sung Complementary Slackness giải thích chính xác tại sao trong thuật toán tối ưu hóa sở thích trực tiếp DPO (Direct Preference Optimization) và RLHF PPO, các ràng buộc clipping hoặc KL penalty chỉ kích hoạt khi phân phối chính sách lệch ra khỏi vùng an toàn định trước.
 
 ---
 
-\section{Công Thức Kỹ Nghệ Hạ Tầng, Serving \& Sizing}
-\label{sec:app-math-infra}
+\section{Giải Tích Ma Trận Chuyên Sâu Cho Mô Hình Deep Learning}
+\label{sec:app-math-matrix-calculus}
 
-\subsection{Dung Lượng Bộ Nhớ KV Cache Trên VRAM}
+\subsection{Chứng Minh Đạo Hàm Softmax \& Hàm Mất Mát Cross-Entropy}
+
+Cho véc-tơ logits đầu vào $\mathbf{z} = [z_1, z_2, \dots, z_K]^T \in \mathbb{R}^K$. Phân phối Softmax được định nghĩa là:
 \begin{equation}
-\text{Memory}_{\text{KV}} = 2 \times B \times L \times n_{\text{layers}} \times n_{\text{kv\_heads}} \times d_k \times P_{\text{bytes}} \text{ (bytes)}
+S_i = \frac{e^{z_i}}{\sum_{k=1}^K e^{z_k}}, \quad \forall i \in \{1, \dots, K\}
 \end{equation}
-với:
-\begin{itemize}
-  \item $B$: Kích thước Batch (số request đồng thời).
-  \item $L$: Chiều dài ngữ cảnh (Context length).
-  \item $n_{\text{layers}}$: Số lượng tầng Transformer.
-  \item $n_{\text{kv\_heads}}$: Số lượng đầu Key-Value (bằng $n_{\text{heads}}$ nếu MHA, hoặc $n_{\text{heads}} / 8$ nếu GQA 8:1).
-  \item $d_k$: Kích thước mỗi đầu chú ý (thường là 128).
-  \item $P_{\text{bytes}}$: Số byte cho mỗi phần tử (2 cho FP16/BF16, 1 cho INT8, 0.5 cho INT4).
-\end{itemize}
 
-\subsection{Định Luật Little Trong Thiết Kế Hệ Thống Xếp Hàng}
+\begin{theorem}[Ma Trận Jacobian Của Hàm Softmax]
+Đạo hàm riêng của thành phần xác suất $S_i$ đối với logit đầu vào $z_j$ là:
 \begin{equation}
-L = \lambda W
+\frac{\partial S_i}{\partial z_j} = S_i (\delta_{ij} - S_j)
+\end{equation}
+trong đó $\delta_{ij}$ là ký hiệu Kronecker delta ($\delta_{ij} = 1$ khi $i = j$, ngược lại bằng 0).
+\end{theorem}
+
+\begin{proof}
+Đặt mẫu số chuẩn hóa là $\Omega = \sum_{k=1}^K e^{z_k}$. Ta có $S_i = \frac{e^{z_i}}{\Omega}$.
+\begin{itemize}
+  \item \textbf{Trường hợp 1}: $i = j$ (Đạo hàm đối với chính logit cùng chỉ số):
+  Áp dụng quy tắc đạo hàm phân thức $\left(\frac{u}{v}\right)' = \frac{u'v - uv'}{v^2}$:
+  \begin{align*}
+  \frac{\partial S_i}{\partial z_i} &= \frac{\frac{\partial (e^{z_i})}{\partial z_i} \cdot \Omega - e^{z_i} \cdot \frac{\partial \Omega}{\partial z_i}}{\Omega^2} = \frac{e^{z_i} \Omega - e^{z_i} e^{z_i}}{\Omega^2} \\
+  &= \frac{e^{z_i}}{\Omega} - \left(\frac{e^{z_i}}{\Omega}\right)^2 = S_i - S_i^2 = S_i(1 - S_i)
+  \end{align*}
+  \item \textbf{Trường hợp 2}: $i \neq j$ (Đạo hàm chéo đối với logit của lớp khác):
+  Tử số $e^{z_i}$ là hằng số đối với biến $z_j$, trong khi mẫu số $\frac{\partial \Omega}{\partial z_j} = e^{z_j}$:
+  \begin{align*}
+  \frac{\partial S_i}{\partial z_j} &= \frac{0 \cdot \Omega - e^{z_i} \cdot e^{z_j}}{\Omega^2} = - \left(\frac{e^{z_i}}{\Omega}\right) \left(\frac{e^{z_j}}{\Omega}\right) = - S_i S_j
+  \end{align*}
+\end{itemize}
+Gộp hai trường hợp lại bằng ký hiệu Kronecker delta, ta thu được kết quả: $\frac{\partial S_i}{\partial z_j} = S_i(\delta_{ij} - S_j)$.
+\end{proof}
+
+\begin{theorem}[Gradient Đẹp Tuyệt Đối Của Cross-Entropy Kết Hợp Softmax]
+Cho hàm mất mát Cross-Entropy giữa nhãn thực tế dạng one-hot $\mathbf{y} \in \{0, 1\}^K$ ($\sum y_k = 1$) và phân phối Softmax $\mathbf{S}$:
+\begin{equation}
+\mathcal{L}_{\text{CE}} = - \sum_{k=1}^K y_k \ln(S_k)
+\end{equation}
+Gradient của hàm mất mát đối với từng logit đầu vào $z_i$ đạt được dạng sai số tuyến tính đơn giản:
+\begin{equation}
+\frac{\partial \mathcal{L}_{\text{CE}}}{\partial z_i} = S_i - y_i \implies \nabla_{\mathbf{z}} \mathcal{L}_{\text{CE}} = \mathbf{S} - \mathbf{y}
+\end{equation}
+\end{theorem}
+
+\begin{proof}
+Áp dụng quy tắc đạo hàm dây chuyền đa biến:
+\begin{equation*}
+\frac{\partial \mathcal{L}_{\text{CE}}}{\partial z_i} = \sum_{k=1}^K \frac{\partial \mathcal{L}_{\text{CE}}}{\partial S_k} \frac{\partial S_k}{\partial z_i}
+\end{equation*}
+Ta tính đạo hàm của hàm mất mát đối với xác suất dự đoán $S_k$:
+\begin{equation*}
+\frac{\partial \mathcal{L}_{\text{CE}}}{\partial S_k} = - \frac{y_k}{S_k}
+\end{equation*}
+Thay công thức Jacobian của Softmax đã chứng minh ở trên vào:
+\begin{align*}
+\frac{\partial \mathcal{L}_{\text{CE}}}{\partial z_i} &= \sum_{k=1}^K \left( - \frac{y_k}{S_k} \right) \cdot \left[ S_k (\delta_{ki} - S_i) \right] = \sum_{k=1}^K - y_k (\delta_{ki} - S_i) \\
+&= - \sum_{k=1}^K y_k \delta_{ki} + \sum_{k=1}^K y_k S_i = - y_i + S_i \sum_{k=1}^K y_k
+\end{align*}
+Do véc-tơ nhãn $\mathbf{y}$ là phân phối xác suất hợp lệ có tổng bằng 1 ($\sum_{k=1}^K y_k = 1$):
+\begin{equation*}
+\frac{\partial \mathcal{L}_{\text{CE}}}{\partial z_i} = S_i - y_i
+\end{equation*}
+\end{proof}
+
+\textit{Ý nghĩa kỹ nghệ}: Kết quả này là lý do giải thích tại sao mọi mô hình ngôn ngữ lớn (LLM) đều kết hợp tầng chiếu phân loại (LM Head) với Cross-Entropy. Gradient sai số trực tiếp bằng chênh lệch xác suất dự đoán trừ đi nhãn mục tiêu, giúp việc lan truyền ngược trên GPU cực kỳ nhanh và hoàn toàn tránh được các phép chia phức tạp.
+
+\subsection{Tính Bất Biến Dịch Chuyển Của Softmax \& Thủ Thuật Log-Sum-Exp}
+
+Trong máy tính số, biểu diễn số thực dấu phẩy động FP16 có giá trị dương cực đại chỉ là $65504$. Nếu logits $z_i > 89$, phép tính $e^{z_i}$ trong FP32 sẽ tràn số (\textit{Overflow} $\to \infty$), sinh ra giá trị \code{NaN} làm phá hủy toàn bộ trọng số mạng.
+
+\begin{proposition}[Tính Bất Biến Dịch Chuyển - Shift Invariance]
+Hàm Softmax bất biến đối với phép cộng thêm một hằng số vô hướng $c$ vào mọi phần tử logits:
+\begin{equation}
+\text{Softmax}(\mathbf{z}) = \text{Softmax}(\mathbf{z} - c \cdot \mathbf{1}), \quad \forall c \in \mathbb{R}
+\end{equation}
+\end{proposition}
+
+\begin{proof}
+\begin{equation*}
+\frac{e^{z_i - c}}{\sum_{k=1}^K e^{z_k - c}} = \frac{e^{z_i} e^{-c}}{\sum_{k=1}^K e^{z_k} e^{-c}} = \frac{e^{-c} e^{z_i}}{e^{-c} \sum_{k=1}^K e^{z_k}} = \frac{e^{z_i}}{\sum_{k=1}^K e^{z_k}} = S_i
+\end{equation*}
+\end{proof}
+
+\textit{Ứng dụng Kỹ nghệ}: Trong thực tế triển khai nhân CUDA kernel (FlashAttention hoặc vLLM), kỹ sư luôn chọn $c = \max_k(z_k)$. Khi đó, mọi số mũ $z_i - c \le 0$, bảo đảm $e^{z_i - c} \in (0, 1]$, triệt tiêu 100\% hiện tượng Overflow.
+
+\subsection{Đạo Hàm Lan Truyền Ngược Của RMSNorm \& LayerNorm}
+
+Trong các kiến trúc LLM hiện đại (LLaMA, Mistral, Gemma), chuẩn hóa căn bậc hai trung bình bình phương (RMSNorm) thay thế LayerNorm truyền thống vì giảm được $30\%$ khối lượng tính toán mà giữ nguyên độ ổn định.
+
+Cho véc-tơ đầu vào $\mathbf{x} \in \mathbb{R}^d$ và véc-tơ trọng số học được $\mathbf{\gamma} \in \mathbb{R}^d$:
+\begin{equation}
+\text{RMSNorm}(\mathbf{x}) = \frac{\mathbf{x}}{\text{RMS}(\mathbf{x})} \odot \mathbf{\gamma}, \quad \text{với } \text{RMS}(\mathbf{x}) = \sqrt{\frac{1}{d} \sum_{i=1}^d x_i^2 + \epsilon}
+\end{equation}
+Đặt $s = \frac{1}{\text{RMS}(\mathbf{x})}$ và véc-tơ chuẩn hóa $\hat{\mathbf{x}} = s \mathbf{x}$. Giả sử gradient mất mát lan truyền từ tầng trên về là $\mathbf{g} = \nabla_{\mathbf{y}} \mathcal{L}$. Khi đó:
+\begin{align}
+\nabla_{\mathbf{\gamma}} \mathcal{L} &= \mathbf{g} \odot \hat{\mathbf{x}} \\
+\nabla_{\mathbf{x}} \mathcal{L} &= s \left[ \mathbf{g} \odot \mathbf{\gamma} - \frac{1}{d} \hat{\mathbf{x}} \left( (\mathbf{g} \odot \mathbf{\gamma})^T \hat{\mathbf{x}} \right) \right]
+\end{align}
+
+---
+
+\section{Lý Thuyết Thông Tin \& Khoảng Cách Phân Phối Xác Suất}
+\label{sec:app-math-info-theory}
+
+\subsection{Kullback-Leibler Divergence: Chiều Hướng Tối Ưu Đối Nghịch}
+
+Độ phân kỳ Kullback-Leibler giữa hai phân phối liên tục hoặc rời rạc $P$ và $Q$:
+\begin{equation}
+D_{\text{KL}}(P \parallel Q) = \int p(x) \ln \frac{p(x)}{q(x)} dx = \mathbb{E}_{x \sim P}\left[ \ln \frac{p(x)}{q(x)} \right]
+\end{equation}
+
+\begin{theorem}[Bổ Đề Gibbs: Tính Không Âm Của Phân Kỳ KL]
+Với hai phân phối xác suất bất kỳ $P$ và $Q$:
+\begin{equation}
+D_{\text{KL}}(P \parallel Q) \ge 0, \quad \text{đẳng thức xảy ra } \iff P = Q \text{ hầu khắp nơi.}
+\end{equation}
+\end{theorem}
+
+\begin{proof}
+Áp dụng Bất đẳng thức Jensen với hàm lồi $f(t) = - \ln(t)$:
+\begin{align*}
+D_{\text{KL}}(P \parallel Q) &= - \mathbb{E}_{x \sim P}\left[ \ln \frac{q(x)}{p(x)} \right] \ge - \ln \left( \mathbb{E}_{x \sim P}\left[ \frac{q(x)}{p(x)} \right] \right) \\
+&= - \ln \left( \int p(x) \frac{q(x)}{p(x)} dx \right) = - \ln \left( \int q(x) dx \right) = - \ln(1) = 0
+\end{align*}
+\end{proof}
+
+\subsection{Sự Khác Biệt Giữa Forward KL \& Reverse KL Trong LLM Alignment}
+
+Tính bất đối xứng $D_{\text{KL}}(P \parallel Q) \neq D_{\text{KL}}(Q \parallel P)$ dẫn đến hai hành vi học tập trái ngược nhau hoàn toàn:
+
+\begin{table}[htbp]
+\centering
+\small
+\caption{So Sánh Đối Chiếu Giữa Forward KL \& Reverse KL Trong Kỹ Nghệ LLM}
+\label{tab:app-kl-comparison}
+\begin{tabular}{p{3.5cm}p{4.5cm}p{5.0cm}}
+\toprule
+\textbf{Đặc Tính Kỹ Thuật} & \textbf{Forward KL: $D_{\text{KL}}(P_{\text{data}} \parallel Q_\theta)$} & \textbf{Reverse KL: $D_{\text{KL}}(Q_\theta \parallel P_{\text{target}})$} \\
+\midrule
+\textbf{Đặc trưng cơ chế} & \textbf{Zero-Avoiding} (Tránh gán 0). Nơi nào $P(x) > 0$ thì $Q(x)$ bắt buộc phải lớn hơn 0 để tránh $\frac{P}{Q} \to \infty$. & \textbf{Zero-Forcing} (Ép gán 0). Nơi nào $P(x) = 0$ thì $Q(x)$ bắt buộc phải bằng 0 để tránh tích $Q \ln \frac{Q}{0} \to \infty$. \\
+\textbf{Hành vi phân phối} & Phân tán bao phủ toàn bộ các Mode (\textit{Mode-Covering}). Mô hình tạo ra phân phối phẳng, sinh văn bản đa dạng nhưng dễ lẫn hallucination. & Tập trung hội tụ vào đúng một Mode khả thi nhất (\textit{Mode-Seeking}). Phù hợp khi cần tính chính xác và logic tuyệt đối. \\
+\textbf{Ứng dụng chính} & Giai đoạn Tiền huấn luyện (Pre-training) và Chưng cất tri thức (Knowledge Distillation). & Tinh chỉnh căn chỉnh RLHF, DPO và Suy luận Chain-of-Thought (Reasoning). \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+---
+
+\section{Định Luật Scaling Laws \& Tối Ưu Hóa Phân Bổ Nguồn Lực (Chinchilla)}
+\label{sec:app-math-scaling-laws}
+
+Một trong những đóng góp giải tích toán học vĩ đại nhất của DeepMind (Hoffmann et al., 2022) là việc chứng minh hầu hết các mô hình ngôn ngữ thế hệ trước (như GPT-3 175B) đều bị thiếu dữ liệu huấn luyện nghiêm trọng so với số lượng tham số.
+
+\subsection{Mô Hình Hóa Hàm Mất Mát Dưới Ràng Buộc Điện Toán}
+
+Hàm mất mát nghiệm sinh $\mathcal{L}$ được mô hình hóa theo quy luật lũy thừa phụ thuộc vào số tham số mô hình $N$ (Parameters) và số lượng token dữ liệu huấn luyện $D$ (Dataset size):
+\begin{equation}
+\mathcal{L}(N, D) = E + \frac{A}{N^\alpha} + \frac{B}{D^\beta}
 \end{equation}
 trong đó:
 \begin{itemize}
-  \item $L$: Số lượng yêu cầu trung bình đang tồn tại đồng thời trong hệ thống (Concurrency).
-  \item $\lambda$: Tốc độ đến trung bình của các yêu cầu (Throughput / QPS).
-  \item $W$: Thời gian xử lý trung bình mỗi yêu cầu (Average Response Time / Latency).
+  \item $E$: Giới hạn entropy không thể giảm của ngôn ngữ tự nhiên (Irreducible loss).
+  \item $A, B$: Các hằng số tỷ lệ thực nghiệm.
+  \item $\alpha \approx 0.34, \beta \approx 0.28$: Các số mũ suy giảm lũy thừa.
 \end{itemize}
 
-\subsection{Giải Thuật Kết Hợp Thứ Hạng Không Tham Số RRF (Reciprocal Rank Fusion)}
+Chi phí điện toán huấn luyện tổng thể (FLOPs) theo mô hình Transformer xấp xỉ bằng:
 \begin{equation}
-\text{RRF\_Score}(d) = \sum_{m \in \mathcal{M}} \frac{1}{k + r_m(d)}
+C \approx 6 N D \implies D \approx \frac{C}{6 N}
 \end{equation}
-với $\mathcal{M}$ là tập hợp các phương pháp tìm kiếm (Dense Vector, Sparse BM25), $r_m(d)$ là thứ hạng của tài liệu $d$ trong danh sách $m$ (bắt đầu từ 1), và $k$ là hằng số làm mượt (thường chọn $k = 60$).
+
+\subsection{Chứng Minh Tỷ Lệ Mở Rộng Tối Ưu Pareto Bằng Phương Pháp Nhân Tử Lagrange}
+
+\begin{theorem}[Tỷ Lệ Mở Rộng Chinchilla Optimal]
+Với một ngân sách điện toán cố định $C$, để cực tiểu hóa hàm mất mát $\mathcal{L}(N, D)$, kích thước tham số mô hình $N_{\text{opt}}$ và số lượng token huấn luyện $D_{\text{opt}}$ phải cùng tăng trưởng theo tỷ lệ xấp xỉ ngang nhau:
+\begin{equation}
+N_{\text{opt}} \propto C^a, \quad D_{\text{opt}} \propto C^b \quad \text{với } a = \frac{\beta}{\alpha + \beta} \approx 0.5, \quad b = \frac{\alpha}{\alpha + \beta} \approx 0.5
+\end{equation}
+Nghĩa là: Khi ngân sách tính toán tăng gấp 4 lần, số tham số mô hình chỉ nên tăng 2 lần, và số lượng dữ liệu huấn luyện phải tăng 2 lần.
+\end{theorem}
+
+\begin{proof}
+Thay biểu thức ràng buộc $D = \frac{C}{6N}$ vào hàm mất mát:
+\begin{equation*}
+\mathcal{L}(N) = E + A N^{-\alpha} + B \left(\frac{C}{6N}\right)^{-\beta} = E + A N^{-\alpha} + B \left(\frac{C}{6}\right)^{-\beta} N^\beta
+\end{equation*}
+Để tìm điểm cực tiểu theo $N$, ta lấy đạo hàm bậc nhất theo $N$ và gán bằng 0:
+\begin{align*}
+\frac{d \mathcal{L}}{d N} &= - \alpha A N^{-\alpha - 1} + \beta B \left(\frac{C}{6}\right)^{-\beta} N^{\beta - 1} = 0 \\
+\alpha A N^{-\alpha - 1} &= \beta B \left(\frac{C}{6}\right)^{-\beta} N^{\beta - 1} \\
+N^{\alpha + \beta} &= \frac{\alpha A}{\beta B} \left(\frac{C}{6}\right)^\beta = G \cdot C^\beta
+\end{align*}
+Lấy lũy thừa $\frac{1}{\alpha + \beta}$ cả hai vế:
+\begin{equation}
+N_{\text{opt}} = G^{\frac{1}{\alpha + \beta}} C^{\frac{\beta}{\alpha + \beta}} = k_N C^a
+\end{equation}
+Từ đó suy ra số token tối ưu $D_{\text{opt}}$:
+\begin{equation}
+D_{\text{opt}} = \frac{C}{6 N_{\text{opt}}} \propto \frac{C}{C^{\frac{\beta}{\alpha + \beta}}} = C^{1 - \frac{\beta}{\alpha + \beta}} = C^{\frac{\alpha}{\alpha + \beta}} = k_D C^b
+\end{equation}
+Với các giá trị thực nghiệm $\alpha \approx 0.34, \beta \approx 0.28$:
+\begin{equation*}
+a = \frac{0.28}{0.34 + 0.28} = \frac{0.28}{0.62} \approx 0.45, \quad b = \frac{0.34}{0.62} \approx 0.55
+\end{equation*}
+Tỷ lệ này cho thấy $N$ và $D$ nên tăng với tốc độ gần như ngang nhau ($a \approx b \approx 0.5$).
+\end{proof}
+
+\textit{Kết luận kỹ nghệ}: Một mô hình 7B tokens cần ít nhất $140\text{ tỷ token}$ huấn luyện để đạt điểm tối ưu Chinchilla. Các mô hình hiện đại như LLaMA-3 còn vượt qua điểm cực tiểu này (huấn luyện 8B tham số trên hơn 15 nghìn tỷ tokens) nhằm tối ưu hóa chi phí suy luận về sau (Inference-optimal).
+
+---
+
+\section{Công Thức Tính Toán Hạ Tầng, Serving \& Bộ Nhớ VRAM}
+\label{sec:app-math-infra-codex}
+
+\subsection{Bảng Tính Dung Lượng VRAM Toàn Diện Khi Vận Hành Mô Hình}
+
+Tổng dung lượng bộ nhớ đồ họa $M_{\text{total}}$ cần thiết để phục vụ một mô hình LLM suy luận bao gồm:
+\begin{equation}
+M_{\text{total}} = M_{\text{weights}} + M_{\text{KV\_cache}} + M_{\text{activations}} + M_{\text{CUDA\_overhead}}
+\end{equation}
+
+\begin{enumerate}
+  \item \textbf{Bộ nhớ trọng số (Weights Memory)}:
+  \begin{equation}
+  M_{\text{weights}} = N_{\text{params}} \times \text{Bytes\_per\_param} \times 1.05 \text{ (GB)}
+  \end{equation}
+  với:
+  \begin{itemize}
+    \item FP16/BF16: 2 bytes/param.
+    \item INT8: 1 byte/param.
+    \item INT4 (AWQ/GPTQ): 0.5 bytes/param + phụ phí scaling factors ($\sim 0.55\text{ bytes}$).
+  \end{itemize}
+
+  \item \textbf{Bộ nhớ KV Cache (VRAM Cốt Lõi Của Decode Phase)}:
+  \begin{equation}
+  M_{\text{KV}} = 2 \times B \times L \times n_{\text{layers}} \times n_{\text{kv\_heads}} \times d_k \times P_{\text{bytes}}
+  \end{equation}
+  Trong đó:
+  \begin{itemize}
+    \item Hệ số $2$: Dành cho 2 ma trận Key và Value.
+    \item $B$: Concurrency / Kích thước Batch thực tế.
+    \item $L$: Chiều dài ngữ cảnh trung bình (Context length).
+    \item $n_{\text{kv\_heads}}$: Số đầu KV ($= n_{\text{heads}}$ đối với MHA; $= \frac{n_{\text{heads}}}{\text{GQA\_factor}}$ đối với GQA).
+    \item $P_{\text{bytes}}$: 2 đối với FP16, 1 đối với FP8 KV Cache.
+  \end{itemize}
+
+  \item \textbf{Bộ nhớ Kích hoạt Động (Activation Memory Trong Decode)}:
+  \begin{equation}
+  M_{\text{activations}} \approx B \times L_{\text{max\_seq}} \times d_{\text{model}} \times P_{\text{bytes}} \times C_{\text{norm}}
+  \end{equation}
+\end{enumerate}
+
+\subsection{Định Luật Little \& Lý Thuyết Hàng Đợi Trong LLM Gateway}
+
+\begin{theorem}[Định Luật Little - Little's Law]
+Trong một hệ thống xử lý ổn định, số lượng yêu cầu trung bình $L$ đang nằm trong hệ thống bằng tích của tốc độ đến trung bình $\lambda$ (QPS) và thời gian phản hồi trung bình $W$ (Latency):
+\begin{equation}
+L = \lambda \times W
+\end{equation}
+\end{theorem}
+
+\textit{Bài toán Sizing thực chiến}: Nếu hệ thống AI Gateway tiếp nhận lưu lượng $\lambda = 200\text{ requests/giây}$, và thời gian sinh văn bản hoàn thành trung bình là $W = 2.5\text{ giây}$.
+Số lượng yêu cầu đồng thời luôn chạy trong cụm máy chủ là:
+\begin{equation*}
+L = 200 \times 2.5 = 500\text{ concurrent requests}
+\end{equation*}
+Nếu mỗi vLLM worker trên card H100 chạy ổn định tối đa $B = 64$ concurrent requests mà không bị tràn bộ nhớ swap, số lượng máy chủ GPU độc lập tối thiểu cần triển khai là:
+\begin{equation*}
+N_{\text{GPU}} = \left\lceil \frac{500}{64} \right\rceil = 8\text{ GPUs H100}
+\end{equation*}
+
+---
+
+\section{Tổng Hợp Các Hằng Số \& Bảng Ký Hiệu Chuẩn Mực}
+\label{sec:app-math-symbols}
+
+\begin{table}[htbp]
+\centering
+\small
+\caption{Bảng Ký Hiệu Quy Chuẩn Quốc Tế Sử Dụng Trong Toàn Bộ Giáo Trình}
+\label{tab:app-math-symbols-list}
+\begin{tabular}{p{2.5cm}p{4.5cm}p{6.0cm}}
+\toprule
+\textbf{Ký Hiệu} & \textbf{Ý Nghĩa Bản Chất} & \textbf{Quy Ước Định Dạng} \\
+\midrule
+$\mathbf{x}, \mathbf{y}, \mathbf{z}$ & Véc-tơ cột trong không gian Euclid & Chữ cái thường, in đậm, thẳng đứng. \\
+$\mathbf{W}, \mathbf{A}, \mathbf{\Sigma}$ & Ma trận hoặc Tensor bậc 2 & Chữ cái hoa, in đậm, thẳng đứng. \\
+$\mathcal{L}(\theta)$ & Hàm mất mát mục tiêu & Chữ hoa uốn lượn (Calligraphic). \\
+$\nabla_{\mathbf{x}} f$ & Véc-tơ Gradient của hàm $f$ theo $\mathbf{x}$ & Toán tử nabla in hoa. \\
+$\odot$ & Phép nhân Hadamard (Từng phần tử) & Ký hiệu chấm tròn có vòng bao quanh. \\
+$\otimes$ & Tích Kronecker giữa hai ma trận & Ký hiệu nhân có vòng bao quanh. \\
+$\mathbb{E}_{x \sim P}[\cdot]$ & Giá trị kỳ vọng theo phân phối $P$ & Ký hiệu Blackboard Bold. \\
+$\text{Tr}(\mathbf{A})$ & Vết của ma trận (Tổng đường chéo) & Viết tắt hoa hai chữ cái đầu. \\
+\bottomrule
+\end{tabular}
+\end{table}

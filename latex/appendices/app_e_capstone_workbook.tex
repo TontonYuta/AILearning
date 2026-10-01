@@ -1,0 +1,297 @@
+% ==============================================================================
+% PHỤ LỤC E: TUYỂN TẬP BÀI TẬP LỚN & ĐỒ ÁN ỨNG DỤNG AI TỪ CON SỐ 0
+% ==============================================================================
+% Phong cách: Sách chuyên khảo kinh điển (Classic Academic & Engineering Monograph)
+% Tiêu chuẩn: Từ số 0, phân tích bản chất toán học, sơ đồ kiến trúc, mã nguồn chuẩn
+% ==============================================================================
+
+\chapter{Tuyển Tập Bài Tập Lớn \& Đồ Án Ứng Dụng AI Toàn Diện (Capstone Workbook)}
+\label{ch:appendix-workbook}
+
+Để thực sự làm chủ năng lực của một Kỹ sư AI cao cấp, việc nắm vững lý thuyết trừu tượng là chưa đủ. Bạn cần trực tiếp nhúng tay vào việc giải quyết các bài toán kỹ nghệ thế giới thực từ con số 0: Từ việc đọc từng gói tin mạng thô, giải tích các phương trình kiểm toán, đến việc thiết kế luồng suy luận của AI Agent có khả năng tự sửa lỗi và tích hợp hệ thống phòng thủ đa tầng.
+
+Phụ lục chuyên khảo này thiết kế 4 đồ án ứng dụng AI cấp độ doanh nghiệp hoàn chỉnh. Mỗi đồ án đều được xây dựng theo quy trình kỹ nghệ 5 bước chuẩn mực:
+\begin{enumerate}
+  \item \textbf{Khởi điểm từ con số 0}: Định nghĩa các khái niệm nền tảng về mạng, tài chính, y tế hoặc thuật toán mà không giả định người đọc đã biết trước.
+  \item \textbf{Phân tích động cơ \& Mô hình toán học}: Giải thích cặn kẽ tại sao phải áp dụng công thức giải tích hoặc xác suất cụ thể.
+  \item \textbf{Kiến trúc hệ thống \& Luồng dữ liệu}: Sơ đồ luồng xử lý và tương tác giữa các microservices.
+  \item \textbf{Triển khai mã nguồn Python chuẩn mực}: Code hoàn chỉnh có Type Hints, Logging, xử lý ngoại lệ và sẵn sàng kiểm thử.
+  \item \textbf{Bộ câu hỏi phản biện bảo vệ đồ án}: Rèn luyện tư duy thiết kế hệ thống và đánh đổi kỹ thuật.
+\end{enumerate}
+
+---
+
+\section{Đồ Án 1: Trung Tâm Điều Hành An Ninh Mạng AI Tự Hành (Autonomous AI-SOC)}
+\label{sec:workbook-ai-soc}
+
+\subsection{Khởi Điểm Từ Con Số 0: Mạng Máy Tính \& Cơ Chế Tấn Công}
+Mọi hoạt động trên Internet đều dựa trên việc truyền nhận các gói tin (\textit{Packets}) qua giao thức TCP/IP. Mỗi gói tin chứa thông tin địa chỉ IP nguồn (\textit{Source IP}), IP đích (\textit{Destination IP}), Cổng nguồn/đích (\textit{Port}), và cờ điều khiển giao vận (\textit{SYN, ACK, FIN, RST}).
+
+Khi kẻ tấn công muốn làm tê liệt một máy chủ AI Serving, hình thức phổ biến nhất là tấn công từ chối dịch vụ phân tán (DDoS qua SYN Flood): Kẻ tấn công gửi hàng triệu gói tin TCP SYN từ nhiều địa chỉ IP giả mạo nhưng không bao giờ gửi lại gói tin ACK cuối cùng để hoàn tất quy trình bắt tay ba bước (3-way handshake). Hàng đợi kết nối (\textit{Backlog Queue}) của hệ điều hành Linux lập tức bị tràn ngập, khiến các người dùng hợp lệ không thể kết nối vào hệ thống.
+
+\subsection{Mô Hình Toán Học: Entropy Phân Phối Gói Tin Thời Gian Thực}
+Để phát hiện tấn công mạng tự động mà không bị phụ thuộc vào các tập luật tĩnh cố định, ta sử dụng lý thuyết thông tin Shannon để đo lường độ hỗn loạn (\textit{Entropy}) của phân phối địa chỉ IP trong một cửa sổ thời gian trượt $\Delta t = 10\text{ giây}$.
+
+Giả sử trong cửa sổ $\Delta t$, hệ thống ghi nhận $M$ gói tin tới từ $K$ địa chỉ IP nguồn khác nhau. Tần suất xuất hiện của địa chỉ IP thứ $i$ là:
+\begin{equation}
+p_i = \frac{m_i}{M}, \quad \text{với } \sum_{i=1}^K p_i = 1
+\end{equation}
+Entropy Shannon của phân phối địa chỉ IP nguồn:
+\begin{equation}
+H(X) = - \sum_{i=1}^K p_i \log_2(p_i)
+\end{equation}
+
+\textbf{Quy luật toán học}:
+\begin{itemize}
+  \item Ở trạng thái hoạt động bình thường, các gói tin đến từ hàng ngàn người dùng ngẫu nhiên phân tán, phân phối $p_i$ tương đối đồng đều $\implies H(X)$ đạt giá trị cao (tiệm cận $\log_2 K$).
+  \item Khi xảy ra tấn công DoS từ một botnet tập trung, một lượng lớn gói tin dồn dập xuất phát từ một nhóm nhỏ IP hoặc tập trung đánh vào duy nhất một cổng $\implies$ Phân phối bị méo mó nghiêm trọng $\implies H(X)$ sụt giảm đột ngột xuống dưới ngưỡng cảnh báo $H_{\text{threshold}}$.
+\end{itemize}
+
+\subsection{Triển Khai Mã Nguồn Python: Bộ Phát Hiện Anomaly \& Agent Cách Ly IP}
+
+\begin{lstlisting}[language=python]
+import math
+import time
+from collections import Counter
+from dataclasses import dataclass
+
+@dataclass
+class NetworkPacket:
+    timestamp: float
+    src_ip: str
+    dst_ip: str
+    dst_port: int
+    protocol: str
+    tcp_flags: str
+
+class AutonomousSOCDetector:
+    def __init__(self, entropy_threshold: float = 1.5, window_seconds: float = 10.0):
+        self.entropy_threshold = entropy_threshold
+        self.window_seconds = window_seconds
+        self.packet_buffer: list[NetworkPacket] = []
+        self.blocked_ips: set[str] = set()
+
+    def ingest_packet(self, packet: NetworkPacket) -> None:
+        """Thu thap goi tin va loai bo cac goi tin nam ngoai cua so thoi gian."""
+        self.packet_buffer.append(packet)
+        cutoff = packet.timestamp - self.window_seconds
+        self.packet_buffer = [p for p in self.packet_buffer if p.timestamp >= cutoff]
+
+    def compute_source_entropy(self) -> float:
+        """Tinh toan Entropy Shannon cua cac IP nguon trong cua so hien tai."""
+        if not self.packet_buffer:
+            return 0.0
+        total_packets = len(self.packet_buffer)
+        counts = Counter(p.src_ip for p in self.packet_buffer)
+        entropy = 0.0
+        for count in counts.values():
+            p_i = count / total_packets
+            if p_i > 0:
+                entropy -= p_i * math.log2(p_i)
+        return entropy
+
+    def evaluate_and_respond(self) -> dict:
+        """Danh gia trang thai mang va tu dong kich hoat luat tuong lua iptables."""
+        entropy = self.compute_source_entropy()
+        total_packets = len(self.packet_buffer)
+        
+        # Phat hien bat thuong khi luu luong lon va entropy sup giam dot ngot
+        if total_packets > 50 and entropy < self.entropy_threshold:
+            # Tim IP co mat do tan cong cao nhat
+            counts = Counter(p.src_ip for p in self.packet_buffer)
+            top_attacker, top_count = counts.most_common(1)[0]
+            
+            # Kiem tra xem da chan chua
+            if top_attacker not in self.blocked_ips:
+                self.blocked_ips.add(top_attacker)
+                iptables_rule = f"iptables -I INPUT -s {top_attacker} -j DROP"
+                return {
+                    "alert": True,
+                    "status": "ATTACK_DETECTED",
+                    "entropy": entropy,
+                    "attacker_ip": top_attacker,
+                    "mitigation_action": iptables_rule
+                }
+        return {"alert": False, "status": "NORMAL", "entropy": entropy}
+\end{lstlisting}
+
+\subsection{Bộ Câu Hỏi Phản Biện Bảo Vệ Đồ Án}
+\begin{enumerate}
+  \item \textbf{Câu hỏi}: Nếu kẻ tấn công sử dụng kỹ thuật IP Spoofing tạo ra hàng triệu IP nguồn ngẫu nhiên thì entropy sẽ tăng cao thay vì giảm, giải pháp Entropy Shannon sẽ xử lý thế nào?
+  \item \textbf{Trả lời}: Khi IP nguồn bị giả mạo ngẫu nhiên (phân tán cực đại), ta chuyển sang tính Entropy của \textit{Cổng đích (Destination Port)} hoặc tỷ lệ cờ TCP (\textit{SYN/ACK ratio}). Trong tấn công SYN Flood, tỷ lệ SYN không có ACK đi kèm sẽ chạm ngưỡng bất thường, giúp hệ thống phát hiện chính xác.
+\end{enumerate}
+
+---
+
+\section{Đồ Án 2: Hệ Thống Đối Soát \& Kiểm Toán Báo Cáo Tài Chính Đa Phương Thức}
+\label{sec:workbook-multimodal-auditor}
+
+\subsection{Khởi Điểm Từ Con Số 0: Bản Chất Bảng Cân Đối Kế Toán}
+Trong tài chính doanh nghiệp, Bảng Cân Đối Kế Toán (\textit{Balance Sheet}) phản ánh bức tranh sức khỏe tài chính tại một thời điểm cụ thể. Nguyên tắc bất di bất dịch của kế toán kép là Phương trình Cân đối Kế toán:
+\begin{equation}
+\text{Tổng Tài Sản (Total Assets)} = \text{Tổng Nợ Phải Trả (Liabilities)} + \text{Vốn Chủ Sở Hữu (Equity)}
+\end{equation}
+Khi một doanh nghiệp nộp báo cáo quét dạng PDF, các lỗi quang học OCR có thể nhận diện nhầm số $8$ thành số $3$ hoặc $0$, khiến phương trình kế toán bị lệch. Nhiệm vụ của Kỹ sư AI là xây dựng một pipeline trích xuất thị giác (Vision LLM) kết hợp một engine xác thực toán học có khả năng tự động truy vết sai lệch.
+
+\subsection{Mô Hình Toán Học: Sai Số Cân Đối Kế Toán \& Khoảng Cách Levenshtein}
+Hàm mất mát sai lệch cân đối kế toán:
+\begin{equation}
+\Delta_{\text{Balance}} = \left| A - (L + E) \right|
+\end{equation}
+Hệ thống chỉ phê duyệt báo cáo tài chính là toàn vẹn nếu sai số tương đối không vượt quá ngưỡng sai số số học:
+\begin{equation}
+\frac{\Delta_{\text{Balance}}}{A} \le 10^{-4} \quad (0.01\%)
+\end{equation}
+
+Đối với tên nhà cung cấp và số tài khoản ngân hàng, hệ thống áp dụng khoảng cách Levenshtein $\text{Lev}(s_1, s_2)$ để so khớp mờ với cơ sở dữ liệu danh mục được phê duyệt:
+\begin{equation}
+\text{Similarity}(s_1, s_2) = 1 - \frac{\text{Lev}(s_1, s_2)}{\max(|s_1|, |s_2|)}
+\end{equation}
+
+\subsection{Triển Khai Mã Nguồn Python: Engine Kiểm Toán Tài Chính}
+
+\begin{lstlisting}[language=python]
+from dataclasses import dataclass
+from typing import Optional
+
+@dataclass
+class FinancialStatement:
+    company_name: str
+    total_assets: float
+    total_liabilities: float
+    equity: float
+    reported_net_income: float
+
+class FinancialAuditEngine:
+    def __init__(self, tolerance_ratio: float = 0.0001):
+        self.tolerance_ratio = tolerance_ratio
+
+    def audit_balance_sheet(self, stmt: FinancialStatement) -> dict:
+        """Kiem toan tinh can doi cua bao cao tai chinh theo phuong trinh co ban."""
+        expected_assets = stmt.total_liabilities + stmt.equity
+        discrepancy = abs(stmt.total_assets - expected_assets)
+        
+        # Tinh ty le sai lech tren tong tai san
+        error_ratio = discrepancy / (stmt.total_assets + 1e-9)
+        is_balanced = error_ratio <= self.tolerance_ratio
+        
+        audit_verdict = {
+            "company": stmt.company_name,
+            "total_assets": stmt.total_assets,
+            "calculated_liabilities_equity": expected_assets,
+            "discrepancy": discrepancy,
+            "error_ratio": error_ratio,
+            "is_valid": is_balanced,
+            "risk_level": "LOW" if is_balanced else ("MEDIUM" if error_ratio < 0.05 else "CRITICAL")
+        }
+        return audit_verdict
+\end{lstlisting}
+
+---
+
+\section{Đồ Án 3: Trợ Lý Chẩn Đoán Y Tế Hỗ Trợ Bác Sĩ (Clinical Diagnostic Copilot)}
+\label{sec:workbook-clinical-copilot}
+
+\subsection{Khởi Điểm Từ Con Số 0: Tiêu Chuẩn DICOM \& Phân Vùng Tổn Thương}
+Dữ liệu y tế chẩn đoán hình ảnh (X-Quang, CT, MRI) được lưu trữ theo tiêu chuẩn quốc tế DICOM (Digital Imaging and Communications in Medicine). Không giống như ảnh JPEG 8-bit thông thường (chỉ có 256 mức xám), ảnh DICOM là dữ liệu 16-bit với hơn $65,536$ thang độ xám (đơn vị Hounsfield), cho phép phân biệt độ cản quang chính xác giữa mô mềm, dịch viêm và xương sườn.
+
+Một trợ lý AI y tế không bao giờ được phép trực tiếp đưa ra kết luận khẳng định (\textit{"Bệnh nhân bị viêm phổi nặng"}), mà phải hoạt động theo mô hình hỗ trợ chẩn đoán: Khoanh vùng khu vực nghi ngờ tổn thương, trích xuất đặc trưng định lượng và gợi ý phác đồ y khoa chính thống từ cơ sở dữ liệu Bộ Y tế qua RAG.
+
+\subsection{Mô Hình Toán Học: Hiệu Chuẩn Xác Suất Bằng Temperature Scaling}
+Một lỗi phổ biến của các mạng nơ-ron sâu là hiện tượng tự tin thái quá (\textit{Overconfidence}): Mô hình dự đoán xác suất $99\%$ ngay cả khi hình ảnh mờ hoặc có nhiễu.
+Để hiệu chuẩn xác suất dự đoán trước khi hiển thị cho bác sĩ, ta áp dụng kỹ thuật Temperature Scaling:
+\begin{equation}
+\hat{p}_i = \frac{\exp(z_i / T)}{\sum_{k=1}^K \exp(z_k / T)}
+\end{equation}
+với tham số nhiệt độ $T > 1$ được tối ưu hóa trên tập kiểm thử xác thực (\textit{Validation Set}) bằng cách cực tiểu hóa hàm mất mát Negative Log-Likelihood (NLL).
+
+\subsection{Triển Khai Mã Nguồn Python: Bộ Hiệu Chuẩn Xác Suất \& Guardrails Y Tế}
+
+\begin{lstlisting}[language=python]
+import numpy as np
+
+class ClinicalSafetyCalibrator:
+    def __init__(self, temperature: float = 1.8):
+        self.temperature = temperature
+        # Cac cum tu cam doat quyen bac si
+        self.prohibited_phrases = [
+            "khang dinh 100%", "chac chan benh nhan bi", 
+            "yeu cau uong thuoc ngay ma khong can y kien"
+        ]
+
+    def calibrate_probabilities(self, logits: np.ndarray) -> np.ndarray:
+        """Hieu chuan lai phan phoi xac suat Softmax bang tham so Temperature."""
+        scaled_logits = logits / self.temperature
+        exp_logits = np.exp(scaled_logits - np.max(scaled_logits))
+        return exp_logits / np.sum(exp_logits)
+
+    def sanitize_clinical_recommendation(self, generated_text: str) -> dict:
+        """Kiem tra ranh gioi an toan phap ly y te cua van ban tra loi."""
+        violations = []
+        for phrase in self.prohibited_phrases:
+            if phrase in generated_text.lower():
+                violations.append(phrase)
+                
+        is_safe = len(violations) == 0
+        return {
+            "is_safe": is_safe,
+            "violations": violations,
+            "sanitized_output": generated_text if is_safe else (
+                "[CANH BAO AN TOAN Y TE]: Cau tra loi vi pham quy chuan tu van. "
+                "Ket qua chi mang tinh chat tham khao, bac si can truc tiep tham kham."
+            )
+        }
+\end{lstlisting}
+
+---
+
+\section{Đồ Án 4: Nền Tảng Gợi Ý Sản Phẩm Quy Mô Lớn (High-Throughput Two-Tower)}
+\label{sec:workbook-two-tower-recsys}
+
+\subsection{Khởi Điểm Từ Con Số 0: Kiến Trúc Two-Tower Cho Hệ Gợi Ý}
+Trong một sàn thương mại điện tử có hàng triệu mặt hàng và hàng chục triệu người dùng, việc cho một mô hình học sâu phức tạp chấm điểm từng cặp (User, Item) theo thời gian thực là điều bất khả thi về mặt độ trễ ($O(M \times N)$ phép tính).
+
+Kiến trúc Two-Tower giải quyết bài toán này bằng cách phân rã hệ thống thành hai nhánh độc lập:
+\begin{enumerate}
+  \item \textbf{User Tower (Nhánh Người Dùng)}: Nhận lịch sử duyệt web, vị trí địa lý, độ tuổi để ánh xạ thành véc-tơ người dùng $\mathbf{u} \in \mathbb{R}^d$.
+  \item \textbf{Item Tower (Nhánh Mặt Hàng)}: Nhận hình ảnh, mô tả sản phẩm, danh mục để ánh xạ trước thành véc-tơ mặt hàng $\mathbf{v} \in \mathbb{R}^d$ và lưu trữ sẵn trong Vector DB.
+\end{enumerate}
+Khi người dùng truy cập trang chủ, hệ thống chỉ cần tính véc-tơ $\mathbf{u}$ một lần duy nhất, sau đó thực hiện tìm kiếm láng giềng gần nhất (ANN qua HNSW) trên tập véc-tơ $\mathbf{v}$ đã được chỉ mục từ trước, giảm độ trễ truy vấn xuống dưới $10\text{ms}$.
+
+\subsection{Mô Hình Toán Học: Hàm Mất Mát InfoNCE (Contrastive Loss)}
+Để huấn luyện hai nhánh mạng kéo gần các sản phẩm mà người dùng đã mua ($\mathbf{v}^+$) và đẩy xa các sản phẩm người dùng không quan tâm ($\mathbf{v}_j^-$), ta sử dụng hàm mất mát tương phản InfoNCE:
+\begin{equation}
+\mathcal{L}_{\text{InfoNCE}} = - \sum_{i=1}^B \log \frac{\exp\left(\frac{\mathbf{u}_i \cdot \mathbf{v}_i^+}{\tau}\right)}{\exp\left(\frac{\mathbf{u}_i \cdot \mathbf{v}_i^+}{\tau}\right) + \sum_{j \neq i} \exp\left(\frac{\mathbf{u}_i \cdot \mathbf{v}_j^+}{\tau}\right)}
+\end{equation}
+trong đó $\tau$ là siêu tham số nhiệt độ tương phản (\textit{Contrastive Temperature}), và các mẫu âm tính ($\mathbf{v}_j^+$ với $j \neq i$) được lấy ngay từ các sản phẩm của các người dùng khác trong cùng một mini-batch (\textit{In-Batch Negatives}), loại bỏ hoàn toàn chi phí lấy mẫu âm tính ngoại vi.
+
+\subsection{Triển Khai Mã Nguồn Python: InfoNCE Loss \& Lập Chỉ Mục Vector}
+
+\begin{lstlisting}[language=python]
+import numpy as np
+
+def compute_infonce_loss(user_embeddings: np.ndarray, 
+                         item_embeddings: np.ndarray, 
+                         temperature: float = 0.07) -> float:
+    """Tinh toan ham mat mat In-Batch Negative InfoNCE Loss."""
+    # Chuan hoa L2 cac vector embedding ve do dai 1
+    u_norm = user_embeddings / (np.linalg.norm(user_embeddings, axis=1, keepdims=True) + 1e-9)
+    v_norm = item_embeddings / (np.linalg.norm(item_embeddings, axis=1, keepdims=True) + 1e-9)
+    
+    # Ma tran tuong dong Cosine giua moi cap User va Item trong Batch: (B, B)
+    similarity_matrix = (u_norm @ v_norm.T) / temperature
+    
+    # Mat na duong cheo: Cac phan tu u_i va v_i la cap duong tinh (Positive Pairs)
+    batch_size = user_embeddings.shape[0]
+    labels = np.arange(batch_size)
+    
+    # Ap dung Log-Sum-Exp Trick tinh Cross-Entropy Loss
+    max_sim = np.max(similarity_matrix, axis=1, keepdims=True)
+    exp_sim = np.exp(similarity_matrix - max_sim)
+    sum_exp = np.sum(exp_sim, axis=1)
+    
+    # Lay phan tu duong cheo tuong ung voi cap positive
+    pos_exp = exp_sim[np.arange(batch_size), labels]
+    loss = - np.mean(np.log(pos_exp / sum_exp))
+    return float(loss)
+\end{lstlisting}

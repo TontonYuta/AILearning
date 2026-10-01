@@ -1,25 +1,42 @@
 % ==============================================================================
 % PHỤ LỤC A: TOÀN THƯ THUẬT NGỮ KỸ NGHỆ AI CHUYÊN SÂU (GLOSSARY A-Z)
 % ==============================================================================
+% Phong cách: Sách chuyên khảo kinh điển (Classic Academic & Engineering Monograph)
+% Tiêu chuẩn: Chuẩn xác, giải phẫu bản chất tầng thấp, đối chiếu Anh-Việt chuẩn mực
+% ==============================================================================
 
 \chapter{Toàn Thư Thuật Ngữ Kỹ Nghệ AI Chuyên Sâu (Glossary A--Z)}
 \label{ch:appendix-glossary}
 
-Trong lĩnh vực Kỹ nghệ Trí tuệ Nhân tạo (\textit{AI Engineering}), sự nhầm lẫn giữa các thuật ngữ hoặc hiểu mơ hồ về bản chất tầng thấp là nguyên nhân hàng đầu dẫn đến các quyết định thiết kế sai lầm. Phụ lục này cung cấp định nghĩa giải phẫu chuyên sâu, chuẩn xác và có tính hệ thống cho hơn 100 thuật ngữ then chốt, được phân loại theo 8 trụ cột kỹ thuật của toàn bộ giáo trình.
+Trong lĩnh vực Kỹ nghệ Trí tuệ Nhân tạo (\textit{AI Engineering}), sự nhầm lẫn giữa các khái niệm trừu tượng hoặc hiểu mơ hồ về cơ chế tầng thấp là nguyên nhân hàng đầu dẫn đến các sai lầm kiến trúc nghiêm trọng: Từ việc nhầm lẫn giữa Compute-Bound và Memory-Bound dẫn đến mua sai loại phần cứng GPU, cho đến việc áp dụng sai cơ chế Attention làm bùng nổ chi phí VRAM. 
+
+Phụ lục chuyên khảo này cung cấp định nghĩa giải phẫu chuyên sâu, chuẩn xác và có tính hệ thống cho hơn 200 thuật ngữ then chốt, được phân loại theo 8 phân khu kỹ nghệ trụ cột của toàn bộ cuốn sách.
 
 ---
 
-\section{Hệ Thống, Phần Cứng \& Quản Lý Bộ Nhớ (Hardware, Memory \& Systems)}
-\label{sec:app-glossary-systems}
+\section{Hạ Tầng Phần Cứng, Bộ Nhớ \& Hệ Thống Tăng Tốc (Hardware, Memory \& Accelerators)}
+\label{sec:app-glossary-hardware}
 
 \begin{description}[leftmargin=2.5cm, style=nextline]
-  \item[\term{Activation Memory}] Bộ nhớ VRAM tạm thời dùng để lưu trữ các tensor kích hoạt (\textit{Activations}) trung gian sinh ra trong lượt truyền thẳng (Forward Pass) của mạng nơ-ron nhằm phục vụ việc tính toán đạo hàm ở lượt truyền ngược (Backward Pass). Trong giai đoạn suy luận (Inference), Activation Memory chỉ tồn tại tức thời theo từng token.
+  \item[\term{Activation Memory}] Bộ nhớ VRAM tạm thời dùng để lưu trữ các tensor kích hoạt (\textit{Activations}) trung gian sinh ra trong lượt truyền thẳng (Forward Pass) của mạng nơ-ron nhằm phục vụ việc tính toán đạo hàm ở lượt truyền ngược (Backward Pass). Trong giai đoạn suy luận (Inference), Activation Memory chỉ tồn tại tức thời theo từng bước giải mã.
+
+  \item[\term{Arithmetic Intensity}] Cường độ hoạt động tính toán của một kernel thuật toán, đo bằng tỷ số giữa số lượng phép tính dấu phẩy động (FLOPs) thực thi trên số byte dữ liệu được đọc/ghi từ bộ nhớ chính: $I = \frac{\text{FLOPs}}{\text{Bytes}}$. Là thông số cốt lõi trong biểu đồ Roofline Model.
+
+  \item[\term{Asymmetric Quantization}] Kỹ thuật lượng tử hóa ánh xạ khoảng giá trị thực $[\min, \max]$ không đối xứng sang miền số nguyên $[0, 2^b - 1]$, đòi hỏi cả hệ số tỷ lệ (\textit{Scale}) lẫn điểm mốc dịch chuyển (\textit{Zero-point}): $q = \text{round}(x / S) + Z$.
+
+  \item[\term{BF16 (Bfloat16)}] Định dạng dấu phẩy động 16-bit được Brain Team của Google phát triển. BF16 giữ nguyên 8 bit cho số mũ (\textit{Exponent}) tương đương FP32 và 7 bit cho phần định trị (\textit{Mantissa}), giúp triệt tiêu hiện tượng tràn số (\textit{Overflow/Underflow}) trong quá trình tính toán gradient mà không cần kỹ thuật loss scaling như FP16.
 
   \item[\term{Cgroups v2 (Control Groups)}] Tính năng của nhân Linux cho phép phân bổ, kiểm soát và giới hạn tài nguyên phần cứng (CPU, Memory, I/O băng thông) cho một tập hợp các tiến trình. Docker sử dụng Cgroups v2 để đảm bảo một container phục vụ mô hình không thể chiếm dụng toàn bộ RAM của máy chủ gây treo hệ thống.
 
-  \item[\term{Continuous Batching (Iteration-Level Batching)}] Kỹ thuật lập lịch suy luận LLM hiện đại (được tiên phong bởi Orca và phổ biến qua vLLM). Thay vì chờ toàn bộ batch hoàn thành sinh văn bản rồi mới nạp batch mới, hệ thống chèn các request mới vào ngay ở bước giải mã tiếp theo khi có một request cũ vừa sinh xong token dừng (\code{EOS}), triệt tiêu thời gian chờ vô ích của GPU.
+  \item[\term{Continuous Batching (Iteration-Level Batching)}] Kỹ thuật lập lịch suy luận LLM hiện đại (tiên phong bởi Orca và phổ biến qua vLLM). Thay vì chờ toàn bộ batch hoàn thành sinh văn bản rồi mới nạp batch mới, hệ thống chèn các request mới vào ngay ở bước giải mã tiếp theo khi có một request cũ vừa sinh xong token dừng (\code{EOS}), triệt tiêu thời gian chờ vô ích của GPU.
+
+  \item[\term{Direct Memory Access (DMA)}] Cơ chế phần cứng cho phép các thiết bị ngoại vi (card mạng NIC, ổ đĩa NVMe) đọc và ghi trực tiếp vào bộ nhớ chính của máy tính mà không cần sự can thiệp liên tục của CPU.
+
+  \item[\term{FlashAttention}] Thuật toán tính toán cơ chế Attention chính xác (\textit{Exact Attention}) được Tri Dao et al. đề xuất. Bằng cách chia nhỏ ma trận $Q, K, V$ thành các khối (\textit{Tiles}) vừa vặn với bộ nhớ cực nhanh SRAM trên chip GPU và áp dụng kỹ thuật Online Softmax, FlashAttention giảm số lần truy xuất bộ nhớ HBM từ $O(L^2)$ xuống $O(L)$, tăng tốc độ thực thi từ 2 đến 4 lần.
 
   \item[\term{GPUDirect RDMA}] Công nghệ cho phép card mạng (NIC) đọc và ghi trực tiếp vào bộ nhớ VRAM của GPU thông qua giao thức PCIe hoặc RoCE v2 mà không cần sao chép dữ liệu qua bộ nhớ hệ thống (Host RAM) hay chuyển ngữ cảnh vào nhân hệ điều hành (Kernel Bypass), giảm độ trễ giao tiếp đa GPU xuống mức micro-giây.
+
+  \item[\term{Grouped-Query Attention (GQA)}] Kiến trúc Attention trung gian giữa Multi-Head Attention (MHA) và Multi-Query Attention (MQA). Trong GQA, các đầu Query được chia thành từng nhóm (ví dụ 8 đầu Query) dùng chung duy nhất một cặp đầu Key-Value. Giúp giảm dung lượng KV Cache từ 4 đến 8 lần trong khi bảo toàn năng lực lập luận tương đương MHA.
 
   \item[\term{High Bandwidth Memory (HBM)}] Loại bộ nhớ VRAM cao cấp được xếp chồng 3D (3D-stacked DRAM) tích hợp trên các GPU chuyên dụng (NVIDIA A100, H100, B200), đạt băng thông truy xuất cực đại từ $1.5\text{ TB/s}$ đến trên $8\text{ TB/s}$, là yếu tố quyết định tốc độ sinh token trong giai đoạn Decode của Transformer.
 
@@ -27,150 +44,198 @@ Trong lĩnh vực Kỹ nghệ Trí tuệ Nhân tạo (\textit{AI Engineering}), 
 
   \item[\term{Memory Bandwidth Bound}] Trạng thái nghẽn hiệu năng khi năng lực tính toán của nhân Tensor Core trên GPU bị bỏ phí do tốc độ nạp dữ liệu từ bộ nhớ VRAM vào thanh ghi chip không theo kịp tốc độ tính toán. Giai đoạn sinh từng token (Decode) của LLM là ví dụ điển hình của Memory Bandwidth Bound.
 
-  \item[\term{PagedAttention}] Thuật toán quản lý bộ nhớ KV Cache lấy cảm hứng từ cơ chế bộ nhớ ảo phân trang của hệ điều hành. PagedAttention chia KV Cache thành các khối (\textit{Blocks}) kích thước cố định (ví dụ 16 tokens), cho phép lưu trữ phi liên tục trên VRAM, triệt tiêu $96\%$ hiện tượng phân mảnh bộ nhớ ngoài và hỗ trợ chia sẻ bộ nhớ an toàn qua copy-on-write.
+  \item[\term{Multi-Instance GPU (MIG)}] Công nghệ phần cứng của NVIDIA (từ kiến trúc Ampere trở đi) cho phép phân chia vật lý một GPU duy nhất (như A100 80GB) thành tối đa 7 thực thể GPU độc lập, mỗi thực thể có băng thông bộ nhớ, nhân CUDA và bộ nhớ đệm riêng biệt, bảo đảm tính cô lập tài nguyên phần cứng tuyệt đối (Hardware QoS).
 
-  \item[\term{Prefill Phase}] Giai đoạn đầu tiên trong quá trình suy luận của LLM: Mô hình nhận toàn bộ prompt đầu vào và tính toán đồng thời ma trận Attention cho tất cả các token. Giai đoạn này có tính chất song song hóa cao và là \textit{Compute-Bound}.
+  \item[\term{NCCL (NVIDIA Collective Communications Library)}] Thư viện tối ưu hóa các phép truyền thông tập thể đa GPU (AllReduce, AllGather, Broadcast, ReduceScatter) qua liên kết NVLink hoặc mạng InfiniBand/RoCE, là nền móng giao tiếp của mọi framework phân tán như PyTorch DDP, DeepSpeed, Megatron-LM.
+
+  \item[\term{NVLink}] Giao diện kết nối bus nối tiếp điểm-điểm tốc độ cao độc quyền của NVIDIA, cho phép truyền dữ liệu trực tiếp giữa các GPU trong cùng một bo mạch chủ với băng thông song công lên đến $900\text{ GB/s}$ (NVLink 4 trên H100), gấp hơn 7 lần băng thông khe cắm PCIe Gen 5.
+
+  \item[\term{PagedAttention}] Thuật toán quản lý bộ nhớ KV Cache lấy cảm hứng từ cơ chế bộ nhớ ảo phân trang của hệ điều hành. PagedAttention chia KV Cache thành các khối (\textit{Blocks}) kích thước cố định (ví dụ 16 tokens), cho phép lưu trữ phi liên tục trên VRAM, triệt tiêu $96\%$ hiện tượng phân mảnh bộ nhớ ngoài và hỗ trợ chia sẻ bộ nhớ an toàn qua copy-on-write.
 
   \item[\term{Roofline Model}] Mô hình trực quan hóa mối quan hệ giữa thông lượng tính toán của chip (FLOPs/s), băng thông bộ nhớ (Bytes/s) và cường độ hoạt động (\textit{Arithmetic Intensity: FLOPs/Byte}). Giúp kỹ sư xác định chính xác một thuật toán đang bị nghẽn do tính toán hay do bộ nhớ.
 
-  \item[\term{Time To First Token (TTFT)}] Khoảng thời gian từ khi hệ thống nhận được truy vấn cho đến khi token đầu tiên được sinh ra và gửi về client. Phản ánh thời gian thực thi của giai đoạn Prefill cộng với thời gian chờ trong hàng đợi lập lịch.
+  \item[\term{SRAM (Static RAM)}] Bộ nhớ đệm cực nhanh nằm trực tiếp trên phiến silicon của GPU (thường có dung lượng từ hàng chục đến hàng trăm megabyte trên mỗi chip). Tốc độ truy xuất của SRAM nhanh gấp hàng chục lần so với HBM, đóng vai trò then chốt trong các kernel tối ưu như FlashAttention.
 
-  \item[\term{Time Per Output Token (TPOT)}] Khoảng thời gian để mô hình sinh ra một token tiếp theo trong giai đoạn Decode. Quyết định trực tiếp tốc độ đọc văn bản của người dùng cuối.
+  \item[\term{Tensor Parallelism (TP)}] Kỹ thuật tính toán song song phân chia các ma trận trọng số trong một tầng nơ-ron (như ma trận chiếu Attention $W_Q, W_K, W_V, W_O$ hoặc MLP) lên nhiều GPU khác nhau theo chiều cột hoặc dòng, đòi hỏi truyền thông AllReduce giữa các GPU tại mỗi tầng.
 \end{description}
 
 ---
 
-\section{Toán Học, Đại Số \& Thuật Toán Tối Ưu (Mathematics \& Optimization)}
-\label{sec:app-glossary-math}
+\section{Nền Tảng Toán Học, Giải Tích \& Lý Thuyết Tối Ưu (Mathematics \& Optimization)}
+\label{sec:app-glossary-math-core}
 
 \begin{description}[leftmargin=2.5cm, style=nextline]
   \item[\term{AdamW (Decoupled Weight Decay)}] Thuật toán tối ưu hóa thích nghi tách rời bước cập nhật suy giảm trọng số (\textit{Weight Decay}) khỏi việc cập nhật theo gradient động lượng (Momentum), ngăn chặn việc các trọng số có gradient lớn bị suy giảm quá mức, là chuẩn mực tối ưu cho việc huấn luyện Transformer.
 
   \item[\term{Autograd (Automatic Differentiation)}] Kỹ thuật tính đạo hàm tự động bằng cách ghi lại đồ thị tính toán có hướng (Directed Acyclic Graph - DAG) trong quá trình Forward pass và tự động áp dụng quy tắc dây chuyền (\textit{Chain Rule}) trong Backward pass để tìm vector gradient.
 
+  \item[\term{Chinchilla Scaling Laws}] Định luật mở rộng quy mô điện toán thực nghiệm chứng minh rằng để đạt hiệu năng tối ưu trên một ngân sách tính toán (FLOPs), số lượng tham số mô hình $N$ và số lượng token dữ liệu huấn luyện $D$ phải được mở rộng với tỷ lệ ngang nhau ($N \propto C^{0.5}, D \propto C^{0.5}$).
+
+  \item[\term{Condition Number (Số Điều Kiện)}] Tỷ số giữa giá trị kỳ dị lớn nhất và nhỏ nhất của ma trận: $\kappa(\mathbf{A}) = \frac{\sigma_{\max}}{\sigma_{\min}}$. Phản ánh mức độ nhạy cảm của hệ phương trình tuyến tính đối với nhiễu; số điều kiện quá lớn báo hiệu ma trận bị suy biến (\textit{Ill-conditioned}), dễ gây phân kỳ số học khi huấn luyện ở độ chính xác thấp.
+
   \item[\term{Cosine Similarity}] Thước đo độ tương đồng góc giữa hai véc-tơ trong không gian nhiều chiều: $\cos(\mathbf{u}, \mathbf{v}) = \frac{\mathbf{u} \cdot \mathbf{v}}{\|\mathbf{u}\| \|\mathbf{v}\|}$. Giá trị dao động trong khoảng $[-1, 1]$, phản ánh mức độ trùng khớp ngữ nghĩa mà không bị ảnh hưởng bởi độ dài (độ lớn) của véc-tơ.
 
   \item[\term{Cross-Entropy Loss}] Hàm mất mát đo lường khoảng cách giữa hai phân phối xác suất: Phân phối thực tế (One-hot vector) và phân phối dự đoán của mô hình qua hàm Softmax. Đạo hàm của hàm Cross-Entropy kết hợp Softmax có dạng tuyến tính cực kỳ đẹp: $\frac{\partial \mathcal{L}}{\partial z_i} = \hat{y}_i - y_i$.
+
+  \item[\term{ELBO (Evidence Lower Bound)}] Cận dưới bằng chứng trong suy diễn biến phân (Variational Inference), được thiết lập dựa trên Bất đẳng thức Jensen nhằm cực đại hóa log-likelihood của dữ liệu quan sát thông qua việc tối ưu phân phối biến phân.
 
   \item[\term{Frobenius Norm}] Chuẩn ma trận đo tổng bình phương tất cả các phần tử: $\|\mathbf{A}\|_F = \sqrt{\sum_{i,j} a_{ij}^2}$. Được sử dụng rộng rãi để đo lường mức độ sai lệch khi xấp xỉ trọng số trong nén mô hình và lượng tử hóa.
 
   \item[\term{Jacobian Matrix}] Ma trận chứa toàn bộ các đạo hàm riêng bậc một của một hàm số véc-tơ đa biến. Trong mạng nơ-ron, ma trận Jacobian mô tả cách từng giá trị kích hoạt ở tầng sau thay đổi theo từng giá trị kích hoạt ở tầng trước.
 
+  \item[\term{Johnson-Lindenstrauss Lemma}] Bổ đề toán học chứng minh rằng bất kỳ tập hợp $p$ điểm nào trong không gian số chiều cao đều có thể chiếu xuống không gian số chiều nhỏ $k = O(\ln(p)/\epsilon^2)$ mà khoảng cách Euclid giữa mọi cặp điểm chỉ bị sai lệch trong phạm vi dung sai $1 \pm \epsilon$.
+
+  \item[\term{KKT Conditions (Karush-Kuhn-Tucker)}] Hệ điều kiện dừng, khả thi và bù triệt tiêu cần và đủ để một điểm là nghiệm cực trị tối ưu toàn cục trong bài toán quy hoạch toán học phi tuyến có ràng buộc.
+
+  \item[\term{Kullback-Leibler (KL) Divergence}] Thước đo phi đối xứng đo lường mức độ phân kỳ thông tin giữa hai phân phối xác suất $P$ và $Q$: $D_{\text{KL}}(P \parallel Q) = \mathbb{E}_P[\ln(P/Q)]$. Đóng vai trò là số hạng phạt độ lệch chính sách trong thuật toán PPO và DPO.
+
+  \item[\term{Lipschitz Continuity}] Tính chất trơn của hàm số đảm bảo rằng độ dốc của hàm bị chặn trên bởi một hằng số $L$: $|f(x) - f(y)| \le L |x - y|$. Là điều kiện tiên quyết để đảm bảo thuật toán Gradient Descent hội tụ ổn định với bước học $\eta < 2/L$.
+
   \item[\term{Log-Sum-Exp Trick}] Kỹ thuật tính toán giải tích số học biến đổi $\log(\sum e^{x_i})$ bằng cách trừ đi giá trị cực đại $c = \max(x_i)$ để triệt tiêu hiện tượng tràn số học (\textit{Numerical Overflow}) khi tính toán xác suất Softmax trên máy tính.
 
-  \item[\term{Low-Rank Matrix Decomposition}] Kỹ thuật phân rã một ma trận lớn $\mathbf{W} \in \mathbb{R}^{d \times k}$ thành tích của hai ma trận nhỏ hơn nhiều $\mathbf{B} \in \mathbb{R}^{d \times r}$ và $\mathbf{A} \in \mathbb{R}^{r \times k}$ với hạng $r \ll \min(d, k)$. Đây là nền tảng toán học của phương pháp tinh chỉnh tham số hiệu quả LoRA.
-
-  \item[\term{Shannon Entropy}] Thước đo mức độ bất định hoặc lượng thông tin trung bình trong một biến cố ngẫu nhiên: $H(X) = -\sum p(x_i) \log_2 p(x_i)$. Ứng dụng trong việc phát hiện dị thường lưu lượng mạng và đo lường độ tập trung của phân phối dự đoán token.
-
-  \item[\term{Singular Value Decomposition (SVD)}] Định lý đại số tuyến tính chứng minh mọi ma trận thực đều có thể phân tích thành $\mathbf{A} = \mathbf{U} \mathbf{\Sigma} \mathbf{V}^T$, cung cấp xấp xỉ hạng thấp tối ưu nhất theo chuẩn Frobenius (Định lý Eckart-Young-Mirsky).
+  \item[\term{Singular Value Decomposition (SVD)}] Định lý phân rã ma trận tổng quát $\mathbf{A} = \mathbf{U} \mathbf{\Sigma} \mathbf{V}^T$, là nền tảng toán học của việc tìm không gian con tối ưu, xấp xỉ hạng thấp (Eckart-Young-Mirsky Theorem) và phân tích thành phần chính (PCA).
 \end{description}
 
 ---
 
-\section{Kiến Trúc Transformer \& Kỹ Nghệ LLM (Transformer \& LLM Internals)}
+\section{Kiến Trúc Học Sâu, Transformer \& Cơ Chế Attention (Transformer Internals)}
 \label{sec:app-glossary-transformer}
 
 \begin{description}[leftmargin=2.5cm, style=nextline]
-  \item[\term{Autoregressive Generation}] Cơ chế sinh ngôn ngữ tuần tự trong đó mỗi token mới sinh ra được đưa ngược trở lại làm ngữ cảnh đầu vào để dự đoán token kế tiếp.
+  \item[\term{Autoregressive Generation}] Cơ chế sinh văn bản tự hồi quy: Mô hình dự đoán phân phối xác suất của token tiếp theo dựa trên chuỗi các token trong quá khứ, sau đó bổ sung token vừa sinh vào ngữ cảnh để tiếp tục sinh token kế tiếp theo chu trình lặp.
 
-  \item[\term{Byte-Pair Encoding (BPE)}] Thuật toán mã hóa nén văn bản thành chuỗi các subword tokens bằng cách đếm và gộp các cặp byte xuất hiện thường xuyên nhất trong kho ngữ liệu. BPE giúp mô hình giải quyết triệt để vấn đề từ vựng lạ (Out-Of-Vocabulary).
+  \item[\term{Causal Attention Mask}] Ma trận mặt nạ tam giác dưới dùng trong bộ giải mã (Decoder-only Transformer) để ngăn không cho các vị trí hiện tại chú ý đến các token tương lai, bảo đảm tính nhân quả của tác vụ sinh ngôn ngữ.
 
-  \item[\term{FlashAttention}] Thuật toán tính toán ma trận Attention tối ưu hóa theo cấp độ phần cứng GPU bằng cách chia khối dữ liệu (\textit{Tiling}) để tính toán trực tiếp trong bộ nhớ đệm SRAM siêu tốc, giảm tối đa số lần đọc/ghi ra VRAM ngoài (HBM), giúp tăng tốc độ tính Attention từ 2 đến 4 lần.
+  \item[\term{Feed-Forward Network (FFN/MLP)}] Khối mạng nơ-ron truyền thẳng gồm 2 hoặc 3 phép biến đổi tuyến tính kết hợp hàm kích hoạt phi tuyến (như SwiGLU hoặc GeLU) nằm sau tầng Multi-Head Attention. Khối này chiếm khoảng $2/3$ tổng số lượng tham số của mô hình Transformer và đóng vai trò lưu trữ tri thức thế giới (\textit{Factual Knowledge}).
 
-  \item[\term{Grouped-Query Attention (GQA)}] Kiến trúc Attention trung gian giữa Multi-Head Attention (MHA) và Multi-Query Attention (MQA), trong đó một nhóm các Query Heads chia sẻ chung một cặp Key-Value Head duy nhất. Giúp giảm dung lượng KV Cache từ 4 đến 8 lần mà vẫn giữ được năng lực biểu diễn tương đương MHA.
+  \item[\term{Layer Normalization (LayerNorm)}] Kỹ thuật chuẩn hóa các giá trị kích hoạt theo chiều không gian đặc trưng (Feature Dimension) của từng token độc lập, đưa kỳ vọng về 0 và phương sai về 1: $\hat{x} = \frac{x - \mu}{\sqrt{\sigma^2 + \epsilon}} \odot \gamma + \beta$.
 
-  \item[\term{LayerNorm (Pre-LN vs. Post-LN)}] Cơ chế chuẩn hóa kích hoạt nơ-ron theo từng tầng. Pre-LN áp dụng chuẩn hóa trước khối Attention và FFN, cho phép luồng tín hiệu truyền thẳng qua kết nối tắt (Residual Shortcut) mà không bị méo, giúp việc huấn luyện mô hình sâu trở nên cực kỳ ổn định.
+  \item[\term{LoRA (Low-Rank Adaptation)}] Kỹ thuật tinh chỉnh tham số hiệu quả (PEFT) đóng băng toàn bộ trọng số gốc $\mathbf{W}_0 \in \mathbb{R}^{d \times k}$ và học thêm một ma trận cập nhật hạng thấp $\Delta \mathbf{W} = \mathbf{B}\mathbf{A}$ với $\mathbf{B} \in \mathbb{R}^{d \times r}, \mathbf{A} \in \mathbb{R}^{r \times k}$ ($r \ll \min(d, k)$), giảm $99\%$ số tham số cần cập nhật và bộ nhớ optimizer state.
 
-  \item[\term{Min-P Sampling}] Chiến lược lấy mẫu token hiện đại đặt ngưỡng xác suất linh động dựa trên token có xác suất cao nhất: Token chỉ được chọn nếu $P(x) \ge p_{\text{base}} \times P_{\max}$. Vượt trội hơn Top-P ở chỗ không bị cắt cụt vô lý khi phân phối xác suất đồng đều.
+  \item[\term{Mixture of Experts (MoE)}] Kiến trúc mô hình thay thế tầng FFN dày đặc bằng nhiều mạng FFN con độc lập (\textit{Experts}), kết hợp một mạng định tuyến (\textit{Router/Gating Network}) để chọn lọc động một số lượng nhỏ chuyên gia (ví dụ Top-2 trong 8 chuyên gia) cho mỗi token, cho phép tăng số tham số tổng thể lên gấp nhiều lần trong khi giữ nguyên chi phí FLOPs trên mỗi token.
 
-  \item[\term{Rotary Position Embedding (RoPE)}] Phương pháp mã hóa vị trí bằng cách xoay véc-tơ biểu diễn của token trong mặt phẳng phức theo một góc tỷ lệ thuận với vị trí tuyệt đối của nó. RoPE giúp mô hình tự nhiên nhận biết được khoảng cách tương đối giữa các token thông qua tích vô hướng mà không cần ma trận vị trí cộng dồn.
+  \item[\term{Multi-Head Attention (MHA)}] Cơ chế chú ý chiếu véc-tơ đầu vào vào $H$ không gian con biểu diễn khác nhau thông qua các ma trận trọng số $W_Q^{(i)}, W_K^{(i)}, W_V^{(i)}$, tính toán Attention song song trên từng đầu, sau đó ghép nối (\textit{Concat}) và chiếu ngược lại không gian ban đầu.
 
-  \item[\term{Scaled Dot-Product Attention}] Công thức chú ý cốt lõi của Transformer: $\text{Attention}(Q, K, V) = \text{Softmax}\left(\frac{QK^T}{\sqrt{d_k}}\right)V$. Việc chia cho $\sqrt{d_k}$ nhằm ngăn chặn tích vô hướng có giá trị quá lớn làm hàm Softmax bị bão hòa và gradient suy giảm về 0.
+  \item[\term{RMSNorm (Root Mean Square Normalization)}] Biến thể tinh giản của LayerNorm lược bỏ bước tính toán trung bình $\mu$, chỉ chuẩn hóa theo căn bậc hai trung bình bình phương: $\text{RMS}(x) = \sqrt{\frac{1}{d}\sum x_i^2 + \epsilon}$, giảm $30\%$ chi phí tính toán mà vẫn duy trì tính ổn định số học.
 
-  \item[\term{Speculative Decoding}] Kỹ thuật tăng tốc suy luận sử dụng một mô hình nhỏ (Draft Model) sinh nhanh một chuỗi vài token dự đoán, sau đó dùng mô hình lớn (Target Model) kiểm chứng song song chuỗi đó trong đúng 1 forward pass. Giúp tăng tốc độ suy luận từ 2 đến 3 lần mà không làm sai lệch phân phối xác suất đầu ra.
+  \item[\term{Rotary Position Embedding (RoPE)}] Phương pháp nhúng vị trí tương đối thông qua phép quay trực giao véc-tơ trên từng cặp tọa độ trong mặt phẳng phức 2 chiều, cho phép tích vô hướng Query-Key mã hóa tự nhiên khoảng cách vị trí tương đối $n - m$ mà không cần ma trận cộng thêm.
+
+  \item[\term{SwiGLU}] Hàm kích hoạt phi tuyến kết hợp cơ chế cổng (Gated Linear Unit) và hàm Swish: $\text{SwiGLU}(x) = (x W_1) \odot \text{Swish}(x W_2)$, giúp cải thiện rõ rệt tốc độ hội tụ và độ chính xác của các mô hình LLM hiện đại so với ReLU hoặc GeLU.
 \end{description}
 
 ---
 
-\section{Hệ Thống RAG \& Tìm Kiếm Ngữ Nghĩa (Enterprise RAG \& Search)}
+\section{Vận Hành Suy Luận LLM, Serving \& Lập Lịch (LLM Runtime \& Serving)}
+\label{sec:app-glossary-runtime}
+
+\begin{description}[leftmargin=2.5cm, style=nextline]
+  \item[\term{Chunked Prefill}] Kỹ thuật chia nhỏ prompt đầu vào cực dài thành nhiều đoạn (\textit{Chunks}) nhỏ hơn để thực thi xen kẽ với các bước Decode, ngăn chặn tình trạng một prompt quá dài độc chiếm hoàn toàn năng lực tính toán của GPU làm tăng đột biến độ trễ TPOT của các request khác.
+
+  \item[\term{Cold Start Latency}] Thời gian trễ cần thiết để khởi động một mô hình LLM mới từ trạng thái tĩnh: Nạp hàng chục gigabyte trọng số từ ổ đĩa NVMe/S3 vào RAM, chuyển qua VRAM của GPU, khởi tạo bộ nhớ CUDA context và biên dịch các đồ thị tính toán.
+
+  \item[\term{First Token Latency (TTFT)}] Thời gian từ khi máy chủ nhận được yêu cầu của người dùng cho đến khi token đầu tiên được giải mã và gửi trả về qua giao thức Streaming.
+
+  \item[\term{Prefix Caching (Prompt Caching)}] Kỹ thuật lưu trữ và tái sử dụng các khối KV Cache tương ứng với các đoạn văn bản mở đầu phổ biến (như System Prompt chung, tài liệu pháp lý cố định), giúp các truy vấn tiếp theo có thể bỏ qua toàn bộ giai đoạn Prefill cho đoạn prefix đó.
+
+  \item[\term{Speculative Decoding}] Kỹ thuật tăng tốc giai đoạn Decode bằng cách sử dụng một mô hình nhỏ tốc độ cao (\textit{Draft Model}) sinh trước một chuỗi $K$ tokens phỏng đoán, sau đó sử dụng mô hình lớn (\textit{Target Model}) kiểm tra song song tính hợp lệ của cả $K$ tokens trong đúng 1 bước Forward pass duy nhất.
+
+  \item[\term{Token-to-Token Latency (TPOT)}] Thời gian trung bình để mô hình sinh ra một token mới trong quá trình sinh tự hồi quy (Decode phase), quyết định trực tiếp tốc độ đọc văn bản của người dùng cuối.
+
+  \item[\term{vLLM}] Thư viện và động cơ phục vụ suy luận LLM mã nguồn mở chuẩn mực công nghiệp hiện nay, tích hợp thuật toán PagedAttention, Continuous Batching, Chunked Prefill và hỗ trợ phân tán đa GPU.
+\end{description}
+
+---
+
+\section{Kỹ Nghệ RAG \& Hệ Thống Cơ Sở Dữ Liệu Véc-Tơ (RAG \& Vector Databases)}
 \label{sec:app-glossary-rag}
 
 \begin{description}[leftmargin=2.5cm, style=nextline]
-  \item[\term{Cross-Encoder Reranker}] Mô hình nơ-ron nhận đầu vào đồng thời cả câu hỏi và văn bản $(Q, D)$, cho phép các token của câu hỏi chú ý trực tiếp đến các token của văn bản qua toàn bộ các tầng Transformer. Đạt độ chính xác xếp hạng cao hơn nhiều so với mô hình Bi-Encoder, được dùng ở tầng lọc thứ hai trong RAG.
+  \item[\term{BM25 (Best Matching 25)}] Thuật toán truy xuất thông tin từ khóa dựa trên tần suất từ (\textit{TF-IDF}) có điều chỉnh phi tuyến theo độ dài tài liệu và ngưỡng bão hòa tần suất, là đại diện tiêu biểu của phương pháp tìm kiếm thưa (\textit{Sparse Retrieval}).
 
-  \item[\term{Hierarchical Navigable Small World (HNSW)}] Cấu trúc đồ thị nhiều tầng dùng để tìm kiếm láng giềng gần nhất xấp xỉ (Approximate Nearest Neighbors - ANN) trong không gian vector nhiều chiều. Đạt độ phức tạp tìm kiếm $O(\log N)$ với độ thu hồi (Recall) vượt trội trên các cơ sở dữ liệu vector như Qdrant.
+  \item[\term{Dense Retrieval}] Phương pháp tìm kiếm thông tin dựa trên việc ánh xạ văn bản thành các véc-tơ nhúng dày đặc (\textit{Dense Embeddings}) thông qua mô hình ngôn ngữ và so khớp độ tương đồng ngữ nghĩa trong không gian nhiều chiều.
 
-  \item[\term{Hybrid Search}] Kiến trúc tìm kiếm kết hợp giữa Tìm kiếm véc-tơ dày đặc (Dense Vector Search - nắm bắt ngữ nghĩa trừu tượng) và Tìm kiếm từ khóa thưa (Sparse BM25 Search - nắm bắt chính xác mã số, tên riêng, thuật ngữ chuyên ngành).
+  \item[\term{HNSW (Hierarchical Navigable Small World)}] Cấu trúc đồ thị nhiều tầng dùng để tìm kiếm láng giềng gần nhất xấp xỉ (Approximate Nearest Neighbors - ANN) trong Vector Database, đạt tốc độ tìm kiếm $O(\log N)$ với độ hồi quy (Recall) cực cao.
 
-  \item[\term{Lost in the Middle}] Hiện tượng mô hình Transformer có xu hướng chú ý tốt vào phần đầu và phần cuối của Context Window nhưng bỏ qua các thông tin nằm ở quãng giữa. Reranker giải quyết vấn đề này bằng cách đưa các tài liệu phù hợp nhất lên đầu ngữ cảnh.
+  \item[\term{Hybrid Search}] Kỹ thuật kết hợp đồng thời điểm số của phương pháp tìm kiếm thưa (BM25 - tìm khớp chính xác từ khóa, mã hiệu) và tìm kiếm dày (Dense Vector - tìm khớp ngữ nghĩa tương đồng) thông qua thuật toán RRF hoặc hàm tuyến tính có trọng số.
 
-  \item[\term{Parent-Document Retrieval}] Kỹ thuật RAG chia tài liệu thành các đoạn cực nhỏ (Small Chunks) để đánh chỉ mục vector chính xác, nhưng khi tìm thấy, hệ thống sẽ truy xuất tài liệu cha chứa đoạn nhỏ đó (Parent Chunk) để cung cấp đầy đủ ngữ cảnh rộng cho LLM.
+  \item[\term{Inverted Index (Chỉ Mục Đảo)}] Cấu trúc dữ liệu ánh xạ từ mỗi từ vựng sang danh sách các tài liệu và vị trí mà từ đó xuất hiện, là trái tim vận hành của các hệ thống tìm kiếm toàn văn như Elasticsearch, Lucene.
 
-  \item[\term{Reciprocal Rank Fusion (RRF)}] Giải thuật kết hợp thứ hạng không tham số dùng để trộn kết quả từ nhiều nguồn tìm kiếm khác nhau: $\text{RRF\_Score}(d) = \sum \frac{1}{k + r_i(d)}$. Giúp hợp nhất bảng xếp hạng giữa Dense Vector và BM25 mà không cần chuẩn hóa thang điểm.
+  \item[\term{Product Quantization (PQ)}] Thuật toán nén véc-tơ bằng cách chia véc-tơ $d$ chiều thành $m$ không gian con, chạy thuật toán $k$-means trên từng không gian con để tạo bảng mã (\textit{Codebook}), sau đó biểu diễn véc-tơ gốc bằng $m$ chỉ số nhị phân ngắn, giảm dung lượng bộ nhớ RAM từ 4 đến 16 lần.
+
+  \item[\term{Reranking (Cross-Encoder)}] Giai đoạn chấm điểm lại danh sách top tài liệu ứng viên bằng một mô hình Cross-Encoder nhận đồng thời cả truy vấn và tài liệu qua cơ chế full-attention, mang lại độ chính xác ngữ nghĩa vượt trội so với Bi-Encoder.
+
+  \item[\term{RRF (Reciprocal Rank Fusion)}] Thuật toán kết hợp danh sách xếp hạng không tham số: $\text{RRF}(d) = \sum \frac{1}{k + r_i(d)}$. Cho phép gộp kết quả từ các hệ thống tìm kiếm có thang đo điểm số khác biệt hoàn toàn mà không cần hiệu chuẩn xác suất.
 \end{description}
 
 ---
 
-\section{Đa Tác Tử \& Đồ Thị Trạng Thái (Autonomous Agents \& LangGraph)}
+\section{Tác Tử AI Tự Hành, Đồ Thị Trạng Thái \& Điều Phối (Autonomous Agents)}
 \label{sec:app-glossary-agents}
 
 \begin{description}[leftmargin=2.5cm, style=nextline]
-  \item[\term{Checkpointer (State Persistence)}] Cơ chế lưu trữ bền vững trạng thái của đồ thị Agent (vào PostgreSQL hoặc Redis) sau mỗi bước thực thi node. Cho phép hệ thống phục hồi lại phiên làm việc sau sự cố sập nguồn và hỗ trợ chức năng tua lại lịch sử (Time-Travel Debugging).
+  \item[\term{Cyclic State Graph}] Đồ thị trạng thái có chu trình, cho phép tác tử AI có thể quay vòng lặp lại các trạng thái thực thi công việc (như: Sinh mã $\to$ Chạy thử $\to$ Bắt lỗi $\to$ Sinh mã sửa lỗi) cho đến khi thỏa mãn điều kiện kết thúc định trước.
 
-  \item[\term{Compound Error Probability}] Xác suất lỗi tích lũy trong một chuỗi hành động đa bước: $P_{\text{fail}} = 1 - (1 - \epsilon)^N$. Khi Agent thực hiện chuỗi $N$ hành động phụ thuộc, ngay cả khi độ chính xác mỗi bước là $95\%$, tỷ lệ thành công của chuỗi 10 bước chỉ còn khoảng $60\%$.
+  \item[\term{Human-in-the-Loop (HITL)}] Mô hình kiến trúc yêu cầu sự phê duyệt hoặc can thiệp trực tiếp của con người đối với các hành động nhạy cảm hoặc có rủi ro cao (ví dụ: Chuyển tiền, xóa cơ sở dữ liệu, sửa đổi cấu hình tường lửa).
 
-  \item[\term{Human-in-the-Loop (HITL)}] Mẫu thiết kế trong đó đồ thị tác tử tự động dừng lại ở một điểm ngắt (\textit{Breakpoint}) trước khi thực thi các thao tác nhạy cảm (xóa database, chuyển tiền, cấu hình firewall) để yêu cầu con người xác nhận trực tiếp qua giao diện.
+  \item[\term{LangGraph}] Khung phần mềm điều phối Agent mở rộng trên LangChain, biểu diễn chu trình ra quyết định của tác tử dưới dạng đồ thị trạng thái có chu trình (\textit{State Graph}) với cơ chế lưu vết bền vững (\textit{Persistence/Checkpointer}).
 
-  \item[\term{ReAct (Reasoning + Acting)}] Vòng lặp nhận thức của Agent: Mô hình luân phiên giữa việc suy nghĩ phân tích (\textit{Thought}), gọi công cụ thực thi (\textit{Action}), và tiếp nhận dữ liệu phản hồi từ môi trường (\textit{Observation}) cho đến khi hoàn thành mục tiêu.
+  \item[\term{Multi-Agent Collaboration}] Mô hình tương tác giữa nhiều tác tử AI chuyên biệt hóa theo vai trò (ví dụ: Planner, Researcher, Coder, Critic) phối hợp với nhau thông qua đồ thị phân cấp để giải quyết bài toán phức tạp vượt quá khả năng của một LLM đơn lẻ.
 
-  \item[\term{Reducers (State Mutation)}] Hàm pure function trong LangGraph xác định cách cập nhật một trường dữ liệu trong State khi có node mới trả về kết quả (ví dụ \code{operator.add} để nối thêm tin nhắn vào danh sách thay vì ghi đè).
+  \item[\term{Plan-and-Solve}] Chiến lược phân rã bài toán lớn thành một chuỗi các mục tiêu con khả thi trước khi tiến hành thực thi từng bước, giúp giảm tỷ lệ lệch hướng của Agent trong các tác vụ dài hơi.
+
+  \item[\term{ReAct (Reasoning and Acting)}] Khung thiết kế thúc đẩy mô hình ngôn ngữ luân phiên thực hiện hai hành vi: Suy nghĩ lập luận (\textit{Thought}) và Hành động gọi công cụ (\textit{Action}), sau đó quan sát kết quả trả về (\textit{Observation}) để điều chỉnh bước đi kế tiếp.
+
+  \item[\term{Short-term vs Long-term Memory}] Bộ nhớ ngắn hạn của Agent tồn tại trong phạm vi cửa sổ ngữ cảnh (Context Window) của phiên làm việc hiện tại; bộ nhớ dài hạn được lưu trữ ngoại vi trong Vector DB hoặc cơ sở dữ liệu đồ thị để truy xuất qua nhiều phiên tương tác khác nhau.
+
+  \item[\term{Tool Use (Function Calling)}] Khả năng của mô hình LLM phát hiện khi nào cần gọi một công cụ bên ngoài, tự động trích xuất các tham số có cấu trúc chuẩn JSON từ văn bản người dùng và sinh lệnh gọi hàm chuẩn xác.
 \end{description}
 
 ---
 
-\section{Phục Vụ Mô Hình, Nén \& Lượng Tử Hóa (Serving, Quantization \& PEFT)}
-\label{sec:app-glossary-serving}
-
-\begin{description}[leftmargin=2.5cm, style=nextline]
-  \item[\term{Activation-aware Weight Quantization (AWQ)}] Phương pháp lượng tử hóa nén trọng số xuống INT4 bảo vệ $1\%$ các kênh trọng số quan trọng nhất (những kênh tương ứng với các kích hoạt có biên độ ngoại lai - Outliers), giúp giữ vững độ chính xác của mô hình gần như nguyên vẹn.
-
-  \item[\term{GPTQ (Generalized Post-Training Quantization)}] Phương pháp lượng tử hóa trọng số dựa trên ma trận Hessian nghịch đảo để tối thiểu hóa sai số xấp xỉ đầu ra tầng nơ-ron: $\mathbf{H} = 2 \mathbf{X} \mathbf{X}^T$, cho phép nén mô hình 70B xuống INT4 trong vòng vài giờ.
-
-  \item[\term{Low-Rank Adaptation (LoRA)}] Kỹ thuật tinh chỉnh tham số hiệu quả đóng băng ma trận trọng số gốc $\mathbf{W}_0$ và chỉ huấn luyện thêm nhánh ma trận thích nghi hạng thấp $\Delta \mathbf{W} = \frac{\alpha}{r} \mathbf{B} \mathbf{A}$, giảm $90\%$ bộ nhớ VRAM huấn luyện.
-
-  \item[\term{QLoRA}] Biến thể của LoRA kết hợp lượng tử hóa ma trận gốc sang định dạng số thực 4-bit NormalFloat (NF4), nén thêm trạng thái của bộ nhớ lượng tử (Double Quantization) và phân trang bộ nhớ VRAM để chống lỗi OOM.
-
-  \item[\term{Tensor Parallelism (TP)}] Kỹ thuật phân tán mô hình chia nhỏ các ma trận trọng số trong từng lớp Transformer (Column-Parallel và Row-Parallel Linear) ra nhiều GPU trong cùng một nút máy chủ và sử dụng giao tiếp All-Reduce qua NVLink để ghép kết quả.
-\end{description}
-
----
-
-\section{An Ninh Mạng AI \& Phòng Thủ Chiều Sâu (AI Security \& Guardrails)}
+\section{Mạng Máy Tính, An Ninh Mạng \& Phòng Thủ Hệ Thống AI (Network \& Security)}
 \label{sec:app-glossary-security}
 
 \begin{description}[leftmargin=2.5cm, style=nextline]
-  \item[\term{Base Rate Fallacy}] Nghịch lý tỷ lệ cơ sở: Khi một hiện tượng (như tấn công mạng) xuất hiện với tần suất cực thấp trong thực tế ($P(A) \ll 1$), một mô hình phát hiện dù có độ chính xác $99\%$ vẫn tạo ra tỷ lệ báo động giả áp đảo trong tổng số cảnh báo phát ra.
+  \item[\term{Adversarial Perturbation}] Nhiễu đối kháng vi mô được cố tình cộng vào dữ liệu đầu vào (hình ảnh, văn bản) theo hướng cực đại hóa gradient mất mát của mô hình, khiến mô hình đưa ra dự đoán sai lệch hoàn toàn với độ tin cậy cao.
 
-  \item[\term{Canary Token}] Chuỗi ký tự bí mật có độ entropy cao được cài vào System Prompt nhằm phát hiện các cuộc tấn công trích xuất dữ liệu mật; nếu chuỗi này xuất hiện ở đầu ra, hệ thống lập tức khóa phiên làm việc.
+  \item[\term{Defense-in-Depth}] Chiến lược phòng thủ chiều sâu nhiều lớp: Không bao giờ tin tưởng vào một biện pháp bảo vệ đơn lẻ, mà thiết lập kiểm soát an ninh tại mọi tầng (Mạng $\to$ API Gateway $\to$ Bộ lọc Guardrails $\to$ Quyền thực thi OS $\to$ Cơ sở dữ liệu).
 
-  \item[\term{Constrained Decoding}] Kỹ thuật can thiệp vào phân phối logits ở từng bước sinh token để ép mô hình chỉ được chọn các token tuân thủ nghiêm ngặt ngữ pháp phi ngữ cảnh (CFG) hoặc schema JSON xác định trước, triệt tiêu nguy cơ sinh lệnh shell nguy hiểm.
+  \item[\term{Indirect Prompt Injection}] Hình thức tấn công mạng tinh vi trong đó kẻ tấn công nhúng các chỉ thị độc hại vào dữ liệu phi cấu trúc mà Agent hoặc RAG thu thập từ bên ngoài (như trang web, email, tài liệu PDF), khiến mô hình khi đọc tài liệu sẽ vô tình thực thi chỉ thị của kẻ tấn công thay vì chỉ thị của người dùng gốc.
 
-  \item[\term{Greedy Coordinate Gradient (GCG)}] Thuật toán tấn công bẻ khóa (Jailbreak) dựa trên đạo hàm nghịch đảo: Tối ưu hóa chuỗi token hậu tố để cực đại hóa xác suất mô hình sinh ra tiền tố khẳng định (``Sure, here is...'').
+  \item[\term{Jailbreak Attack}] Kỹ thuật thiết kế prompt vượt qua các rào cản đạo đức và an toàn (Safety Guardrails) mà nhà phát triển đã thiết lập trong quá trình tinh chỉnh căn chỉnh (RLHF/DPO) của mô hình.
 
-  \item[\term{Indirect Prompt Injection}] Cuộc tấn công trong đó kẻ phá hoại cài mã lệnh ẩn vào các tài liệu bên ngoài (website, email, file PDF) mà hệ thống AI sẽ tự động đọc, qua đó chiếm quyền điều khiển các công cụ của Agent.
+  \item[\term{Llama Guard}] Mô hình ngôn ngữ chuyên dụng được tinh chỉnh làm nhiệm vụ phân loại an toàn cho cả prompt đầu vào và câu trả lời đầu ra theo các danh mục rủi ro được chuẩn hóa (Bạo lực, Tự hại, Vũ khí, Xâm phạm đời tư, Tội phạm mạng).
+
+  \item[\term{OWASP Top 10 for LLM Applications}] Danh sách 10 lỗ hổng an ninh nguy hiểm nhất đối với các ứng dụng sử dụng mô hình ngôn ngữ lớn do tổ chức phi lợi nhuận OWASP công bố định kỳ, bao gồm Prompt Injection, Insecure Output Handling, Sensitive Information Disclosure, và Excessive Agency.
+
+  \item[\term{Rate Limiting (Token Bucket)}] Thuật toán kiểm soát lưu lượng truy cập bằng cách cấp các thẻ (\textit{Tokens}) vào một thùng chứa theo tốc độ cố định; mỗi yêu cầu API cần tiêu thụ một số thẻ nhất định để được đi qua, giúp chống tấn công DoS và kiểm soát chi phí gọi API.
+
+  \item[\term{Shadow Deployment}] Kỹ thuật triển khai mô hình mới song song với mô hình đang chạy sản xuất; lưu lượng thực tế được nhân đôi (\textit{Traffic Mirroring}) để gửi tới mô hình mới nhằm kiểm tra độ ổn định và độ trễ ngầm mà không gây ảnh hưởng đến người dùng cuối.
+
+  \item[\term{STRIDE Threat Model}] Mô hình phân loại hiểm họa an ninh gồm 6 nhóm: Spoofing (Giả mạo), Tampering (Sửa đổi dữ liệu), Repudiation (Chối bỏ trách nhiệm), Information Disclosure (Tiết lộ thông tin), Denial of Service (Từ chối dịch vụ), và Elevation of Privilege (Leo thang đặc quyền).
+
+  \item[\term{TLS 1.3 Handshake}] Giao thức bảo mật tầng giao vận hiện đại rút ngắn quy trình bắt tay bảo mật xuống còn 1 vòng truyền nhận (1-RTT) bằng thuật toán trao đổi khóa Elliptic Curve Diffie-Hellman (ECDHE), bảo đảm tính bí mật chuyển tiếp hoàn hảo (Perfect Forward Secrecy).
 \end{description}
 
 ---
 
-\section{Thiết Kế Hệ Thống \& Đo Đạc Hiệu Năng (System Design \& Metrics)}
-\label{sec:app-glossary-sysdesign}
+\section{Vận Hành MLOps, LLMOps \& Đo Lường Sản Xuất (MLOps \& Observability)}
+\label{sec:app-glossary-mlops}
 
 \begin{description}[leftmargin=2.5cm, style=nextline]
-  \item[\term{Back-of-the-Envelope Estimation}] Kỹ năng ước tính dung lượng thô bằng toán nhẩm trên giấy (QPS đỉnh, băng thông mạng, số lượng GPU, dung lượng RAM/Storage) để định hình quy mô kiến trúc trước khi viết code.
+  \item[\term{Concept Drift}] Hiện tượng mối quan hệ thống kê giữa đặc trưng đầu vào $X$ và nhãn mục tiêu $Y$ thay đổi theo thời gian: $P(Y \mid X)$ biến thiên, khiến mô hình bị suy giảm độ chuẩn xác ngay cả khi phân phối đầu vào $P(X)$ không đổi.
 
-  \item[\term{Circuit Breaker Pattern}] Mẫu thiết kế phần mềm ngắt mạch tự động chuyển hướng lưu lượng sang hệ thống dự phòng (Fallback) khi dịch vụ chính gặp sự cố quá tải hoặc tỷ lệ lỗi vượt ngưỡng cho phép.
+  \item[\term{Data Drift (Covariate Shift)}] Hiện tượng phân phối của dữ liệu đầu vào thực tế thay đổi so với dữ liệu huấn luyện: $P_{\text{test}}(X) \neq P_{\text{train}}(X)$, thường được phát hiện qua các kiểm định thống kê như Kol\-mo\-go\-rov-Smir\-nov hoặc độ phân kỳ PSI (Population Stability Index).
 
-  \item[\term{Little's Law}] Định luật kinh điển trong lý thuyết xếp hàng: $L = \lambda W$, trong đó $L$ là số lượng yêu cầu đồng thời trong hệ thống, $\lambda$ là thông lượng (QPS), và $W$ là thời gian xử lý trung bình mỗi yêu cầu.
+  \item[\term{Faithfulness (Độ Trung Thực RAG)}] Chỉ số đo lường mức độ mà các khẳng định trong câu trả lời sinh ra có thể được chứng minh và suy luận trực tiếp từ ngữ cảnh tài liệu được cung cấp hay không, dùng để phát hiện hallucination.
 
-  \item[\term{Semantic Caching}] Bộ nhớ đệm lưu trữ các câu trả lời dựa trên độ tương đồng véc-tơ ngữ nghĩa của câu hỏi; nếu câu hỏi mới có độ tương đồng Cosine vượt ngưỡng $\tau$, hệ thống trả lời trực tiếp từ cache mà không cần gọi LLM.
+  \item[\term{LLM-as-a-Judge}] Phương pháp sử dụng một mô hình ngôn ngữ lớn năng lực cao (như GPT-4, Claude-3.5-Sonnet) kết hợp prompt chấm điểm chi tiết để đánh giá định tính chất lượng câu trả lời của các mô hình nhỏ hơn theo thang điểm rubric chuẩn hóa.
+
+  \item[\term{Model Registry}] Kho lưu trữ tập trung quản lý toàn bộ vòng đời của các phiên bản mô hình học máy: Từ mã băm commit, siêu tham số, trọng số nhị phân, cho đến trạng thái phê duyệt chuyển môi trường (Staging, Production, Archived).
+
+  \item[\term{OpenTelemetry (OTel)}] Khung tiêu chuẩn mã nguồn mở cung cấp các API, SDK và công cụ thu thập dữ liệu đo kiểm vận hành phân tán thống nhất (Distributed Traces, Metrics, Logs) cho toàn bộ kiến trúc microservices và AI pipeline.
+
+  \item[\term{Ragas}] Framework mã nguồn mở tiêu chuẩn dùng để đánh giá hệ thống RAG độc lập không cần nhãn ground-truth con người thông qua 4 trụ cột: Faithfulness, Answer Relevance, Context Precision, và Context Recall.
+
+  \item[\term{SLA / SLO / SLI}] Hệ thống đo lường chất lượng dịch vụ: SLI (Chỉ số đo lường thực tế, ví dụ TTFT p95), SLO (Mục tiêu nội bộ cam kết, ví dụ TTFT p95 < 200ms), SLA (Thỏa thuận pháp lý với khách hàng kèm mức đền bù tài chính nếu vi phạm SLO).
 \end{description}

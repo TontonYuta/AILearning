@@ -1,48 +1,59 @@
 % ==============================================================================
-% PHỤ LỤC C: SỔ TAY LỆNH HỆ THỐNG, DOCKER, VLLM, LINUX NETOPS & PYTORCH
+% PHỤ LỤC C: SỔ TAY LỆNH HỆ THỐNG, DOCKER, KUBERNETES, VLLM & LINUX NETOPS
+% ==============================================================================
+% Phong cách: Sách chuyên khảo kinh điển (Classic Academic & Engineering Monograph)
+% Tiêu chuẩn: Chuẩn xác, thực chiến, có thể sao chép và vận hành trực tiếp
 % ==============================================================================
 
 \chapter{Sổ Tay Lệnh Hệ Thống, Docker, vLLM \& Linux NetOps}
 \label{ch:appendix-cheatsheets}
 
-Khi vận hành một hệ thống AI trên máy chủ thực tế hoặc trực ca xử lý sự cố trong đêm, kỹ sư không có thời gian tra cứu Google hay hỏi tài liệu. Bạn cần những câu lệnh ngắn gọn, chính xác, có thể copy-paste và giải quyết vấn đề ngay lập tức. Phụ lục này tổng hợp các câu lệnh ``bỏ túi'' đắt giá nhất của một Senior Production AI Engineer.
+Khi trực tiếp vận hành cụm máy chủ AI quy mô lớn phục vụ hàng triệu người dùng hoặc xử lý sự cố khẩn cấp trong ca trực đêm (\textit{On-Call Incident Response}), kỹ sư không có thời gian tìm kiếm tài liệu trên mạng. Bạn cần những câu lệnh hệ thống chính xác, súc tích, đã được kiểm chứng thực tế tại các môi trường sản xuất khắt khe nhất.
+
+Phụ lục chuyên khảo này tổng hợp các bộ công cụ dòng lệnh (CLI), cấu hình hạt nhân Linux Kernel, kịch bản chẩn đoán mạng NetOps, các cờ tối ưu hóa vLLM và tài nguyên Kubernetes thiết yếu dành riêng cho Kỹ sư AI cấp cao.
 
 ---
 
 \section{Giám Sát Phần Cứng GPU NVIDIA \& Môi Trường CUDA}
 \label{sec:app-cheat-gpu}
 
-\subsection{Lệnh nvidia-smi Chuyên Sâu Cho Giám Sát}
+\subsection{Lệnh nvidia-smi Chuyên Sâu Cho Khảo Sát Hệ Thống}
+
 \begin{lstlisting}[language=bash]
-# 1. Theo doi VRAM va do su dung GPU lien tuc moi 1 giay
+# 1. Theo doi VRAM va cong suat tieu thu GPU lien tuc moi 1 giay
 nvidia-smi -l 1
 
 # 2. Xuat chi tiet thong so GPU dinh dang CSV de phan tich do tre va nhiet do
-nvidia-smi --query-gpu=timestamp,name,utilization.gpu,utilization.memory,memory.used,memory.total,temperature.gpu,power.draw --format=csv -l 2 > gpu_metrics.csv
+nvidia-smi --query-gpu=timestamp,name,pci.bus_id,utilization.gpu,utilization.memory,memory.used,memory.total,temperature.gpu,power.draw --format=csv -l 2 > gpu_telemetry.csv
 
 # 3. Kiem tra tien trinh (PID) nao dang chiem dung VRAM tren tung card GPU
 nvidia-smi pmon -s m -c 5
 
 # 4. Kiem tra cau truc lien ket NVLink giua cac GPU trong nut may chu
 nvidia-smi topo -m
+
+# 5. Dat lai gioi han cong suat dien toi da (Power Limit) cho GPU A100/H100 (W)
+sudo nvidia-smi -pl 350
 \end{lstlisting}
 
 \subsection{Biến Môi Trường CUDA \& NCCL Bắt Buộc Nhớ}
+
 \begin{table}[htbp]
 \centering
 \small
-\caption{Các Biến Môi Trường CUDA \& NCCL Thiết Yếu Trong Cụm AI}
+\caption{Các Biến Môi Trường CUDA \& NCCL Thiết Yếu Trong Huấn Luyện \& Serving Đa GPU}
 \label{tab:app-cuda-env}
 \begin{tabular}{p{5.5cm}p{7.5cm}}
 \toprule
 \textbf{Biến Môi Trường} & \textbf{Ý Nghĩa Kỹ Thuật \& Ứng Dụng} \\
 \midrule
 \code{CUDA_VISIBLE_DEVICES=0,1,2,3} & Chỉ định chính xác các GPU vật lý mà tiến trình Python được phép truy cập. \\
-\code{CUDA_LAUNCH_BLOCKING=1} & Ép CUDA thực thi đồng bộ để dòng thông báo lỗi Python chỉ đúng vị trí tensor bị lỗi (dùng khi debug lỗi OOM hoặc CUDA error). \\
-\code{TORCH_USE_CUDA_DSA=1} & Kích hoạt Device-side Assertions để bắt chính xác lỗi chỉ số vượt mảng trong CUDA kernel. \\
+\code{CUDA_LAUNCH_BLOCKING=1} & Ép CUDA thực thi đồng bộ để dòng thông báo lỗi Python chỉ đúng vị trí tensor bị lỗi (dùng khi debug lỗi OOM hoặc CUDA kernel illegal memory access). \\
+\code{TORCH_USE_CUDA_DSA=1} & Kích hoạt Device-side Assertions để bắt chính xác lỗi chỉ số vượt biên mảng trên GPU. \\
 \code{NCCL_DEBUG=INFO} & Bật ghi log chi tiết cho thư viện NCCL khi huấn luyện hoặc serving đa GPU (Tensor Parallelism). \\
-\code{NCCL_IB_DISABLE=0} & Kích hoạt giao tiếp mạng InfiniBand/RoCE v2 cho giao tiếp đa máy chủ. \\
-\code{PYTORCH_CUDA_ALLOC_CONF=} \newline \code{expandable_segments:True} & Giảm thiểu hiện tượng phân mảnh bộ nhớ VRAM trong PyTorch. \\
+\code{NCCL_IB_DISABLE=0} & Ép kích hoạt giao tiếp mạng InfiniBand/RoCE v2 cho giao tiếp liên máy chủ. \\
+\code{NCCL_P2P_DISABLE=1} & Vô hiệu hóa truyền thông Peer-to-Peer trực tiếp qua PCIe khi xảy ra xung đột chipset. \\
+\code{PYTORCH_CUDA_ALLOC_CONF=} \newline \code{expandable_segments:True} & Giảm thiểu hiện tượng phân mảnh bộ nhớ VRAM trong PyTorch bằng cách cấp phát các đoạn nhớ động linh hoạt. \\
 \bottomrule
 \end{tabular}
 \end{table}
@@ -52,25 +63,31 @@ nvidia-smi topo -m
 \section{Docker \& NVIDIA Container Toolkit Cho Production AI}
 \label{sec:app-cheat-docker}
 
-\subsection{Khởi Chạy Container GPU Tránh Lỗi Phân Mảnh Bộ Nhớ}
-Một trong những lỗi kinh điển khiến PyTorch DataLoader bị sập với tín hiệu \code{SIGBUS} là do kích thước bộ nhớ chia sẻ mặc định của Docker (\file{/dev/shm}) chỉ có 64MB. Lệnh khởi chạy container chuẩn mực:
+\subsection{Khởi Chạy Container Tránh Lỗi Phân Mảnh \& Tràn /dev/shm}
+
+Lỗi kinh điển khiến PyTorch DataLoader bị sập với tín hiệu \code{SIGBUS} là do kích thước bộ nhớ chia sẻ mặc định của Docker (\file{/dev/shm}) chỉ có 64MB. Cấu hình sản xuất chuẩn mực:
 
 \begin{lstlisting}[language=bash]
-# Chay Docker container voi toan bo GPU va mo rong /dev/shm
+# Khoi chay container voi IPC Host, ulimit khong gioi han va mount o dia model
 docker run -d \
-  --name vllm_production_node \
+  --name vllm_production_cluster \
+  --runtime nvidia \
   --gpus all \
   --ipc=host \
   --ulimit memlock=-1 \
   --ulimit stack=67108864 \
   -p 8000:8000 \
-  -v /data/models:/root/.cache/huggingface \
+  -v /mnt/fast_nvme/models:/root/.cache/huggingface \
+  -v /var/log/vllm:/var/log/vllm \
   vllm/vllm-openai:latest \
   --model meta-llama/Meta-Llama-3-70B-Instruct \
-  --tensor-parallel-size 4
+  --tensor-parallel-size 4 \
+  --gpu-memory-utilization 0.92 \
+  --max-model-len 8192
 \end{lstlisting}
 
-\subsection{Cấu Hình /etc/docker/daemon.json Hỗ Trợ GPU Runtime}
+\subsection{Cấu Hình /etc/docker/daemon.json Cho GPU Trực Tiếp}
+
 \begin{lstlisting}[language=bash]
 {
   "default-runtime": "nvidia",
@@ -84,16 +101,97 @@ docker run -d \
   "log-opts": {
     "max-size": "100m",
     "max-file": "5"
-  }
+  },
+  "storage-driver": "overlay2"
 }
 \end{lstlisting}
 
 ---
 
-\section{Cẩm Nang Cờ Lệnh (CLI Flags) Cho vLLM Serving Engine}
-\label{sec:app-cheat-vllm}
+\section{Kubernetes Cho Kỹ Sư AI: Manifests Mẫu Cho vLLM \& GPU Autoscaling}
+\label{sec:app-cheat-k8s}
 
-Dưới đây là các tham số quan trọng nhất khi khởi chạy máy chủ vLLM phục vụ sản xuất:
+\subsection{Định Nghĩa Deployment Khai Thác GPU Với NVIDIA Resource Requests}
+
+\begin{lstlisting}[language=bash]
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: vllm-llama3-70b
+  namespace: ai-serving
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: vllm-llama3-70b
+  template:
+    metadata:
+      labels:
+        app: vllm-llama3-70b
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "8000"
+        prometheus.io/path: "/metrics"
+    spec:
+      containers:
+      - name: vllm-engine
+        image: vllm/vllm-openai:latest
+        args:
+        - "--model"
+        - "meta-llama/Meta-Llama-3-70B-Instruct"
+        - "--tensor-parallel-size"
+        - "4"
+        - "--gpu-memory-utilization"
+        - "0.92"
+        - "--enable-prefix-caching"
+        resources:
+          limits:
+            nvidia.com/gpu: "4"
+            memory: "64Gi"
+            cpu: "16"
+          requests:
+            nvidia.com/gpu: "4"
+            memory: "32Gi"
+            cpu: "8"
+        volumeMounts:
+        - mountPath: /dev/shm
+          name: dshm
+      volumes:
+      - name: dshm
+        emptyDir:
+          medium: Memory
+          sizeLimit: 16Gi
+\end{lstlisting}
+
+\subsection{Cấu Hình KEDA Autoscaling Theo Hàng Đợi vLLM}
+
+Thay vì tự động mở rộng theo CPU/RAM thông thường (vốn luôn bão hòa 100\% khi GPU chạy), kỹ sư AI cấu hình KEDA dựa trên số lượng request đang chờ trong hàng đợi vLLM (\code{vllm_num_requests_waiting}):
+
+\begin{lstlisting}[language=bash]
+apiVersion: keda.sh/v1alpha1
+kind: ScaledObject
+metadata:
+  name: vllm-queue-autoscaler
+  namespace: ai-serving
+spec:
+  scaleTargetRef:
+    name: vllm-llama3-70b
+  minReplicaCount: 2
+  maxReplicaCount: 8
+  cooldownPeriod: 300
+  triggers:
+  - type: prometheus
+    metadata:
+      serverAddress: http://prometheus-k8s.monitoring.svc:9090
+      metricName: vllm_num_requests_waiting
+      query: sum(vllm:num_requests_waiting{app="vllm-llama3-70b"})
+      threshold: "10"
+\end{lstlisting}
+
+---
+
+\section{Cẩm Nang Cờ Lệnh CLI Cho vLLM Production Serving}
+\label{sec:app-cheat-vllm}
 
 \begin{table}[htbp]
 \centering
@@ -111,6 +209,7 @@ Dưới đây là các tham số quan trọng nhất khi khởi chạy máy ch�
 \code{--enable-prefix-caching} & \textit{cờ boolean} & Kích hoạt lưu cache cho System Prompt dùng chung, giảm TTFT xuống dưới 50ms. \\
 \code{--swap-space} & \code{16} (GB) & Dung lượng CPU RAM dùng để tạm lưu các block KV Cache khi GPU bị quá tải tạm thời. \\
 \code{--disable-log-requests} & \textit{cờ boolean} & Tắt ghi log nội dung prompt thô ra stdout để bảo vệ quyền riêng tư người dùng. \\
+\code{--block-size} & \code{16} hoặc \code{32} & Kích thước khối phân trang PagedAttention (tokens/block). \\
 \bottomrule
 \end{tabular}
 \end{table}
@@ -121,7 +220,7 @@ Dưới đây là các tham số quan trọng nhất khi khởi chạy máy ch�
 \label{sec:app-cheat-netops}
 
 \begin{lstlisting}[language=bash]
-# 1. Kiem tra cac port dang lang nghe va tien trinh so huu (khong dung netstat cu)
+# 1. Kiem tra cac port dang lang nghe va tien trinh so huu (thay the netstat)
 ss -tulpn
 
 # 2. Bat goi tin HTTP/API tren cong 8000 de kiem tra do tre payload
@@ -131,11 +230,17 @@ tcpdump -i any port 8000 -A -s 0 -c 10
 curl -w "\nDNS: %{time_namelookup}s\nConnect: %{time_connect}s\nTLS Handshake: %{time_appconnect}s\nTTFB: %{time_starttransfer}s\nTotal: %{time_total}s\n" \
   -o /dev/null -s https://api.openai.com/v1/models
 
-# 4. Kiem tra so luong ket noi TCP o trang thai TIME_WAIT
+# 4. Kiem tra so luong ket noi TCP o trang thai TIME_WAIT va CLOSE_WAIT
 ss -s
 
 # 5. Kiem tra phan giai ten mien DNS chi tiet voi dig
 dig +trace +stats your-ai-gateway.domain.com
+
+# 6. Kiem tra bang thong lien may chu giua hai nut GPU bang iperf3
+# Tren Server Node:
+iperf3 -s -p 5201
+# Tren Client Node:
+iperf3 -c 10.0.0.12 -p 5201 -P 8 -t 10
 \end{lstlisting}
 
 ---
@@ -151,6 +256,7 @@ fs.file-max = 2097152
 
 # Tang kich thuoc hang doi backlog chap nhan ket noi TCP
 net.core.somaxconn = 65535
+net.ipv4.tcp_max_syn_backlog = 3240000
 
 # Cho phep tai su dung cac socket o trang thai TIME_WAIT
 net.ipv4.tcp_tw_reuse = 1
@@ -160,13 +266,78 @@ net.core.rmem_max = 16777216
 net.core.wmem_max = 16777216
 net.ipv4.tcp_rmem = 4096 87380 16777216
 net.ipv4.tcp_wmem = 4096 65536 16777216
+
+# Tat tinh nang slow start restart sau khi ket noi roi vao trang thai idle
+net.ipv4.tcp_slow_start_after_idle = 0
 \end{lstlisting}
+
 Áp dụng cấu hình ngay lập tức mà không cần khởi động lại máy chủ:
 \begin{lstlisting}[language=bash]
 sudo sysctl -p
 \end{lstlisting}
+
 Và cập nhật giới hạn tiến trình trong \file{/etc/security/limits.conf}:
 \begin{lstlisting}[language=bash]
 * soft nofile 1048576
 * hard nofile 1048576
+* soft nproc 524288
+* hard nproc 524288
+\end{lstlisting}
+
+---
+
+\section{PyTorch Production Cheatsheet: Tối Ưu Tốc Độ \& Bộ Nhớ VRAM}
+\label{sec:app-cheat-pytorch}
+
+\begin{lstlisting}[language=python]
+import torch
+
+# 1. Kich hoat che do compile toi uu tren kien truc PyTorch 2.0+
+# Mode 'max-autotune' su dung Triton de tao ra cac CUDA kernel tot nhat
+optimized_model = torch.compile(model, mode="max-autotune")
+
+# 2. Quan ly Mixed Precision voi torch.amp.autocast (BF16 khong lo Underflow)
+with torch.amp.autocast(device_type="cuda", dtype=torch.bfloat16):
+    outputs = model(inputs)
+
+# 3. Don sach bo nho dem VRAM khi xay ra ngoai le OOM trong try/except
+try:
+    outputs = model(large_inputs)
+except torch.cuda.OutOfMemoryError:
+    torch.cuda.empty_cache()
+    print("VRAM emptied, fallback to chunked execution.")
+
+# 4. Xuat bao cao phan manh bo nho VRAM de tim nguyen nhan ro ri
+print(torch.cuda.memory_summary(device=0, abbreviated=True))
+
+# 5. Su dung CUDA Streams de thuc thi bat dong bo (Async Memory Copy)
+s1 = torch.cuda.Stream()
+with torch.cuda.stream(s1):
+    next_batch_gpu = next_batch_cpu.to("cuda", non_blocking=True)
+\end{lstlisting}
+
+---
+
+\section{Tường Lửa Linux iptables/nftables Bảo Vệ Cụm Máy Chủ AI}
+\label{sec:app-cheat-firewall}
+
+\begin{lstlisting}[language=bash]
+# 1. Thiet lap chinh sach mac dinh DROP toan bo goi tin toi (Default Deny)
+sudo iptables -P INPUT DROP
+sudo iptables -P FORWARD DROP
+sudo iptables -P OUTPUT ACCEPT
+
+# 2. Cho phep loopback va cac ket noi da thiet lap tu truoc
+sudo iptables -A INPUT -i lo -j ACCEPT
+sudo iptables -A INPUT -m conntrack --ctstate ESTABLISHED,RELATED -j ACCEPT
+
+# 3. Gioi han toc do ket noi TCP SYN de chong tan cong DoS vao API Serving (Port 8000)
+sudo iptables -A INPUT -p tcp --dport 8000 --syn -m limit --limit 50/s --limit-burst 100 -j ACCEPT
+sudo iptables -A INPUT -p tcp --dport 8000 --syn -j DROP
+
+# 4. Chan ngay lap tuc mot IP nguon co dau hieu tan cong Prompt Injection
+sudo iptables -I INPUT -s 198.51.100.42 -j DROP
+
+# 5. Chi cho phep dai IP noi bo cua mang Private Subnet truy cap vao cong vLLM
+sudo iptables -A INPUT -p tcp -s 10.244.0.0/16 --dport 8000 -j ACCEPT
 \end{lstlisting}

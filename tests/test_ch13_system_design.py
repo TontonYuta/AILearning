@@ -1,9 +1,10 @@
 """
 Unit tests for Chapter 13: AI System Design & High-Throughput Architecture
 Covers:
-- Capacity estimation & ROI calculations
-- ProductionSemanticCacheGateway (Exact Hash + Cosine Semantic Cache + Router)
+- Capacity estimation, Little's Law & ROI calculations
+- ProductionSemanticCacheGateway (Multi-tenant partition, Exact Hash + Cosine Semantic Cache + Router)
 - ContextAwareLoadBalancer (Prefix Affinity & Least-Connections)
+- False Positive Rate calculation for semantic cache threshold tau
 """
 
 import hashlib
@@ -33,6 +34,12 @@ def calculate_semantic_cache_roi(
     roi = (net_savings / cache_infra_cost) * 100.0
     return gross_savings, net_savings, roi
 
+def calculate_false_positive_hit_rate(tau: float, mu: float, sigma: float) -> float:
+    """Calculate P(X >= tau) where X ~ N(mu, sigma^2) using math.erfc."""
+    z = (tau - mu) / (sigma * math.sqrt(2))
+    p = 0.5 * math.erfc(z)
+    return round(p, 4)
+
 def test_capacity_and_roi_math():
     # Peak QPS for 10M DAU with 10 queries/user and peak factor 3
     peak_qps = calculate_peak_qps(10_000_000, 10, peak_factor=3.0)
@@ -49,20 +56,25 @@ def test_capacity_and_roi_math():
     assert net == pytest.approx(598_500.0)
     assert roi == pytest.approx(39_900.0)
 
+    # Exercise B.3: tau=0.88, mu=0.82, sigma=0.04 -> z = (0.88 - 0.82)/0.04 = 1.5 -> ~6.68%
+    fp_rate = calculate_false_positive_hit_rate(tau=0.88, mu=0.82, sigma=0.04)
+    assert fp_rate == pytest.approx(0.0668, abs=0.001)
+
 # ==============================================================================
-# 2. TWO-TIER SEMANTIC CACHE GATEWAY
+# 2. TWO-TIER SEMANTIC CACHE GATEWAY WITH MULTI-TENANT ISOLATION
 # ==============================================================================
 
 class ProductionSemanticCacheGateway:
     def __init__(self, similarity_threshold: float = 0.88):
         self.similarity_threshold = similarity_threshold
         self.exact_cache: Dict[str, str] = {}
-        self.vector_cache: List[Tuple[List[float], str, str]] = []
+        self.vector_cache: List[Tuple[List[float], str, str, str]] = []
 
     @staticmethod
-    def _normalize_and_hash(text: str) -> str:
+    def _normalize_and_hash(text: str, tenant_id: str = "default") -> str:
         cleaned = " ".join(text.strip().lower().split())
-        return hashlib.sha256(cleaned.encode("utf-8")).hexdigest()
+        compound = f"{tenant_id}::{cleaned}"
+        return hashlib.sha256(compound.encode("utf-8")).hexdigest()
 
     @staticmethod
     def _cosine_similarity(v1: List[float], v2: List[float]) -> float:
@@ -76,9 +88,10 @@ class ProductionSemanticCacheGateway:
     def query(
         self, 
         prompt: str, 
-        embedding: Optional[List[float]] = None
+        embedding: Optional[List[float]] = None,
+        tenant_id: str = "default"
     ) -> Tuple[str, str, Dict[str, Any]]:
-        hash_key = self._normalize_and_hash(prompt)
+        hash_key = self._normalize_and_hash(prompt, tenant_id)
         if hash_key in self.exact_cache:
             return self.exact_cache[hash_key], "EXACT_CACHE_HIT", {"latency_ms": 1.5}
 
@@ -86,7 +99,9 @@ class ProductionSemanticCacheGateway:
             best_sim = -1.0
             best_answer = ""
             matched_q = ""
-            for cached_emb, cached_q, cached_a in self.vector_cache:
+            for cached_emb, cached_q, cached_a, cached_tenant in self.vector_cache:
+                if cached_tenant != tenant_id:
+                    continue
                 sim = self._cosine_similarity(embedding, cached_emb)
                 if sim > best_sim:
                     best_sim = sim
@@ -95,17 +110,19 @@ class ProductionSemanticCacheGateway:
 
             if best_sim >= self.similarity_threshold:
                 return best_answer, "SEMANTIC_CACHE_HIT", {
-                    "similarity": best_sim,
+                    "similarity": round(best_sim, 4),
                     "matched_question": matched_q,
                     "latency_ms": 15.0
                 }
 
         return "", "CACHE_MISS", {"hash_key": hash_key}
 
-    def update_cache(self, prompt: str, embedding: List[float], response: str):
-        hash_key = self._normalize_and_hash(prompt)
+    def update_cache(
+        self, prompt: str, embedding: List[float], response: str, tenant_id: str = "default"
+    ):
+        hash_key = self._normalize_and_hash(prompt, tenant_id)
         self.exact_cache[hash_key] = response
-        self.vector_cache.append((embedding, prompt, response))
+        self.vector_cache.append((embedding, prompt, response, tenant_id))
 
     @staticmethod
     def route_model(prompt: str) -> str:
@@ -120,20 +137,28 @@ class ProductionSemanticCacheGateway:
 
 def test_semantic_cache_exact_hit():
     gw = ProductionSemanticCacheGateway()
-    gw.update_cache("Thu do nuoc Phap la gi?", [1.0, 0.0, 0.0], "Paris")
+    gw.update_cache("Thu do nuoc Phap la gi?", [1.0, 0.0, 0.0], "Paris", tenant_id="tenant-A")
     
-    ans, hit_type, meta = gw.query("  thu  do  nuoc phap  la gi?  ")
+    ans, hit_type, meta = gw.query("  thu  do  nuoc phap  la gi?  ", tenant_id="tenant-A")
     assert hit_type == "EXACT_CACHE_HIT"
     assert ans == "Paris"
 
+def test_semantic_cache_multi_tenant_isolation():
+    gw = ProductionSemanticCacheGateway()
+    gw.update_cache("So du cua toi la bao nhieu?", [1.0, 0.0, 0.0], "500 trieu VNĐ", tenant_id="tenant-VIP")
+
+    # Another tenant queries identical vector
+    ans, hit_type, meta = gw.query("So du cua toi la bao nhieu?", [1.0, 0.0, 0.0], tenant_id="tenant-REGULAR")
+    # Must be CACHE_MISS due to tenant isolation
+    assert hit_type == "CACHE_MISS"
+    assert ans == ""
+
 def test_semantic_cache_vector_hit():
     gw = ProductionSemanticCacheGateway(similarity_threshold=0.88)
-    # Store vector [1.0, 0.0, 0.0]
-    gw.update_cache("Cau hoi ve Paris", [1.0, 0.0, 0.0], "Paris la thu do")
+    gw.update_cache("Cau hoi ve Paris", [1.0, 0.0, 0.0], "Paris la thu do", tenant_id="t1")
 
-    # Near vector with high cosine similarity (cos ~ 0.96)
     near_emb = [0.96, 0.28, 0.0]
-    ans, hit_type, meta = gw.query("Cho toi biet ve Paris", near_emb)
+    ans, hit_type, meta = gw.query("Cho toi biet ve Paris", near_emb, tenant_id="t1")
     assert hit_type == "SEMANTIC_CACHE_HIT"
     assert ans == "Paris la thu do"
     assert meta["similarity"] >= 0.88
@@ -142,22 +167,18 @@ def test_semantic_cache_miss_on_low_similarity():
     gw = ProductionSemanticCacheGateway(similarity_threshold=0.88)
     gw.update_cache("Toan hoc co ban", [1.0, 0.0, 0.0], "1 + 1 = 2")
 
-    # Orthogonal vector
     diff_emb = [0.0, 1.0, 0.0]
     ans, hit_type, meta = gw.query("Lich su the gioi", diff_emb)
     assert hit_type == "CACHE_MISS"
     assert ans == ""
 
 def test_model_routing():
-    # Simple query
     simple_q = "Thu do cua Viet Nam la gi?"
     assert ProductionSemanticCacheGateway.route_model(simple_q) == "TIER1_SMALL_MODEL_8B"
 
-    # Complex query with keyword
     complex_q = "Hay chung minh dinh ly Fermat nho va lien he voi mat ma RSA"
     assert ProductionSemanticCacheGateway.route_model(complex_q) == "TIER2_LARGE_MODEL_70B"
 
-    # Long query
     long_q = " ".join(["word"] * 105)
     assert ProductionSemanticCacheGateway.route_model(long_q) == "TIER2_LARGE_MODEL_70B"
 
@@ -208,12 +229,10 @@ def test_load_balancer_prefix_affinity():
     s2 = BackendServer("server-2", max_conns=10)
     lb = ContextAwareLoadBalancer([s1, s2])
 
-    # S1 has cached hash "SYS_ENTERPRISE_HANDBOOK"
     s1.cached_prompt_hashes.add("SYS_ENTERPRISE_HANDBOOK")
     s1.active_conns = 3
-    s2.active_conns = 1 # S2 has fewer conns, but lacks the prefix cache
+    s2.active_conns = 1
 
-    # When request comes with SYS_ENTERPRISE_HANDBOOK, should pick S1 for prefix caching
     chosen = lb.route_request("SYS_ENTERPRISE_HANDBOOK")
     assert chosen is not None
     assert chosen.server_id == "server-1"
@@ -226,7 +245,6 @@ def test_load_balancer_least_connections_fallback():
     s1.active_conns = 3
     s2.active_conns = 1
 
-    # New request with no prefix cache -> pick s2
     chosen = lb.route_request("NEW_HASH")
     assert chosen is not None
     assert chosen.server_id == "server-2"
@@ -237,6 +255,5 @@ def test_load_balancer_overload_circuit_breaker():
     s1.active_conns = 2
     lb = ContextAwareLoadBalancer([s1])
 
-    # All servers full -> returns None
     chosen = lb.route_request("ANY_HASH")
     assert chosen is None

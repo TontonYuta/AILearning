@@ -6,6 +6,7 @@ Covers:
 - PagedAttention block allocation simulator
 """
 
+from typing import Optional, List, Tuple, Dict
 import math
 import numpy as np
 import pytest
@@ -342,4 +343,272 @@ def test_chunked_prefill_scheduler():
     assert len(prefill_served) == 1
     assert prefill_served[0][0] == 100
     assert prefill_served[0][1] == 500
+
+
+# ==============================================================================
+# 6. RADIX ATTENTION PREFIX CACHE & LOSSLESS SPECULATIVE SAMPLING
+# ==============================================================================
+
+class RadixNode:
+    def __init__(
+        self,
+        token_subsequence: list[int],
+        block_ids: list[int],
+        parent: Optional['RadixNode'] = None
+    ):
+        self.token_subsequence = list(token_subsequence)
+        self.block_ids = list(block_ids)
+        self.parent = parent
+        self.children: dict[int, 'RadixNode'] = {}
+        self.last_accessed: float = 0.0
+
+    @property
+    def is_leaf(self) -> bool:
+        return len(self.children) == 0
+
+
+class RadixCacheManager:
+    """
+    Simulates SGLang's RadixAttention Tree-Structured Prefix Cache.
+    Maintains a radix tree of token sequences mapped to physical KV cache blocks.
+    Supports:
+    - Longest prefix matching
+    - Node splitting when prompts diverge
+    - Insertion of new sequences
+    - LRU eviction of leaf nodes when physical block budget is exceeded
+    """
+    def __init__(self, max_blocks: int, block_size: int = 16):
+        self.max_blocks = max_blocks
+        self.block_size = block_size
+        self.root = RadixNode(token_subsequence=[], block_ids=[])
+        self.next_block_id = 0
+        self.time_counter = 0.0
+
+    def get_used_blocks(self) -> int:
+        def count_blocks(node: RadixNode) -> int:
+            return len(node.block_ids) + sum(count_blocks(child) for child in node.children.values())
+        return count_blocks(self.root)
+
+    def match_prefix(self, tokens: list[int]) -> tuple[int, list[int]]:
+        """
+        Traverses tree to find longest prefix match for tokens.
+        Returns (num_tokens_matched, list_of_cached_block_ids).
+        """
+        self.time_counter += 1.0
+        current = self.root
+        matched_tokens = 0
+        cached_blocks = []
+        idx = 0
+
+        while idx < len(tokens):
+            first_tok = tokens[idx]
+            if first_tok not in current.children:
+                break
+            child = current.children[first_tok]
+            subseq = child.token_subsequence
+            match_len = 0
+            while match_len < len(subseq) and idx + match_len < len(tokens):
+                if subseq[match_len] != tokens[idx + match_len]:
+                    break
+                match_len += 1
+
+            if match_len == len(subseq):
+                matched_tokens += match_len
+                cached_blocks.extend(child.block_ids)
+                child.last_accessed = self.time_counter
+                current = child
+                idx += match_len
+            else:
+                matched_tokens += match_len
+                num_full_blocks = match_len // self.block_size
+                cached_blocks.extend(child.block_ids[:num_full_blocks])
+                child.last_accessed = self.time_counter
+                break
+
+        return matched_tokens, cached_blocks
+
+    def insert(self, tokens: list[int]) -> list[int]:
+        """
+        Inserts token sequence into Radix Tree, splitting nodes if necessary.
+        Allocates blocks for new tokens. Evicts LRU leaf nodes if budget exceeded.
+        Returns list of all block_ids for this sequence.
+        """
+        self.time_counter += 1.0
+        current = self.root
+        all_blocks = []
+        idx = 0
+
+        while idx < len(tokens):
+            first_tok = tokens[idx]
+            if first_tok not in current.children:
+                rem_tokens = tokens[idx:]
+                num_blocks = math.ceil(len(rem_tokens) / self.block_size)
+                self._ensure_capacity(num_blocks)
+                new_blocks = [self._alloc_block() for _ in range(num_blocks)]
+                new_node = RadixNode(rem_tokens, new_blocks, parent=current)
+                new_node.last_accessed = self.time_counter
+                current.children[first_tok] = new_node
+                all_blocks.extend(new_blocks)
+                return all_blocks
+
+            child = current.children[first_tok]
+            subseq = child.token_subsequence
+            match_len = 0
+            while match_len < len(subseq) and idx + match_len < len(tokens):
+                if subseq[match_len] != tokens[idx + match_len]:
+                    break
+                match_len += 1
+
+            if match_len == len(subseq):
+                all_blocks.extend(child.block_ids)
+                child.last_accessed = self.time_counter
+                current = child
+                idx += match_len
+            else:
+                common_tokens = subseq[:match_len]
+                rem_child_tokens = subseq[match_len:]
+                rem_insert_tokens = tokens[idx + match_len:]
+
+                num_common_blocks = match_len // self.block_size
+                common_blocks = child.block_ids[:num_common_blocks]
+                rem_child_blocks = child.block_ids[num_common_blocks:]
+
+                split_node = RadixNode(common_tokens, common_blocks, parent=current)
+                split_node.last_accessed = self.time_counter
+                current.children[first_tok] = split_node
+
+                child.token_subsequence = rem_child_tokens
+                child.block_ids = rem_child_blocks
+                child.parent = split_node
+                split_node.children[rem_child_tokens[0]] = child
+
+                all_blocks.extend(common_blocks)
+
+                if rem_insert_tokens:
+                    num_new_blocks = math.ceil(len(rem_insert_tokens) / self.block_size)
+                    self._ensure_capacity(num_new_blocks)
+                    new_blocks = [self._alloc_block() for _ in range(num_new_blocks)]
+                    new_child = RadixNode(rem_insert_tokens, new_blocks, parent=split_node)
+                    new_child.last_accessed = self.time_counter
+                    split_node.children[rem_insert_tokens[0]] = new_child
+                    all_blocks.extend(new_blocks)
+
+                return all_blocks
+
+        return all_blocks
+
+    def _alloc_block(self) -> int:
+        bid = self.next_block_id
+        self.next_block_id += 1
+        return bid
+
+    def _ensure_capacity(self, needed: int):
+        while self.get_used_blocks() + needed > self.max_blocks:
+            evicted = self._evict_lru_leaf()
+            if not evicted:
+                break
+
+    def _evict_lru_leaf(self) -> bool:
+        leaves = []
+        def collect_leaves(node: RadixNode):
+            if node != self.root and node.is_leaf:
+                leaves.append(node)
+            for child in node.children.values():
+                collect_leaves(child)
+
+        collect_leaves(self.root)
+        if not leaves:
+            return False
+
+        lru_leaf = min(leaves, key=lambda n: n.last_accessed)
+        parent = lru_leaf.parent
+        first_tok = lru_leaf.token_subsequence[0]
+        del parent.children[first_tok]
+        return True
+
+
+def sample_lossless_speculative_token(
+    draft_probs: np.ndarray,
+    target_probs: np.ndarray,
+    rng: np.random.Generator
+) -> int:
+    """
+    Implements Leviathan et al. (2023) lossless speculative rejection sampling.
+    Guarantees output distribution is 100% identical to target_probs.
+    """
+    vocab_size = len(draft_probs)
+    x_draft = int(rng.choice(vocab_size, p=draft_probs))
+    q_x = draft_probs[x_draft]
+    p_x = target_probs[x_draft]
+    u = float(rng.uniform(0.0, 1.0))
+
+    if u < min(1.0, p_x / q_x):
+        return x_draft
+
+    residual = np.maximum(0.0, target_probs - draft_probs)
+    norm = float(np.sum(residual))
+    if norm <= 1e-12:
+        return int(np.argmax(target_probs))
+    p_prime = residual / norm
+    return int(rng.choice(vocab_size, p=p_prime))
+
+
+def test_speculative_decoding_exact_lossless_distribution():
+    # Verify that speculative decoding preserves target distribution exactly
+    vocab_size = 4
+    draft_probs = np.array([0.40, 0.30, 0.20, 0.10])
+    target_probs = np.array([0.15, 0.50, 0.25, 0.10])
+
+    rng = np.random.default_rng(42)
+    n_samples = 50000
+    samples = [
+        sample_lossless_speculative_token(draft_probs, target_probs, rng)
+        for _ in range(n_samples)
+    ]
+
+    empirical_counts = np.bincount(samples, minlength=vocab_size)
+    empirical_probs = empirical_counts / n_samples
+
+    # Check empirical frequencies match target_probs within tight statistical margin
+    np.testing.assert_allclose(empirical_probs, target_probs, atol=0.01)
+
+
+def test_radix_cache_prefix_matching_and_sharing():
+    # Block size = 4 tokens, max 20 blocks
+    manager = RadixCacheManager(max_blocks=20, block_size=4)
+
+    # Prompt 1: System prompt [10, 20, 30, 40] + Query 1 [50, 60, 70, 80]
+    prompt1 = [10, 20, 30, 40, 50, 60, 70, 80]
+    blocks1 = manager.insert(prompt1)
+    assert len(blocks1) == 2  # 8 tokens / 4 = 2 blocks
+
+    # Prompt 2: Same system prompt [10, 20, 30, 40] + Query 2 [90, 100, 110, 120]
+    prompt2 = [10, 20, 30, 40, 90, 100, 110, 120]
+    matched_toks, cached_blocks = manager.match_prefix(prompt2)
+
+    # System prompt [10, 20, 30, 40] must match 100%! (4 tokens matched, 1 cached block)
+    assert matched_toks == 4
+    assert len(cached_blocks) == 1
+    assert cached_blocks[0] == blocks1[0]
+
+    # Insert prompt 2 (causes split of root's child or branching)
+    blocks2 = manager.insert(prompt2)
+    assert blocks2[0] == blocks1[0]  # First block is shared!
+
+
+def test_radix_cache_node_splitting_and_lru_eviction():
+    # Only 3 blocks capacity!
+    manager = RadixCacheManager(max_blocks=3, block_size=4)
+
+    # Insert sequence 1: [1, 2, 3, 4] -> 1 block
+    manager.insert([1, 2, 3, 4])
+    # Insert sequence 2: [1, 2, 3, 4, 5, 6, 7, 8] -> shares [1, 2, 3, 4], allocates 1 block for [5..8]
+    manager.insert([1, 2, 3, 4, 5, 6, 7, 8])
+    # Total blocks used: 2 blocks
+    assert manager.get_used_blocks() == 2
+
+    # Insert sequence 3: [100, 200, 300, 400, 500, 600, 700, 800] -> needs 2 blocks, budget exceeded!
+    # Eviction must trigger on least recently used leaf
+    manager.insert([100, 200, 300, 400, 500, 600, 700, 800])
+    assert manager.get_used_blocks() <= 3
 

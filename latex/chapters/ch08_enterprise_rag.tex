@@ -169,7 +169,87 @@ Tài liệu $B$ giành chiến thắng vì nó giữ vị trí rất cao trên c
 
 ---
 
-\section{GraphRAG: Đồ Thị Tri Thức \& Suy Luận Toàn Cầu (Global Sensemaking)}
+\section{ColBERT: Tương Tác Muộn (Late Interaction) \& Toán Học Chấm Điểm MaxSim}
+\label{sec:colbert-late-interaction}
+
+Trong hệ thống tìm kiếm ngữ nghĩa, hai thái cực kiến trúc kinh điển đều phải đối mặt với sự đánh đổi nghiệt ngã:
+\begin{itemize}
+  \item \textbf{Bi-Encoder (Mô hình Hai Tháp -- Dense Embeddings)}: Nén toàn bộ ngữ cảnh của một tài liệu dài $512$ tokens thành một véc-tơ cố định duy nhất $\mathbf{e}_d \in \mathbb{R}^d$ ($d=768$ hoặc $1536$). Hiện tượng thắt cổ chai thông tin (\term{Information Bottleneck}) này làm mất mát hoàn toàn các mối liên kết cú pháp vi mô và các từ khóa hiếm. Dù tốc độ tìm kiếm cực nhanh thông qua HNSW ($O(\log N)$), độ chính xác thường xuyên bị suy giảm.
+  \item \textbf{Cross-Encoder (Mô hình Tương Tác Sớm -- Early Interaction)}: Nối chuỗi câu hỏi và tài liệu $[q; d]$ để đưa qua toàn bộ các tầng Transformer với ma trận Self-Attention đầy đủ $O((|q| + |d|)^2)$. Mô hình nắm bắt trọn vẹn từng sắc thái tương tác giữa các từ, đạt độ chính xác tối thượng (Gold Standard). Tuy nhiên, chi phí tính toán bùng nổ khiến Cross-Encoder hoàn toàn bất khả thi cho việc tìm kiếm trực tiếp trên hàng triệu văn bản, mà chỉ có thể đóng vai trò tái xếp hạng (Reranker) cho vài chục ứng viên ở tầng cuối.
+\end{itemize}
+
+Kiến trúc \term{ColBERT} (Contextualized Late Interaction over BERT), do Khattab và Zaharia (Stanford University, 2020) đề xuất, đã tạo ra một cuộc cách mạng khi kết hợp hoàn hảo \textbf{tốc độ tìm kiếm của Bi-Encoder} và \textbf{độ chính xác sâu của Cross-Encoder}.
+
+\subsection{Cơ Chế Biểu Diễn Đa Véc-Tơ \& Toán Tử MaxSim}
+Thay vì nén tài liệu thành một véc-tơ đơn lẻ, ColBERT duy trì một ma trận các véc-tơ biểu diễn ở cấp độ từng token:
+\begin{itemize}
+  \item Câu truy vấn $q$ gồm $|q|$ tokens được ánh xạ thành ma trận:
+  \begin{equation}
+  E_q = \text{Normalize}\left( \text{Linear}\left( \text{BERT}(q) \right) \right) \in \mathbb{R}^{|q| \times d}
+  \end{equation}
+  \item Tài liệu $d$ gồm $|d|$ tokens được mã hóa ngoại tuyến thành ma trận:
+  \begin{equation}
+  E_d = \text{Normalize}\left( \text{Linear}\left( \text{BERT}(d) \right) \right) \in \mathbb{R}^{|d| \times d}
+  \end{equation}
+\end{itemize}
+trong đó mỗi véc-tơ token $\mathbf{e} \in \mathbb{R}^d$ ($d$ thường chọn nhỏ, ví dụ $d=128$) đều được chuẩn hóa độ dài Euclid $\|\mathbf{e}\|_2 = 1$.
+
+\begin{definition}[Toán Tử Chấm Điểm Tương Tác Muộn MaxSim]
+Điểm số tương đồng ngữ nghĩa giữa câu truy vấn $q$ và tài liệu $d$ trong ColBERT là tổng các giá trị tích vô hướng cực đại của từng token truy vấn đối với toàn bộ các token của tài liệu:
+\begin{equation}
+\text{MaxSim}(q, d) = \sum_{i=1}^{|q|} \max_{j=1}^{|d|} \left( E_{q, i} \cdot E_{d, j}^T \right)
+\end{equation}
+\end{definition}
+
+Về mặt hình học, toán tử MaxSim thực hiện một phép ``so khớp mềm'' (Soft Token Alignment): Với mỗi từ trong câu hỏi của người dùng, hệ thống quét qua toàn bộ tài liệu để tìm từ hoặc cụm từ có độ tương đồng ngữ nghĩa cao nhất, ghi nhận điểm số cực đại đó, rồi lấy tổng tích lũy. Nhờ đó:
+\begin{enumerate}
+  \item Nếu câu hỏi có 5 từ khóa quan trọng, tài liệu chỉ đạt điểm tối đa khi tìm được điểm neo thích hợp cho cả 5 từ khóa đó, loại bỏ hoàn toàn hiện tượng ảo giác do trùng lặp một từ đơn lẻ.
+  \item Ma trận biểu diễn của tài liệu $E_d$ được tính toán trước ngoại tuyến (Offline Pre-computation) và lưu trữ trong chỉ mục, loại bỏ hoàn toàn nhu cầu chạy lại Transformer cho tài liệu tại thời điểm người dùng truy vấn.
+\end{enumerate}
+
+\subsection{Bảng So Sánh Toàn Diện Các Mô Hình Truy Xuất}
+\begin{table}[htbp]
+\centering
+\small
+\begin{tabular}{lccc}
+\toprule
+\textbf{Tiêu chí Đánh giá} & \textbf{Bi-Encoder (Dense)} & \textbf{Cross-Encoder} & \textbf{ColBERT (Late Interaction)} \\
+\midrule
+Biểu diễn tài liệu & $1$ véc-tơ duy nhất & Ghép cặp trực tiếp $[q; d]$ & Ma trận đa véc-tơ $|d| \times 128$ \\
+Tiền tính toán tài liệu & Có (Offline Indexing) & Không thể & Có (Offline Indexing) \\
+Độ phức tạp tính điểm & $O(d)$ & $O((|q|+|d|)^2 \cdot L)$ & $O(|q| \cdot |d| \cdot d)$ (Tích ma trận) \\
+Dung lượng lưu trữ RAM & Thấp ($\approx 1.5\text{ KB/doc}$) & $0$ (Không lưu chỉ mục) & Cao ($\approx 100\text{ KB/doc}$) \\
+Độ trễ truy vấn & $< 10\text{ ms}$ (HNSW) & $> 500\text{ ms}$ (Heavy GPU) & $< 30\text{ ms}$ (PLAID Index) \\
+Độ chính xác truy xuất & Trung bình - Khá & Xuất sắc (Chuẩn mực) & Tiệm cận Cross-Encoder \\
+\bottomrule
+\end{tabular}
+\caption{So sánh đặc tính kỹ thuật giữa Bi-Encoder, Cross-Encoder và ColBERT}
+\label{tab:retrieval-comparison}
+\end{table}
+
+\subsection{Đột Phá Đa Phương Thức: ColPali \& Loại Bỏ Quy Trình OCR}
+Một bước tiến vượt bậc của cơ chế Late Interaction là sự ra đời của \term{ColPali} (Faysse et al., 2024). Trong các ứng dụng RAG truyền thống cho tài liệu PDF, hóa đơn hay báo cáo tài chính, kỹ sư bắt buộc phải sử dụng các pipeline OCR phức tạp (như Tesseract, PaddleOCR) để trích xuất văn bản thô, dẫn tới việc làm vỡ nát các cấu trúc bảng biểu, biểu đồ và hình ảnh minh họa.
+
+ColPali tích hợp trực tiếp mô hình Ngôn ngữ - Thị giác (Vision LLM như PaliGemma):
+\begin{enumerate}
+  \item Mỗi trang PDF được render thành một hình ảnh độ phân giải cao và chia thành một lưới các mảnh ảnh cục bộ (Image Patches, ví dụ $32 \times 32$ patches).
+  \item Vision Transformer mã hóa mỗi patch thành một véc-tơ đa chiều, tạo thành ma trận biểu diễn $E_{\text{page}} \in \mathbb{R}^{1024 \times 128}$.
+  \item Câu hỏi dạng văn bản của người dùng được mã hóa thành các véc-tơ token $E_q$.
+  \item Điểm số phù hợp của trang tài liệu được tính toán trực tiếp bằng toán tử MaxSim giữa các token câu hỏi và các patch hình ảnh.
+\end{enumerate}
+Cơ chế này cho phép hệ thống tìm kiếm chuẩn xác từng con số nằm sâu trong góc biểu đồ hoặc bảng biểu tài chính mà không cần chạy bất kỳ một dòng lệnh OCR nào!
+
+\subsection{Tối Ưu Hóa Tốc Độ Bằng Chỉ Mục PLAID}
+Thách thức lớn nhất của ColBERT là chi phí lưu trữ: Với 1 triệu tài liệu, mỗi tài liệu 200 tokens, hệ thống phải lưu trữ tới 200 triệu véc-tơ! Để giải quyết bài toán này, Santhanam et al. (2022) giới thiệu cấu trúc chỉ mục \term{PLAID} (Performance-optimized Late Interaction with Approximated Information and Distillation):
+\begin{itemize}
+  \item \textbf{Phân cụm tâm véc-tơ (Centroid Clustering)}: Nhóm các véc-tơ token vào các cụm $K$-Means trong không gian đa chiều.
+  \item \textbf{Tỉa nhánh ứng viên nhanh}: Khi có truy vấn, chỉ quét qua các tài liệu có chứa các token thuộc cùng tâm cụm với các token truy vấn.
+  \item \textbf{Lượng tử hóa phần dư (Residual Quantization)}: Nén mỗi véc-tơ token từ 128 số thực FP32 (512 bytes) xuống chỉ còn 16 đến 32 bytes bằng cách chỉ lưu mã cụm và sai số lượng tử hóa. Nhờ đó, dung lượng chỉ mục giảm hơn $16\times$ lần, đưa thời gian truy vấn về dưới $20\text{ ms}$.
+\end{itemize}
+
+---
+
+\section{GraphRAG: Đồ Thị Tri Thức, Phân Cụm Leiden \& Suy Luận Toàn Cầu}
 \label{sec:graph-rag}
 
 \subsection{Giới Hạn Của Vector RAG Trước Câu Hỏi Toàn Cục}
@@ -182,19 +262,19 @@ Vector RAG hoàn toàn bất lực trước câu hỏi này! Vì sao?
 Vector Search được thiết kế cho bài toán \textit{``Tìm kiếm kim trong đáy bể''} (Needle in a haystack) -- tức tìm các đoạn văn bản cụ thể khớp với một thực thể rõ ràng. Nhưng với câu hỏi trên, không có bất kỳ một đoạn văn bản (chunk) đơn lẻ nào chứa câu trả lời tổng hợp. Câu trả lời đòi hỏi phải liên kết thông tin phân mảnh từ hàng trăm tài liệu khác nhau.
 
 \subsection{Kiến Trúc GraphRAG: Từ Trích Xuất Bộ Ba Tới Phân Cụm Cộng Đồng}
-Để giải quyết bài toán này, Microsoft Research đã công bố kiến trúc \term{GraphRAG} kết hợp giữa Đồ thị Tri thức (Knowledge Graph) và Mô hình Ngôn ngữ Lớn:
+Để giải quyết bài toán này, Microsoft Research đã công bố kiến trúc \term{GraphRAG} (Edge et al., 2024) kết hợp giữa Đồ thị Tri thức (Knowledge Graph) và Mô hình Ngôn ngữ Lớn:
 
 \begin{figure}[htbp]
 \centering
-\begin{tikzpicture}[node distance=1.1cm, auto,
-    box/.style={rectangle, draw=primarycolor, thick, fill=boxbg, text centered, rounded corners=2pt, minimum height=0.8cm, font=\small},
+\begin{tikzpicture}[node distance=1.0cm, auto,
+    box/.style={rectangle, draw=primarycolor, thick, fill=boxbg, text centered, rounded corners=2pt, minimum height=0.75cm, font=\small},
     arrow/.style={draw=primarycolor, -Stealth, thick}
 ]
     \node[box, text width=9.5cm] (b1) {1. Extraction: LLM trích xuất Thực thể (Entities) \& Quan hệ (Relations)};
-    \node[box, below=0.4cm of b1, text width=9.5cm, fill=accentcolor!20] (b2) {2. Graph Construction: Xây dựng Đồ thị Tri thức $G = (V, E)$};
-    \node[box, below=0.4cm of b2, text width=9.5cm, fill=yellow!15] (b3) {3. Community Detection: Thuật toán Leiden phân cụm đồ thị phân cấp};
-    \node[box, below=0.4cm of b3, text width=9.5cm, fill=green!15] (b4) {4. Community Summarization: LLM tóm tắt báo cáo cho từng cộng đồng tri thức};
-    \node[box, below=0.4cm of b4, text width=9.5cm, fill=primarycolor!15] (b5) {5. Global Search: Map-Reduce các bản tóm tắt cộng đồng để sinh câu trả lời toàn cục};
+    \node[box, below=0.35cm of b1, text width=9.5cm, fill=accentcolor!20] (b2) {2. Graph Construction: Xây dựng Đồ thị Tri thức $G = (V, E)$};
+    \node[box, below=0.35cm of b2, text width=9.5cm, fill=yellow!15] (b3) {3. Community Detection: Thuật toán Leiden phân cụm đồ thị phân cấp};
+    \node[box, below=0.35cm of b3, text width=9.5cm, fill=green!15] (b4) {4. Community Summarization: LLM tóm tắt báo cáo cho từng cộng đồng tri thức};
+    \node[box, below=0.35cm of b4, text width=9.5cm, fill=primarycolor!15] (b5) {5. Global Search: Map-Reduce các bản tóm tắt cộng đồng để sinh câu trả lời toàn cục};
 
     \path[arrow] (b1) -- (b2);
     \path[arrow] (b2) -- (b3);
@@ -211,13 +291,78 @@ Vector Search được thiết kế cho bài toán \textit{``Tìm kiếm kim tro
   \begin{equation}
   (\text{Entity}_A, \text{Relationship}, \text{Entity}_B) \quad \text{ví dụ: } (\text{vLLM}, \text{implements}, \text{PagedAttention})
   \end{equation}
-  \item \textbf{Phát hiện Cộng đồng Phân cấp (Hierarchical Community Detection)}:
-  Áp dụng thuật toán \term{Leiden} để phân chia đồ thị tri thức thành các cộng đồng (Clusters) ở nhiều cấp độ phân giải khác nhau (Cấp 0: tổng quan vĩ mô; Cấp 1: phân ngành; Cấp 2: tiểu tiết).
+  \item \textbf{Phát hiện Cộng đồng Phân cấp Bằng Thuật Toán Leiden}:
+  Thuật toán phân cụm đồ thị kinh điển Louvain thường gặp phải hiện tượng nghiêm trọng: tạo ra các cộng đồng bị ngắt kết nối cục bộ (Disconnected Communities) hoặc các nút cô lập bên trong cụm. GraphRAG sử dụng thuật toán \term{Leiden} (Traag et al., 2019) với bước tinh chỉnh phân hoạch con (Sub-partition refinement), đảm bảo mọi cộng đồng được phát hiện đều liên thông chặt chẽ. Đồ thị được phân tầng thành nhiều cấp độ:
+  \begin{itemize}
+    \item \textbf{Cấp độ 0 (C0 -- Macro)}: Vài cụm chủ đề bao quát toàn bộ kho dữ liệu.
+    \item \textbf{Cấp độ 1 (C1 -- Meso)}: Các phân ngành và nhóm lĩnh vực nghiệp vụ.
+    \item \textbf{Cấp độ 2 (C2 -- Micro)}: Các cụm chi tiết liên kết trực tiếp giữa các thực thể vi mô.
+  \end{itemize}
   \item \textbf{Tóm tắt Cộng đồng (Community Summaries)}:
-  Với mỗi cộng đồng ở từng tầng, hệ thống dùng LLM tạo một báo cáo tóm tắt cấu trúc (Executive Summary) mô tả các thực thể cốt lõi, mối quan hệ chính và rủi ro tiềm ẩn.
-  \item \textbf{Truy vấn Toàn Cục (Global Search)}:
-  Khi có câu hỏi toàn cục, GraphRAG không tìm kiếm trên các chunk nhỏ, mà gửi câu hỏi song song tới các báo cáo tóm tắt cộng đồng ở tầng vĩ mô (Map step), sau đó tổng hợp các câu trả lời cục bộ thành câu trả lời tổng quan cuối cùng (Reduce step).
+  Với mỗi cộng đồng ở từng cấp độ, LLM tạo một bản báo cáo điều hành cấu trúc (Executive Summary) gồm các phát hiện chính, mức độ tác động và các bằng chứng thực nghiệm.
+  \item \textbf{Hai Chế Độ Truy Vấn Chuẩn}:
+  \begin{itemize}
+    \item \textbf{Global Search (Map-Reduce)}: Phục vụ câu hỏi khái quát. Hệ thống chia câu hỏi thành các tác vụ song song gửi tới các Community Summaries (pha Map) để thu thập các điểm đánh giá và bằng chứng, sau đó tổng hợp thành câu trả lời hoàn chỉnh (pha Reduce).
+    \item \textbf{Local Search ($k$-hop Expansion)}: Phục vụ câu hỏi cụ thể về một thực thể. Hệ thống dùng Vector Search tìm các thực thể hạt nhân, sau đó mở rộng mạng lưới láng giềng $k$-hop để thu thập các mối quan hệ trực tiếp và văn bản gốc.
+  \end{itemize}
 \end{enumerate}
+
+---
+
+\section{Contextual Retrieval \& Tối Ưu Chi Phí Với Prompt Caching}
+\label{sec:contextual-retrieval}
+
+\subsection{Khuyết Tật Cô Lập Đoạn Văn Bản (The Chunk Isolation Problem)}
+Trong các hệ thống RAG truyền thống, các tài liệu lớn luôn được chia nhỏ thành các đoạn độc lập có kích thước cố định (ví dụ $300 - 500$ tokens). Việc bẻ gãy văn bản này tạo ra một vấn đề chí tử: \term{Chunk Isolation} (Sự cô lập ngữ cảnh).
+
+Hãy xem xét đoạn văn bản sau trích từ một báo cáo tài chính 100 trang:
+\begin{quote}\itshape
+``Doanh thu thuần trong quý này đạt 45.000 tỷ VND, tăng trưởng 25\% so với cùng kỳ năm ngoái nhờ sự bùng nổ của mảng xe điện. Tuy nhiên, biên lợi nhuận gộp giảm nhẹ 1.2\% do chi phí đầu vào tăng cao.''
+\end{quote}
+Đoạn văn bản trên hoàn toàn không nhắc tới: Đây là công ty nào? Báo cáo thuộc năm tài chính nào? Quý mấy?
+Khi người dùng đặt câu hỏi: \textit{``Doanh thu quý 3 năm 2024 của VinFast là bao nhiêu?''}, cả thuật toán tìm kiếm từ khóa BM25 lẫn tìm kiếm véc-tơ Dense Embeddings đều \textbf{hoàn toàn bỏ qua} đoạn văn bản trên vì trong đoạn không hề xuất hiện từ khóa \code{"VinFast"} hay \code{"2024"}!
+
+\subsection{Cơ Chế Bổ Sung Ngữ Cảnh Tự Động Của Anthropic}
+Để giải quyết triệt để vấn đề này, phòng nghiên cứu Anthropic (2024) đã công bố kỹ thuật \term{Contextual Retrieval}. Trước khi nạp các chunk vào cơ sở dữ liệu, một mô hình ngôn ngữ nhỏ được yêu cầu đọc toàn bộ tài liệu gốc và sinh ra một đoạn giải thích ngắn gọn (từ $50$ đến $100$ tokens) đặt ngữ cảnh cho riêng chunk đó:
+
+\begin{figure}[htbp]
+\centering
+\begin{tikzpicture}[node distance=1.0cm, auto,
+    raw_box/.style={rectangle, draw=secondarycolor, dashed, fill=accentcolor!10, text width=5.5cm, align=left, font=\scriptsize, inner sep=5pt},
+    ctx_box/.style={rectangle, draw=primarycolor, thick, fill=boxbg, text width=5.5cm, align=left, font=\scriptsize, inner sep=5pt},
+    arrow/.style={draw=primarycolor, -Stealth, thick}
+]
+    \node[raw_box] (raw) {\textbf{[Chunk Thô Gốc]}:\\``Doanh thu thuần trong quý này đạt 45.000 tỷ VND, tăng trưởng 25\%...''};
+    \node[ctx_box, right=1.2cm of raw] (aug) {\textbf{[Contextual Chunk Hoàn Chỉnh]}:\\
+    \textcolor{primarycolor}{\textbf{<document\_context>}}\\
+    \textit{Đoạn trích này nằm trong Báo cáo tài chính Quý 3 năm 2024 của Tập đoàn Vingroup, phần phân tích kết quả kinh doanh của công ty thành viên VinFast.}\\
+    \textcolor{primarycolor}{\textbf{</document\_context>}}\\
+    \textcolor{secondarycolor}{\textbf{<chunk\_content>}}\\
+    Doanh thu thuần trong quý này đạt 45.000 tỷ VND...\\
+    \textcolor{secondarycolor}{\textbf{</chunk\_content>}}};
+
+    \path[arrow] (raw) -- node[above, font=\tiny\bfseries] {Context Injection} (aug);
+\end{tikzpicture}
+\caption{Cấu trúc một Contextual Chunk được bổ sung ngữ cảnh tài liệu}
+\label{fig:contextual-retrieval}
+\end{figure}
+
+Đoạn văn bản hoàn chỉnh sau khi ghép ngữ cảnh được nạp song song vào cả hai hệ thống:
+\begin{itemize}
+  \item \textbf{Chỉ mục BM25}: Bắt chính xác các từ khóa thực thể vừa được bổ sung (\code{Vingroup}, \code{VinFast}, \code{Quý 3/2024}).
+  \item \textbf{Chỉ mục Dense Vector}: Véc-tơ nhúng được kéo về đúng vị trí ngữ nghĩa của doanh nghiệp và niên độ tài chính.
+\end{itemize}
+Thực nghiệm của Anthropic trên nhiều tập dữ liệu doanh nghiệp chứng minh: Việc áp dụng Contextual Retrieval kết hợp tìm kiếm lai BM25 + Dense giúp \textbf{giảm tới 49\% tỷ lệ truy xuất thất bại}, và khi kết hợp thêm bộ tái xếp hạng Reranker, tỷ lệ lỗi giảm kỷ lục tới \textbf{67\%}!
+
+\subsection{Giải Quyết Rào Cản Chi Phí Bằng Prompt Caching}
+Thoạt nhìn, chi phí để áp dụng Contextual Retrieval cho một kho tài liệu doanh nghiệp hàng triệu tokens dường như là bất khả thi: Mỗi chunk cần đưa toàn bộ tài liệu $100$ trang ($50.000$ tokens) vào LLM để sinh $50$ tokens ngữ cảnh! Nếu một tài liệu có $100$ chunks, ta phải gửi $100 \times 50.000 = 5.000.000$ tokens đầu vào!
+
+Tuy nhiên, đây chính là lúc đòn bẩy kỹ thuật của \textbf{Prompt Caching} (đã phân tích sâu tại Chương~\ref{ch:llm-runtime-tokenomics}) phát huy sức mạnh tối thượng:
+Toàn bộ văn bản tài liệu 100 trang được đưa vào hệ thống như một tiền tố tĩnh cố định (\textit{Static Prefix}). Nhờ cơ chế bộ nhớ đệm KV Cache của các nhà cung cấp mô hình (Anthropic Prompt Caching, OpenAI Prefix Cache):
+\begin{equation}
+\text{Cost}_{\text{prefill}} = \text{Cost}_{\text{write\_cache}} + 99 \times \text{Cost}_{\text{read\_cache}} \approx 0.1 \times \text{Cost}_{\text{uncached}}
+\end{equation}
+Chi phí đọc lại KV Cache giảm tới $90\%$, biến giải pháp Contextual Retrieval từ một ý tưởng lý thuyết xa xỉ thành một chuẩn mực kỹ nghệ bắt buộc trong mọi dự án RAG doanh nghiệp hiện đại.
 
 ---
 
@@ -453,6 +598,88 @@ class GraphEntityRetriever:
         return visited
 \end{lstlisting}
 
+\subsection{4. Động Cơ Chấm Điểm ColBERT MaxSim}
+\begin{lstlisting}[language=Python]
+import numpy as np
+
+class ColBERTMaxSimEngine:
+    """
+    Mo phong cach cham diem Late Interaction trong ColBERT (Khattab & Zaharia, 2020).
+    Score(Q, D) = sum_{i=1}^{|Q|} max_{j=1}^{|D|} (E_q[i] @ E_d[j].T)
+    Bao toan su can chinh ngu nghia o cap do token thay vi nen ve mot vector duy nhat.
+    """
+    @staticmethod
+    def compute_maxsim(query_embeddings: np.ndarray, doc_embeddings: np.ndarray) -> float:
+        # Similarity matrix S: (n_q_tokens, n_d_tokens)
+        sim_matrix = np.matmul(query_embeddings, doc_embeddings.T)
+        # Max per query token along document tokens dimension
+        max_per_query_token = np.max(sim_matrix, axis=1)
+        # Sum across all query tokens
+        return float(np.sum(max_per_query_token))
+
+    @staticmethod
+    def rank_documents(
+        query_embeddings: np.ndarray,
+        corpus_embeddings: List[np.ndarray]
+    ) -> List[Tuple[int, float]]:
+        scores = [
+            (idx, ColBERTMaxSimEngine.compute_maxsim(query_embeddings, doc_emb))
+            for idx, doc_emb in enumerate(corpus_embeddings)
+        ]
+        scores.sort(key=lambda x: x[1], reverse=True)
+        return scores
+\end{lstlisting}
+
+\subsection{5. Bộ Tiền Xử Lý Ngữ Cảnh Hóa Contextual Retrieval}
+\begin{lstlisting}[language=Python]
+class ContextualChunkAugmenter:
+    """
+    Mo phong Contextual Retrieval cua Anthropic (2024).
+    Bo sung ngu canh tong the cua tai lieu vao tung chunk truoc khi lap chi muc.
+    """
+    def __init__(self, doc_context_map: Dict[str, str]):
+        self.doc_context_map = doc_context_map
+
+    def augment_chunk(self, doc_id: str, raw_chunk: str) -> str:
+        ctx = self.doc_context_map.get(doc_id, "")
+        if not ctx:
+            return raw_chunk
+        return f"<document_context>\n{ctx}\n</document_context>\n\n<chunk_content>\n{raw_chunk}\n</chunk_content>"
+
+    def build_hybrid_search_corpus(
+        self, raw_chunks: List[Tuple[str, str]]
+    ) -> List[str]:
+        return [self.augment_chunk(doc_id, chunk) for doc_id, chunk in raw_chunks]
+\end{lstlisting}
+
+\begin{simulationbox}[Mô Phỏng Trực Quan Hóa ColBERT MaxSim \& GraphRAG]
+Dưới đây là các kịch bản chuẩn để yêu cầu AI sinh mã nguồn hoạt họa 60 FPS bằng thư viện Manim Community Edition (Manim CE):
+
+\paragraph{Prompt 1: Hoạt Họa 60 FPS Cơ Chế So Khớp Tương Tác Muộn ColBERT MaxSim}
+\begin{quote}\small\itshape
+``Hãy viết một đoạn mã Python hoàn chỉnh sử dụng thư viện Manim CE (\code{from manim import *}) để tạo một video giải thích trực quan về cơ chế ColBERT Late Interaction và ma trận MaxSim với các yêu cầu:
+\begin{enumerate}
+  \item \textbf{Cảnh 1: Tách Biệt Biểu Diễn Token}: Hiển thị câu hỏi $Q$ gồm 3 tokens màu xanh lam nhạt và tài liệu $D$ gồm 6 tokens màu vàng cam. Từng token được phóng chiếu thành các véc-tơ đa chiều riêng biệt thay vì bị nén phẳng thành 1 véc-tơ đơn.
+  \item \textbf{Cảnh 2: Ma Trận Tương Đồng $3 \times 6$}: Thể hiện ma trận tích vô hướng $S = E_q \cdot E_d^T$ kích thước $3 \times 6$ sáng lên, với các ô có giá trị tương đồng cao mang sắc thái màu xanh lục rực rỡ.
+  \item \textbf{Cảnh 3: Quét Tìm Max Trên Từng Dòng}: Một con trỏ đỏ quét qua từng dòng (tương ứng với từng token câu hỏi), tự động đóng khung giá trị lớn nhất ($\max$) trên dòng đó.
+  \item \textbf{Cảnh 4: Cộng Dồn Tổng Điểm MaxSim}: Ba giá trị cực đại được trích xuất và kéo xuống một thanh tính tổng ($\sum$), cộng lại thành điểm số tương đồng MaxSim chung cuộc.
+  \item Render trực tiếp bằng lệnh: \code{manim -pql scene.py ColBERTMaxSimScene}.''
+\end{enumerate}
+\end{quote}
+
+\paragraph{Prompt 2: Hoạt Họa 60 FPS GraphRAG: Phân Cụm Leiden \& Map-Reduce Global Search}
+\begin{quote}\small\itshape
+``Hãy viết một kịch bản Manim CE 60 FPS mô phỏng kiến trúc GraphRAG từ phân cụm đồ thị tri thức đến truy vấn toàn cục:
+\begin{enumerate}
+  \item \textbf{Cảnh 1: Mạng Lưới Đồ Thị Tri Thức}: Xuất hiện 30 nút thực thể (Entities) và các cạnh quan hệ (Relations) chằng chit trong không gian 2D.
+  \item \textbf{Cảnh 2: Phân Cụm Phân Cấp Leiden}: Thuật toán Leiden kích hoạt một làn sóng quét qua đồ thị, tự động gom các thực thể thành 4 cộng đồng màu sắc độc lập (C0 vĩ mô). Camera phóng to vào từng cụm thể hiện việc phân tách tiếp thành các tiểu cụm (C1 và C2).
+  \item \textbf{Cảnh 3: Sinh Báo Cáo Tóm Tắt (Community Summaries)}: Mỗi cụm cô đọng lại thành một cuốn sổ báo cáo điều hành vĩ mô.
+  \item \textbf{Cảnh 4: Truy Vấn Toàn Cục Map-Reduce}: Người dùng gửi câu hỏi toàn cục: Câu hỏi nhân bản thành 4 tia sáng chiếu đồng thời vào 4 báo cáo cộng đồng (Pha Map), từng cụm trả về điểm hữu ích và luận điểm, sau đó hội tụ về nút trung tâm để tổng hợp thành câu trả lời hoàn chỉnh (Pha Reduce).
+  \item Render trực tiếp với lệnh: \code{manim -pql scene.py GraphRAGGlobalSearchScene}.''
+\end{enumerate}
+\end{quote}
+\end{simulationbox}
+
 ---
 
 \section{Hệ Thống Bài Tập \& Câu Hỏi Tư Duy Đa Tầng}
@@ -470,6 +697,10 @@ class GraphEntityRetriever:
   Tại sao công thức cộng điểm tuyến tính $S = \alpha S_{\text{Dense}} + (1-\alpha) S_{\text{BM25}}$ thường thất bại trong môi trường sản xuất do hiện tượng trôi dạt phân phối điểm số (Score Distribution Drift)? Thuật toán Reciprocal Rank Fusion (RRF) giải quyết triệt để khuyết tật này như thế nào mà không cần chuẩn hóa điểm số?
   \item \textbf{Câu A.8 (Cơ Chế HyDE \& Điểm Mù Khi Triển Khai)}: \\
   Giải thích cơ chế hoạt động của kỹ thuật Hypothetical Document Embeddings (HyDE) trong việc khắc phục hiện tượng Bất đối xứng Ngữ nghĩa (Query-Document Asymmetry). Trong những tình huống nghiệp vụ nào (ví dụ: tra cứu văn bản pháp lý mới ban hành, mã lỗi hệ thống nội bộ) HyDE lại phản tác dụng và gây hại nghiêm trọng cho hệ thống RAG?
+  \item \textbf{Câu A.9 (So Sánh Sâu Bi-Encoder, Cross-Encoder \& ColBERT)}: \\
+  Phân tích tại sao Bi-Encoder gặp phải hiện tượng thắt cổ chai thông tin (\term{Information Bottleneck}) khi nén tài liệu vào một véc-tơ duy nhất. ColBERT giải quyết vấn đề này như thế nào mà vẫn đảm bảo khả năng tính toán trước ngoại tuyến (Offline Indexing)?
+  \item \textbf{Câu A.10 (Contextual Retrieval \& Prompt Caching)}: \\
+  Tại sao hiện tượng cô lập đoạn văn bản (\term{Chunk Isolation}) khiến các hệ thống Naive RAG thất bại khi tìm kiếm các dữ kiện cụ thể? Trình bày cách Contextual Retrieval khắc phục nhược điểm này và vai trò then chốt của Prompt Caching trong việc giảm chi phí vận hành.
 \end{enumerate}
 
 \subsection{Nhóm B: Bài Toán Tính Toán Giải Tích Bằng Tay (Analytical Problems)}
@@ -527,6 +758,28 @@ class GraphEntityRetriever:
     \item Tính toán điểm số $\text{RRF}(d_i)$ cho cả 4 tài liệu bằng tay.
     \item Xác định thứ tự xếp hạng dung hợp cuối cùng và cho biết tài liệu nào chiến thắng.
   \end{enumerate}
+
+  \item \textbf{Bài B.6 (Tính Toán Thủ Công Ma Trận Tương Tác Muộn MaxSim ColBERT)}: \\
+  Cho câu truy vấn $q$ gồm 2 tokens với ma trận biểu diễn $E_q = \begin{bmatrix} 1 & 0 & 0 & 0 \\ 0 & 1 & 0 & 0 \end{bmatrix}$ (kích thước $2 \times 4$).
+  Tài liệu $D$ gồm 3 tokens với ma trận biểu diễn:
+  \begin{equation*}
+  E_d = \begin{bmatrix} 0 & 1 & 0 & 0 \\ 1 & 0 & 0 & 0 \\ 0 & 0 & 1 & 0 \end{bmatrix} \in \mathbb{R}^{3 \times 4}
+  \end{equation*}
+  Tất cả các véc-tơ đều đã được chuẩn hóa độ dài Euclid $\|\mathbf{e}\|_2 = 1$.
+  \begin{itemize}
+    \item[a)] Tính ma trận tương đồng tích vô hướng $S = E_q E_d^T \in \mathbb{R}^{2 \times 3}$.
+    \item[b)] Xác định giá trị cực đại $\max_{j} S_{i, j}$ cho từng token truy vấn $i \in \{0, 1\}$.
+    \item[c)] Tính điểm số $\text{MaxSim}(q, D)$ và giải thích ý nghĩa so khớp ngữ nghĩa mềm (Soft Alignment).
+  \end{itemize}
+
+  \item \textbf{Bài B.7 (Phân Tích Chi Phí \& Độ Phức Tạp Map-Reduce Global Search Trong GraphRAG)}: \\
+  Xét một kho tài liệu $5.000$ trang được chia thành $20.000$ chunks.
+  Khi xây dựng đồ thị tri thức, thuật toán Leiden phát hiện được $K = 50$ cộng đồng ở Cấp độ 0 (C0 Macro) và $M = 300$ cộng đồng ở Cấp độ 1 (C1 Meso).
+  Mỗi bản tóm tắt cộng đồng C0 có độ dài trung bình $1.000$ tokens, câu hỏi của người dùng dài $50$ tokens.
+  \begin{itemize}
+    \item[a)] Khi thực hiện truy vấn toàn cục ở Cấp độ 0, pha Map cần gửi bao nhiêu request song song tới LLM và tổng số tokens đầu vào của toàn bộ pha Map là bao nhiêu?
+    \item[b)] Nếu mỗi lượt Map trích xuất $5$ luận điểm cốt lõi (mỗi luận điểm dài $30$ tokens) kèm điểm số hữu ích, và pha Reduce chọn lọc top $20$ luận điểm có điểm cao nhất để tổng hợp câu trả lời, hãy tính kích thước ngữ cảnh (tokens) mà pha Reduce đưa vào LLM. So sánh tổng chi phí token này với việc nhồi nhét trực tiếp $20.000$ chunks vào một cửa sổ ngữ cảnh khổng lồ.
+  \end{itemize}
 \end{enumerate}
 
 \subsection{Nhóm C: Thực Hành Kỹ Nghệ \& Lập Trình (Implementation Labs)}
@@ -542,6 +795,12 @@ class GraphEntityRetriever:
 
   \item \textbf{Bài C.4 (Bộ Chia Đoạn Bảng Biểu Nhận Biết Cấu Trúc - TableAwareChunker)}: \\
   Xây dựng lớp Python \code{TableAwareChunker} có khả năng tự động phát hiện cấu trúc bảng biểu Markdown (\code{| col1 | col2 |}). Khi bảng biểu có số dòng vượt quá giới hạn $N$ dòng, thuật toán tự động tách bảng thành các chunk con nhưng luôn sao chép dòng tiêu đề cột vào đầu mỗi chunk con để bảo toàn trọn vẹn ngữ nghĩa số liệu cho mô hình embedding.
+
+  \item \textbf{Bài C.5 (Hiện Thực Hóa Động Cơ ColBERT MaxSim)}: \\
+  Xây dựng lớp \code{ColBERTMaxSimEngine} với phương thức tĩnh \code{compute_maxsim} nhận vào hai ma trận NumPy đã chuẩn hóa $L_2$ và tính toán điểm tương đồng MaxSim. Viết unit test xác thực kết quả số học khớp chính xác với Bài B.6.
+
+  \item \textbf{Bài C.6 (Bộ Tiền Xử Lý Ngữ Cảnh Hóa ContextualChunkAugmenter)}: \\
+  Xây dựng lớp \code{ContextualChunkAugmenter} nhận từ điển ngữ cảnh tài liệu và chèn cấu trúc thẻ XML \code{<document_context>} vào trước từng chunk thô, chuẩn bị dữ liệu đầu vào tối ưu cho cả BM25 và Vector Database.
 \end{enumerate}
 
 \subsection{Nhóm D: Phân Tích Thất Bại \& Debugging Thực Tế (Post-Mortem Analysis)}
@@ -598,6 +857,14 @@ class GraphEntityRetriever:
     \item \textbf{Tri thức mới hoặc bí mật nội bộ}: Khi người dùng hỏi về quy chế mới ban hành hôm qua hoặc mã lỗi nội bộ chưa từng xuất hiện trong dữ liệu huấn luyện của LLM, mô hình sẽ sinh ra văn bản giả định chứa đầy ảo giác sai lệch. Việc nhúng văn bản ảo giác này sẽ dẫn đường cho Vector Search trích xuất các tài liệu hoàn toàn sai!
     \item \textbf{Gia tăng độ trễ và chi phí}: Mỗi truy vấn phải chịu thêm độ trễ TTFT của một lượt sinh văn bản hoàn chỉnh từ LLM (thường mất từ $500\text{ ms}$ đến $2\text{ giây}$), phá hủy yêu cầu phản hồi thời gian thực của ứng dụng tìm kiếm.
   \end{itemize}
+
+  \item \textbf{Lời giải Câu A.9}:
+  \textbf{Bi-Encoder} nén toàn bộ chuỗi token của tài liệu thành một véc-tơ duy nhất $\mathbf{e}_d \in \mathbb{R}^d$ thông qua cơ chế Pooling (Mean Pooling hoặc CLS Token). Thao tác này tạo ra nút thắt cổ chai thông tin (\term{Information Bottleneck}): mọi chi tiết cú pháp cục bộ, số liệu cụ thể và từ khóa chuyên ngành hiếm đều bị hòa tan vào một điểm duy nhất trong không gian đa chiều, làm mất khả năng phân biệt giữa các sắc thái ngữ nghĩa tinh vi.
+  \textbf{ColBERT} giải quyết triệt để vấn đề này bằng mô hình Tương Tác Muộn (\term{Late Interaction}): Thay vì gộp véc-tơ, nó duy trì ma trận embedding của từng token riêng biệt $E_d \in \mathbb{R}^{|d| \times d}$. Điểm mấu chốt là $E_d$ hoàn toàn độc lập với câu truy vấn, cho phép tính toán trước ngoại tuyến $100\%$ và lưu trữ vào chỉ mục. Khi có truy vấn $q$, hệ thống tính $E_q$ và áp dụng toán tử MaxSim $\sum_{i} \max_{j} (E_{q, i} \cdot E_{d, j}^T)$. Nhờ đó, ColBERT bảo toàn trọn vẹn độ chính xác tương tác cấp token tiệm cận Cross-Encoder mà vẫn duy trì tốc độ truy vấn mili-giây như Bi-Encoder.
+
+  \item \textbf{Lời giải Câu A.10}:
+  Hiện tượng \term{Chunk Isolation} (Cô lập đoạn văn bản) xảy ra khi tài liệu dài bị cắt nhỏ thành các chunk $300 - 500$ tokens độc lập. Nhiều chunk nằm giữa tài liệu chứa các đại từ thay thế (như ``công ty này'', ``nó'', ``trong năm vừa qua'') hoặc bảng số liệu mà không có tên thực thể hay mốc thời gian cụ thể. Cả BM25 lẫn Dense Search đều thất bại khi người dùng tìm kiếm từ khóa cụ thể.
+  \textbf{Contextual Retrieval} (Anthropic, 2024) khắc phục bằng cách dùng LLM tạo một đoạn tóm tắt ngữ cảnh $50 - 100$ tokens gắn vào đầu mỗi chunk trước khi lập chỉ mục. Đòn bẩy \textbf{Prompt Caching} đóng vai trò then chốt vì toàn bộ tài liệu gốc được lưu vào KV Cache tĩnh trên GPU; các lệnh sinh ngữ cảnh cho từng chunk chỉ cần đọc lại KV Cache với chi phí giảm tới $90\%$, biến giải pháp này thành khả thi về mặt kinh tế cho quy mô triệu văn bản.
 \end{itemize}
 
 \subsection{Lời Giải Nhóm B: Bài Toán Tính Toán Giải Tích Bằng Tay}
@@ -716,6 +983,85 @@ Vì $0.75 < 0.90$ (ngưỡng tối thiểu của doanh nghiệp), hệ thống \
   Tài liệu \textbf{$d_1$ giành chiến thắng} vì duy trì thứ hạng rất cao ở cả hai hệ thống ($1$ và $2$), vượt qua $d_3$ vốn đứng đầu ở BM25 nhưng tụt xuống hạng $3$ ở Dense Search!
 \end{enumerate}
 
+\paragraph{Lời giải Bài B.6}:
+\begin{itemize}
+  \item[a)] Tính ma trận tương đồng $S = E_q E_d^T$:
+  Ta có ma trận $E_d^T \in \mathbb{R}^{4 \times 3}$:
+  \begin{equation*}
+  E_d^T = \begin{bmatrix} 0 & 1 & 0 \\ 1 & 0 & 0 \\ 0 & 0 & 1 \\ 0 & 0 & 0 \end{bmatrix}
+  \end{equation*}
+  Thực hiện nhân ma trận $S = E_q E_d^T \in \mathbb{R}^{2 \times 3}$:
+  \begin{itemize}
+    \item Dòng 0: $E_{q, 0} = [1, 0, 0, 0]$:
+    \begin{equation*}
+    S_{0, 0} = 1 \cdot 0 + 0 \cdot 1 + 0 \cdot 0 + 0 \cdot 0 = 0
+    \end{equation*}
+    \begin{equation*}
+    S_{0, 1} = 1 \cdot 1 + 0 \cdot 0 + 0 \cdot 0 + 0 \cdot 0 = 1
+    \end{equation*}
+    \begin{equation*}
+    S_{0, 2} = 1 \cdot 0 + 0 \cdot 0 + 0 \cdot 1 + 0 \cdot 0 = 0
+    \end{equation*}
+    \item Dòng 1: $E_{q, 1} = [0, 1, 0, 0]$:
+    \begin{equation*}
+    S_{1, 0} = 0 \cdot 0 + 1 \cdot 1 + 0 \cdot 0 + 0 \cdot 0 = 1
+    \end{equation*}
+    \begin{equation*}
+    S_{1, 1} = 0 \cdot 1 + 1 \cdot 0 + 0 \cdot 0 + 0 \cdot 0 = 0
+    \end{equation*}
+    \begin{equation*}
+    S_{1, 2} = 0 \cdot 0 + 1 \cdot 0 + 0 \cdot 1 + 0 \cdot 0 = 0
+    \end{equation*}
+  \end{itemize}
+  Kết quả ma trận tương đồng tích vô hướng:
+  \begin{equation*}
+  S = \begin{bmatrix} 0 & 1 & 0 \\ 1 & 0 & 0 \end{bmatrix} \in \mathbb{R}^{2 \times 3}
+  \end{equation*}
+
+  \item[b)] Xác định giá trị cực đại trên từng dòng:
+  \begin{itemize}
+    \item Token truy vấn $0$: $\max_{j \in \{0, 1, 2\}} S_{0, j} = \max(0, 1, 0) = 1.0$ (khớp tại token 1 của tài liệu).
+    \item Token truy vấn $1$: $\max_{j \in \{0, 1, 2\}} S_{1, j} = \max(1, 0, 0) = 1.0$ (khớp tại token 0 của tài liệu).
+  \end{itemize}
+
+  \item[c)] Điểm số MaxSim:
+  \begin{equation*}
+  \text{MaxSim}(q, D) = \sum_{i=0}^1 \max_{j} S_{i, j} = 1.0 + 1.0 = \mathbf{2.0}
+  \end{equation*}
+  \textit{Ý nghĩa}: Cả 2 token của câu truy vấn đều tìm thấy token đối ứng chính xác tuyệt đối trong tài liệu (dù thứ tự bị đảo ngược: token $0$ của query khớp token $1$ của doc, token $1$ của query khớp token $0$ của doc). ColBERT cho phép khớp ngữ nghĩa mềm mà không đòi hỏi cứng nhắc về thứ tự cú pháp hay nén phẳng thông tin.
+\end{itemize}
+
+\paragraph{Lời giải Bài B.7}:
+\begin{itemize}
+  \item[a)] Số request và tokens trong pha Map ở Cấp độ 0 (C0 Macro):
+  Vì có $K = 50$ cộng đồng C0, pha Map cần gửi đúng \textbf{$50$ requests độc lập song song} tới LLM.
+  Mỗi request gồm câu hỏi ($50$ tokens) và bản tóm tắt cộng đồng ($1.000$ tokens):
+  \begin{equation*}
+  L_{\text{request}} = 50 + 1.000 = 1.050\text{ tokens}
+  \end{equation*}
+  Tổng số tokens đầu vào của toàn bộ pha Map:
+  \begin{equation*}
+  N_{\text{map\_in}} = 50 \times 1.050 = \mathbf{52.500\text{ tokens}}
+  \end{equation*}
+
+  \item[b)] Kích thước ngữ cảnh pha Reduce và so sánh:
+  Mỗi lượt Map trích xuất $5$ luận điểm, tổng cộng có $50 \times 5 = 250$ luận điểm.
+  Pha Reduce chỉ gom top $20$ luận điểm có điểm số hữu ích cao nhất:
+  \begin{equation*}
+  L_{\text{key\_points}} = 20 \times 30 = 600\text{ tokens}
+  \end{equation*}
+  Cộng thêm câu hỏi gốc ($50$ tokens) và câu lệnh điều phối ($150$ tokens), kích thước ngữ cảnh nạp vào LLM ở pha Reduce chỉ vỏn vẹn:
+  \begin{equation*}
+  L_{\text{reduce\_prompt}} = 600 + 50 + 150 = \mathbf{800\text{ tokens}}
+  \end{equation*}
+  \textit{So sánh định lượng}:
+  Nếu nhồi nhét trực tiếp $20.000$ chunks (mỗi chunk $300$ tokens) vào một cửa sổ ngữ cảnh khổng lồ, ta cần:
+  \begin{equation*}
+  N_{\text{naive}} = 20.000 \times 300 = \mathbf{6.000.000\text{ tokens (6 triệu tokens!)}}
+  \end{equation*}
+  GraphRAG đã nén lượng thông tin cần đọc từ 6 triệu tokens xuống chỉ còn $52.500$ tokens ở pha Map và $800$ tokens ở pha Reduce (giảm tới \textbf{$114\times$ lần}), đồng thời loại bỏ hoàn toàn hiện tượng ``Lạc lối ở giữa'' (Lost in the middle) để sinh ra câu trả lời toàn cục chất lượng cao.
+\end{itemize}
+
 \subsection{Lời Giải Nhóm C: Thực Hành Kỹ Nghệ \& Lập Trình}
 Toàn bộ mã nguồn kiểm chứng đã được cung cấp tại Mục~\ref{sec:python-hybrid-engine} với đầy đủ các module:
 \begin{enumerate}
@@ -723,6 +1069,8 @@ Toàn bộ mã nguồn kiểm chứng đã được cung cấp tại Mục~\ref{
   \item \code{FaithfulnessEvaluator}: Đánh giá độ trung thực của câu trả lời dựa trên việc đối chiếu từng khẳng định nguyên tử với ngữ cảnh trích xuất.
   \item \code{GraphEntityRetriever}: Mở rộng tri thức cục bộ theo đồ thị liên kết $k$-hop.
   \item \code{TableAwareChunker}: Bộ chia đoạn bảng biểu bảo toàn header cho RAG doanh nghiệp:
+  \item \code{ColBERTMaxSimEngine}: Động cơ chấm điểm Late Interaction trên ma trận véc-tơ token đa chiều (được kiểm thử trong test case \code{test_colbert_maxsim_numerical_correctness}).
+  \item \code{ContextualChunkAugmenter}: Bộ tiền xử lý ngữ cảnh hóa Contextual Retrieval gắn thẻ XML tài liệu (được kiểm thử trong test case \code{test_contextual_chunk_augmenter}).
 \end{enumerate}
 
 \begin{lstlisting}[language=Python, caption={Bộ phân đoạn bảng biểu nhận biết cấu trúc TableAwareChunker.}]

@@ -8,6 +8,8 @@ Covers:
 
 import math
 from collections import Counter
+from typing import Dict, List, Tuple, Optional
+import numpy as np
 import pytest
 
 
@@ -395,5 +397,124 @@ Ket thuc bao cao."""
     for tc in table_chunks:
         assert "| Nam | Doanh Thu |" in tc
         assert "|---|---|" in tc
+
+
+# ==============================================================================
+# COLBERT MAXSIM LATE INTERACTION & CONTEXTUAL RETRIEVAL
+# ==============================================================================
+
+class ColBERTMaxSimEngine:
+    """
+    Simulates ColBERT Late Interaction scoring (Khattab & Zaharia, 2020).
+    Score(Q, D) = sum_{i=1}^{|Q|} max_{j=1}^{|D|} (E_q[i] @ E_d[j].T)
+    Preserves token-level semantic alignments instead of collapsing to single dense vectors.
+    """
+
+    @staticmethod
+    def compute_maxsim(query_embeddings: np.ndarray, doc_embeddings: np.ndarray) -> float:
+        """
+        query_embeddings: shape (n_q_tokens, dim), L2 normalized
+        doc_embeddings: shape (n_d_tokens, dim), L2 normalized
+        Returns scalar MaxSim score.
+        """
+        # Similarity matrix S: (n_q_tokens, n_d_tokens)
+        sim_matrix = np.matmul(query_embeddings, doc_embeddings.T)
+        # Max per query token along document tokens dimension
+        max_per_query_token = np.max(sim_matrix, axis=1)
+        # Sum across all query tokens
+        return float(np.sum(max_per_query_token))
+
+    @staticmethod
+    def rank_documents(
+        query_embeddings: np.ndarray,
+        corpus_embeddings: List[np.ndarray]
+    ) -> List[Tuple[int, float]]:
+        scores = [
+            (idx, ColBERTMaxSimEngine.compute_maxsim(query_embeddings, doc_emb))
+            for idx, doc_emb in enumerate(corpus_embeddings)
+        ]
+        scores.sort(key=lambda x: x[1], reverse=True)
+        return scores
+
+
+class ContextualChunkAugmenter:
+    """
+    Simulates Anthropic's Contextual Retrieval (2024).
+    Augments chunks with document-level context summaries to prevent isolated chunks
+    from losing vital entity context.
+    """
+    def __init__(self, doc_context_map: Dict[str, str]):
+        self.doc_context_map = doc_context_map
+
+    def augment_chunk(self, doc_id: str, raw_chunk: str) -> str:
+        ctx = self.doc_context_map.get(doc_id, "")
+        if not ctx:
+            return raw_chunk
+        return f"<document_context>\n{ctx}\n</document_context>\n\n<chunk_content>\n{raw_chunk}\n</chunk_content>"
+
+    def build_hybrid_search_corpus(
+        self, raw_chunks: List[Tuple[str, str]]
+    ) -> List[str]:
+        """
+        raw_chunks: list of (doc_id, chunk_text)
+        Returns augmented texts ready for BM25 and dense embedding indexing.
+        """
+        return [self.augment_chunk(doc_id, chunk) for doc_id, chunk in raw_chunks]
+
+
+def test_colbert_maxsim_numerical_correctness():
+    # Simple 2-token query, 3-token document, dim=4
+    # Query tokens: E_q[0] = [1, 0, 0, 0], E_q[1] = [0, 1, 0, 0]
+    e_q = np.array([
+        [1.0, 0.0, 0.0, 0.0],
+        [0.0, 1.0, 0.0, 0.0]
+    ], dtype=np.float32)
+
+    # Doc 1: Has exact matches for both tokens
+    # E_d1: [0.0, 1.0, 0.0, 0.0], [1.0, 0.0, 0.0, 0.0], [0.0, 0.0, 1.0, 0.0]
+    e_d1 = np.array([
+        [0.0, 1.0, 0.0, 0.0],
+        [1.0, 0.0, 0.0, 0.0],
+        [0.0, 0.0, 1.0, 0.0]
+    ], dtype=np.float32)
+
+    # Doc 2: Only matches first token
+    e_d2 = np.array([
+        [1.0, 0.0, 0.0, 0.0],
+        [0.0, 0.0, 0.0, 1.0],
+        [0.0, 0.0, 1.0, 0.0]
+    ], dtype=np.float32)
+
+    score1 = ColBERTMaxSimEngine.compute_maxsim(e_q, e_d1)
+    # Query token 0 matches doc token 1 with dot product 1.0
+    # Query token 1 matches doc token 0 with dot product 1.0
+    # Total MaxSim = 1.0 + 1.0 = 2.0
+    assert pytest.approx(score1) == 2.0
+
+    score2 = ColBERTMaxSimEngine.compute_maxsim(e_q, e_d2)
+    # Query token 0 matches doc token 0 with dot product 1.0
+    # Query token 1 has max dot product 0.0
+    # Total MaxSim = 1.0 + 0.0 = 1.0
+    assert pytest.approx(score2) == 1.0
+
+    ranking = ColBERTMaxSimEngine.rank_documents(e_q, [e_d2, e_d1])
+    assert ranking[0][0] == 1  # Doc 1 is top ranked
+    assert ranking[0][1] == 2.0
+
+
+def test_contextual_chunk_augmenter():
+    doc_contexts = {
+        "sec_filing_2024": "Bao cao tai chinh quy 3 nam 2024 cua Tap doan Cong nghe Vingroup."
+    }
+    augmenter = ContextualChunkAugmenter(doc_contexts)
+
+    raw_chunk = "Doanh thu thuan dat 45.000 ty VND, tang truong 25% so voi cung ky."
+    augmented = augmenter.augment_chunk("sec_filing_2024", raw_chunk)
+
+    assert "Vingroup" in augmented
+    assert "Doanh thu thuan" in augmented
+    assert "<document_context>" in augmented
+    assert "<chunk_content>" in augmented
+
 
 

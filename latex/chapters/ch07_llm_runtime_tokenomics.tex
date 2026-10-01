@@ -204,15 +204,136 @@ P_{\text{speculative}}(w) \equiv P_{\text{target}}(w)
 Nghĩa là việc dùng mô hình Draft nhỏ chỉ có tác dụng tăng tốc độ ($2\times$ đến $3\times$ lần) mà tuyệt đối không làm suy giảm chất lượng đầu ra của mô hình lớn!
 \end{theorem}
 
-\subsection{Chunked Prefill \& Prompt Caching: Chống Nghẽn Đầu Hàng (Head-of-Line Blocking)}
+\subsection{Chứng Minh Giải Tích: Tính Đồng Nhất Phân Phối Của Speculative Decoding}
+\label{sec:speculative-math-proof}
+
+Để hiểu tại sao việc dùng một mô hình nhỏ 1B phỏng đoán mà không làm giảm trí thông minh của mô hình lớn 70B, chúng ta hãy thực hiện chứng minh giải tích chặt chẽ theo phân tích của Leviathan et al. (2023) và Chen et al. (2023).
+
+\begin{proof}
+Xét một vị trí sinh token bất kỳ trong không gian từ vựng rời rạc $\mathcal{V}$.
+Gọi $q(x)$ là phân phối xác suất sinh ra bởi Draft Model $M_q$ và $p(x)$ là phân phối xác suất sinh ra bởi Target Model $M_p$.
+Theo quy trình lấy mẫu loại bỏ hiệu chỉnh (Modified Rejection Sampling):
+\begin{enumerate}
+  \item Mô hình Draft sinh ra một token ứng viên $x \sim q(x)$.
+  \item Token $x$ được Target Model chấp nhận với xác suất:
+  \begin{equation}
+  \alpha(x) = \min\left(1, \frac{p(x)}{q(x)}\right)
+  \end{equation}
+  \item Nếu token $x$ bị từ chối (xảy ra khi $p(x) < q(x)$), hệ thống hủy bỏ $x$ và lấy mẫu lại một token mới từ phân phối phần dư chuẩn hóa:
+  \begin{equation}
+  p'(x) = \frac{\max(0, p(x) - q(x))}{\sum_{y \in \mathcal{V}} \max(0, p(y) - q(y))}
+  \end{equation}
+\end{enumerate}
+
+Bây giờ, hãy tính xác suất toàn phần để token $x$ được sinh ra ở đầu ra cuối cùng, ký hiệu là $P(X = x)$:
+\begin{equation}
+P(X = x) = P(\text{chấp nhận } x) + P(\text{bị từ chối}) \times P(\text{sinh ra } x \text{ trong pha lấy mẫu lại})
+\end{equation}
+
+\textbf{Bước 1: Tính xác suất chấp nhận $x$ trực tiếp}:
+Xác suất để Draft Model chọn $x$ và Target Model chấp nhận $x$ là:
+\begin{equation}
+P(\text{chấp nhận } x) = q(x) \times \min\left(1, \frac{p(x)}{q(x)}\right) = \min(q(x), p(x))
+\end{equation}
+
+\textbf{Bước 2: Tính tổng xác suất bị từ chối toàn cục}:
+Tổng xác suất chấp nhận trên toàn bộ từ vựng là:
+\begin{equation}
+\beta = \sum_{y \in \mathcal{V}} P(\text{chấp nhận } y) = \sum_{y \in \mathcal{V}} \min(q(y), p(y))
+\end{equation}
+Do đó, xác suất xảy ra biến cố từ chối là:
+\begin{equation}
+P(\text{bị từ chối}) = 1 - \beta = 1 - \sum_{y \in \mathcal{V}} \min(q(y), p(y))
+\end{equation}
+Mặt khác, với mọi số thực $a, b$: $\max(0, a - b) = a - \min(a, b)$. Vì $\sum_y p(y) = 1$, ta có:
+\begin{equation}
+\sum_{y \in \mathcal{V}} \max(0, p(y) - q(y)) = \sum_{y \in \mathcal{V}} \left[ p(y) - \min(q(y), p(y)) \right] = 1 - \sum_{y \in \mathcal{V}} \min(q(y), p(y)) = 1 - \beta
+\end{equation}
+\textbf{Mẫu số chuẩn hóa của $p'(x)$ bằng chính xác xác suất bị từ chối $1 - \beta$!}
+
+\textbf{Bước 3: Hợp nhất xác suất toàn phần}:
+Thay các đại lượng vào công thức $P(X = x)$:
+\begin{align}
+P(X = x) &= \min(q(x), p(x)) + (1 - \beta) \times \frac{\max(0, p(x) - q(x))}{1 - \beta} \nonumber \\
+&= \min(q(x), p(x)) + \max(0, p(x) - q(x))
+\end{align}
+Vì với mọi cặp số thực $a, b$, ta luôn có đẳng thức cơ bản: $\min(a, b) + \max(0, a - b) = a$.
+Áp dụng cho $a = p(x)$ và $b = q(x)$:
+\begin{equation}
+P(X = x) = p(x), \qquad \forall x \in \mathcal{V}
+\end{equation}
+Phân phối đầu ra của Speculative Decoding hoàn toàn trùng khớp $100\%$ với phân phối gốc của Target Model!
+\end{proof}
+
+\paragraph{Mối liên hệ giữa Tỷ lệ chấp nhận và Khoảng cách Biến thiên Toàn phần (Total Variation Distance)}:
+Tỷ lệ chấp nhận trung bình $\alpha$ của một token phỏng đoán được liên kết trực tiếp với khoảng cách phân phối:
+\begin{equation}
+\alpha = \sum_{x \in \mathcal{V}} \min(q(x), p(x)) = 1 - \frac{1}{2} \sum_{x \in \mathcal{V}} |p(x) - q(x)| = 1 - \text{TVD}(p, q)
+\end{equation}
+Khi mô hình Draft có năng lực mô phỏng Target Model càng cao, $\text{TVD} \to 0 \implies \alpha \to 1.0$, tốc độ sinh chữ tiến tới giới hạn lý thuyết tối đa $(K+1)$ lần!
+
+\paragraph{Biến thể Medusa: Phỏng đoán đa đầu không cần Draft Model (Cai et al., 2024)}:
+Một rào cản thực tế của Speculative Decoding truyền thống là hệ thống phải nạp cùng lúc hai mô hình độc lập vào VRAM (ví dụ Llama-70B và Llama-1B). Kiến trúc \textbf{Medusa} giải quyết bài toán này bằng cách đóng băng mô hình Target và chỉ huấn luyện thêm nhiều đầu chiếu tuyến tính (Medusa Heads) trên đỉnh của tầng Transformer cuối cùng:
+\begin{itemize}
+  \item Đầu Medusa thứ $k$ dự đoán token tại bước tương lai $t+k$.
+  \item Không cần thêm Draft Model riêng biệt, tiết kiệm tối đa VRAM.
+  \item Sử dụng đồ thị cây phỏng đoán (Tree Attention) để kiểm chứng đồng thời nhiều nhánh token ứng viên trong một lượt forward pass.
+\end{itemize}
+
+---
+
+\subsection{RadixAttention \& Cấu Trúc Cây Tiền Tố (Radix Tree) Trong SGLang}
+\label{sec:radixattention-sglang}
+
+Mặc dù PagedAttention (vLLM) giải quyết hoàn hảo bài toán phân mảnh bộ nhớ bên trong một request, nó có một hạn chế lớn: Khi request kết thúc, toàn bộ các block KV Cache được giải phóng vào Free Pool. Trong môi trường doanh nghiệp thực tế, các yêu cầu tiếp theo thường xuyên chia sẻ những đoạn tiền tố khổng lồ:
+\begin{itemize}
+  \item Cuộc hội thoại nhiều lượt (Multi-turn Chatbot): Lượt chat thứ 5 lặp lại toàn bộ 4 lượt chat trước đó.
+  \item Kỹ thuật RAG doanh nghiệp: Hàng trăm người dùng cùng truy vấn một tài liệu chính sách hoặc cẩm nang 50 trang.
+  \item Tác nhân AI (AI Coding Agents): Các vòng lặp ReAct lặp lại toàn bộ System Prompt và cấu trúc cây thư mục dự án.
+\end{itemize}
+
+\begin{figure}[htbp]
+\centering
+\begin{tikzpicture}[node distance=1.2cm, auto,
+    root/.style={rectangle, draw=primarycolor, thick, fill=boxbg, align=center, rounded corners=2pt, font=\footnotesize\bfseries, inner sep=4pt},
+    sys_box/.style={rectangle, draw=secondarycolor, thick, fill=accentcolor!20, align=center, rounded corners=2pt, font=\scriptsize, text width=6.2cm, inner sep=4pt},
+    node_box/.style={rectangle, draw=secondarycolor, thick, fill=accentcolor!15, align=center, rounded corners=2pt, font=\scriptsize, text width=3.2cm, inner sep=4pt},
+    arrow/.style={draw=primarycolor, -Stealth, thick}
+]
+    \node[root] (r) {Root (Gốc)};
+    \node[sys_box, below=0.7cm of r] (sys) {[System Prompt: ``You are an enterprise coding assistant...'']\\Block IDs: [0, 1, 2]};
+    \node[node_box, below left=0.9cm and 0.2cm of sys] (req1) {Nhánh 1: Query A\\Block IDs: [3, 4]};
+    \node[node_box, below right=0.9cm and 0.2cm of sys] (req2) {Nhánh 2: Query B\\Block IDs: [5, 6]};
+
+    \path[arrow] (r) -- (sys);
+    \path[arrow] (sys) -- node[left, font=\footnotesize] {Request 1} (req1);
+    \path[arrow] (sys) -- node[right, font=\footnotesize] {Request 2} (req2);
+\end{tikzpicture}
+\caption{Cấu trúc Cây Tiền tố Radix Tree quản lý bộ nhớ đệm KV Cache trong SGLang}
+\label{fig:radixattention-tree}
+\end{figure}
+
+Được nhóm nghiên cứu UC Berkeley đề xuất trong công trình \textbf{SGLang} (Zheng et al., 2024), \textbf{RadixAttention} tổ chức toàn bộ bộ nhớ KV Cache trên GPU thành một cấu trúc cây tiền tố thu gọn (\textbf{Radix Tree}):
+\begin{enumerate}
+  \item \textbf{Khớp tiền tố dài nhất (Longest Prefix Match)}: Khi một request mới đến, hệ thống duyệt từ nút gốc của cây để tìm chuỗi token trùng lặp dài nhất. Thay vì tính toán lại, hệ thống tái sử dụng ngay $100\%$ các block KV Cache đã tính sẵn trong VRAM!
+  \item \textbf{Phân tách nút linh hoạt (Node Splitting)}: Khi hai request có chung một đoạn đầu nhưng rẽ nhánh ở giữa, nút hiện tại được tự động chia đôi thành một nút cha chung và hai nút con độc lập.
+  \item \textbf{Cơ chế thu hồi bộ nhớ theo LRU (Least Recently Used Eviction)}: Khi bộ nhớ VRAM chạm ngưỡng đầy, hệ thống không giải phóng ngẫu nhiên mà thực hiện tỉa (Prune) các nút lá ít được truy cập nhất, bảo toàn vĩnh viễn các nút gốc (như System Prompt hoặc tài liệu chung) trên GPU.
+\end{enumerate}
+
+\paragraph{Hiệu quả định lượng vượt bậc}:
+Với các tác vụ Agent hoặc Chatbot nhiều lượt có tỷ lệ khớp tiền tố (Prefix Cache Hit Rate) đạt $80\% - 90\%$:
+\begin{equation}
+\text{TTFT}_{\text{cached}} \approx \frac{L_{\text{unmatched}}}{L_{\text{prompt}}} \times \text{TTFT}_{\text{cold}}
+\end{equation}
+Thời gian chờ ký tự đầu tiên (TTFT) giảm ngoạn mục từ $2.5\text{ giây}$ xuống chỉ còn dưới \textbf{$80\text{ mili-giây}$}, đồng thời cắt giảm tới $80\%$ lượng điện năng và năng lực tính toán FLOPs của cụm máy chủ!
+
+---
+
+\subsection{Chunked Prefill: Chống Nghẽn Đầu Hàng (Head-of-Line Blocking)}
 Trong hệ thống phục vụ nhiều người dùng đồng thời, một vấn đề nhức nhối là hiện tượng \term{Head-of-Line Blocking}:
 Khi hệ thống đang decode mượt mà cho 50 người dùng với độ trễ 20ms/token, bất ngờ có một request mới xuất hiện với prompt dài $16.000$ tokens. Pha Prefill của request mới này cần tới 500ms tính toán, chiếm trọn GPU và đóng băng việc sinh chữ của 50 người dùng cũ!
 
-Giải pháp công nghiệp bao gồm hai trụ cột:
-\begin{itemize}
-  \item \textbf{Chunked Prefill (vLLM / Sarathi-Serve)}: Chia prompt dài thành các chunk cố định (ví dụ $512$ tokens). Tại mỗi bước lặp của GPU, hệ thống ghép chung các chunk prefill với các token decode của các request cũ, giữ cho độ trễ giữa các token (ITL) luôn duy trì ở mức ổn định.
-  \item \textbf{Prefix Caching / Prompt Caching}: Nhiều request khác nhau thường chia sẻ chung System Prompt hoặc ngữ cảnh tài liệu RAG dài. Thay vì tính toán lại KV Cache từ đầu, vLLM sử dụng cấu trúc cây tiền tố \textbf{Radix Tree} để tái sử dụng ngay các block KV Cache đã tính sẵn trong VRAM, đưa thời gian TTFT về gần bằng 0!
-\end{itemize}
+Giải pháp \textbf{Chunked Prefill (vLLM / Sarathi-Serve)} chia prompt dài thành các chunk cố định (ví dụ $512$ tokens). Tại mỗi bước lặp của GPU, hệ thống ghép chung các chunk prefill với các token decode của các request cũ, giữ cho độ trễ giữa các token (ITL) luôn duy trì ở mức ổn định.
 
 ---
 
@@ -339,6 +460,185 @@ class ChunkedPrefillScheduler:
         return decode_served, prefill_served
 \end{lstlisting}
 
+\subsection{4. Cây Tiền Tố Radix Tree Prefix Cache (SGLang)}
+\begin{lstlisting}[language=Python]
+class RadixNode:
+    """Nut trong Cay Tien to Radix Tree luu tru chuoi token va Block IDs."""
+    def __init__(self, token_subsequence: List[int], block_ids: List[int], parent: Optional['RadixNode'] = None):
+        self.token_subsequence = list(token_subsequence)
+        self.block_ids = list(block_ids)
+        self.parent = parent
+        self.children: Dict[int, 'RadixNode'] = {}
+        self.last_accessed: float = 0.0
+
+    @property
+    def is_leaf(self) -> bool:
+        return len(self.children) == 0
+
+class RadixCacheManager:
+    """
+    Quan ly bo nho dem tien to Radix Tree theo kien truc SGLang.
+    Ho tro khop tien to dai nhat, phan tach nut (Node Splitting) va thu hoi LRU.
+    """
+    def __init__(self, max_blocks: int, block_size: int = 16):
+        self.max_blocks = max_blocks
+        self.block_size = block_size
+        self.root = RadixNode(token_subsequence=[], block_ids=[])
+        self.next_block_id = 0
+        self.time_counter = 0.0
+
+    def get_used_blocks(self) -> int:
+        def count_blocks(node: RadixNode) -> int:
+            return len(node.block_ids) + sum(count_blocks(child) for child in node.children.values())
+        return count_blocks(self.root)
+
+    def match_prefix(self, tokens: List[int]) -> Tuple[int, List[int]]:
+        """Duyet cay de tim tien to trung khop dai nhat cho chuoi tokens."""
+        self.time_counter += 1.0
+        current = self.root
+        matched_tokens = 0
+        cached_blocks = []
+        idx = 0
+
+        while idx < len(tokens):
+            first_tok = tokens[idx]
+            if first_tok not in current.children:
+                break
+            child = current.children[first_tok]
+            subseq = child.token_subsequence
+            match_len = 0
+            while match_len < len(subseq) and idx + match_len < len(tokens):
+                if subseq[match_len] != tokens[idx + match_len]:
+                    break
+                match_len += 1
+
+            if match_len == len(subseq):
+                matched_tokens += match_len
+                cached_blocks.extend(child.block_ids)
+                child.last_accessed = self.time_counter
+                current = child
+                idx += match_len
+            else:
+                matched_tokens += match_len
+                num_full_blocks = match_len // self.block_size
+                cached_blocks.extend(child.block_ids[:num_full_blocks])
+                child.last_accessed = self.time_counter
+                break
+
+        return matched_tokens, cached_blocks
+
+    def insert(self, tokens: List[int]) -> List[int]:
+        """Nap chuoi token moi vao cay Radix, tu dong chia tach nut neu re nhanh."""
+        self.time_counter += 1.0
+        current = self.root
+        all_blocks = []
+        idx = 0
+
+        while idx < len(tokens):
+            first_tok = tokens[idx]
+            if first_tok not in current.children:
+                rem_tokens = tokens[idx:]
+                num_blocks = math.ceil(len(rem_tokens) / self.block_size)
+                self._ensure_capacity(num_blocks)
+                new_blocks = [self._alloc_block() for _ in range(num_blocks)]
+                new_node = RadixNode(rem_tokens, new_blocks, parent=current)
+                new_node.last_accessed = self.time_counter
+                current.children[first_tok] = new_node
+                all_blocks.extend(new_blocks)
+                return all_blocks
+
+            child = current.children[first_tok]
+            subseq = child.token_subsequence
+            match_len = 0
+            while match_len < len(subseq) and idx + match_len < len(tokens):
+                if subseq[match_len] != tokens[idx + match_len]:
+                    break
+                match_len += 1
+
+            if match_len == len(subseq):
+                all_blocks.extend(child.block_ids)
+                child.last_accessed = self.time_counter
+                current = child
+                idx += match_len
+            else:
+                common_tokens = subseq[:match_len]
+                rem_child_tokens = subseq[match_len:]
+                rem_insert_tokens = tokens[idx + match_len:]
+
+                num_common_blocks = match_len // self.block_size
+                common_blocks = child.block_ids[:num_common_blocks]
+                rem_child_blocks = child.block_ids[num_common_blocks:]
+
+                split_node = RadixNode(common_tokens, common_blocks, parent=current)
+                split_node.last_accessed = self.time_counter
+                current.children[first_tok] = split_node
+
+                child.token_subsequence = rem_child_tokens
+                child.block_ids = rem_child_blocks
+                child.parent = split_node
+                split_node.children[rem_child_tokens[0]] = child
+
+                all_blocks.extend(common_blocks)
+
+                if rem_insert_tokens:
+                    num_new_blocks = math.ceil(len(rem_insert_tokens) / self.block_size)
+                    self._ensure_capacity(num_new_blocks)
+                    new_blocks = [self._alloc_block() for _ in range(num_new_blocks)]
+                    new_child = RadixNode(rem_insert_tokens, new_blocks, parent=split_node)
+                    new_child.last_accessed = self.time_counter
+                    split_node.children[rem_insert_tokens[0]] = new_child
+                    all_blocks.extend(new_blocks)
+
+                return all_blocks
+
+        return all_blocks
+
+    def _alloc_block(self) -> int:
+        bid = self.next_block_id
+        self.next_block_id += 1
+        return bid
+
+    def _ensure_capacity(self, needed: int):
+        while self.get_used_blocks() + needed > self.max_blocks:
+            leaves = []
+            def collect_leaves(node: RadixNode):
+                if node != self.root and node.is_leaf:
+                    leaves.append(node)
+                for c in node.children.values():
+                    collect_leaves(c)
+            collect_leaves(self.root)
+            if not leaves:
+                break
+            lru_leaf = min(leaves, key=lambda n: n.last_accessed)
+            del lru_leaf.parent.children[lru_leaf.token_subsequence[0]]
+\end{lstlisting}
+
+\begin{simulationbox}[Mô Phỏng Trực Quan Hóa Speculative Decoding \& Cây Tiền Tố Radix Tree]
+Dưới đây là các kịch bản chuẩn để yêu cầu AI sinh mã nguồn hoạt họa 60 FPS bằng thư viện Manim Community Edition (Manim CE):
+
+\paragraph{Prompt 1: Hoạt Họa 60 FPS Cơ Chế Suy Luận Phỏng Đoán (Speculative Decoding)}
+\begin{quote}\small\itshape
+``Hãy viết một đoạn mã Python hoàn chỉnh sử dụng thư viện Manim CE (\code{from manim import *}) để tạo một video giải thích trực quan về thuật toán Speculative Decoding (Suy luận phỏng đoán) với các yêu cầu:
+\begin{enumerate}
+  \item \textbf{Cảnh 1: Lược Đồ Mô Hình Đôi (Draft vs Target)}: Hiển thị mô hình Draft nhỏ màu xanh ngọc (Draft Model 1B) và mô hình Target khổng lồ màu xanh dương đậm (Target Model 70B). Thể hiện đồng hồ tốc độ: Draft Model sinh chớp nhoáng $K=4$ tokens phỏng đoán trong $10\text{ms}$.
+  \item \textbf{Cảnh 2: Ma Trận Kiểm Chứng Song Song}: Bốn token phỏng đoán được nạp đồng thời vào Target Model. Thể hiện một ma trận Attention $4 \times 4$ sáng lên rực rỡ trong đúng 1 chu kỳ Forward duy nhất ($25\text{ms}$).
+  \item \textbf{Cảnh 3: Gieo Xúc Xắc Rejection Sampling}: Tại từng vị trí token, hiển thị thanh phân phối xác suất $q(x)$ và $p(x)$. Tại token 1 và 2: $p \ge q \implies$ con dấu xanh lá ``ACCEPTED'' đóng xuống. Tại token 3: $p < q \implies$ một xúc xắc xác suất lăn ra vượt ngưỡng, đóng dấu đỏ ``REJECTED'', token 4 phía sau lập tức bị mờ đi và Target Model phát ra một token hiệu chỉnh thay thế.
+  \item Sử dụng font Serif cổ điển, chuyển động camera mượt mà và có thể render trực tiếp bằng lệnh: \code{manim -pql scene.py SpeculativeDecodingScene}.''
+\end{enumerate}
+\end{quote}
+
+\paragraph{Prompt 2: Hoạt Họa 60 FPS Cây Tiền Tố Radix Tree Prefix Caching (SGLang)}
+\begin{quote}\small\itshape
+``Hãy viết một kịch bản Manim CE 60 FPS mô phỏng cấu trúc dữ liệu Cây Tiền tố Radix Tree quản lý bộ nhớ đệm KV Cache trong SGLang:
+\begin{enumerate}
+  \item \textbf{Cảnh 1: Khởi Tạo Nút Gốc \& System Prompt}: Xuất hiện nút Root. Một request đầu tiên nạp System Prompt 200 tokens. Một nhánh cây mọc ra, kết nối vào các Block KV Cache vật lý màu vàng kim trên thanh VRAM.
+  \item \textbf{Cảnh 2: Tái Sử Dụng \& Phân Tách Nhánh (Node Splitting)}: Request 2 đến với cùng System Prompt nhưng có câu hỏi User khác. Camera phóng to vào nút System Prompt: Thể hiện việc tái sử dụng ngay $100\%$ các block KV Cache mà không tốn chu kỳ tính toán nào. Sau đó, tại điểm rẽ nhánh, nút con tự động tách đôi (Split) thành 2 nhánh lá riêng biệt.
+  \item \textbf{Cảnh 3: Thu Hồi Bộ Nhớ LRU}: Khi thanh VRAM chuyển sang màu đỏ báo động ($95\%$ dung lượng), thuật toán LRU quét từ gốc đến lá, tự động cắt tỉa (Prune) nhánh lá ít truy cập nhất và giải phóng các block vật lý, trong khi nút System Prompt ở gốc vẫn được bảo toàn nguyên vẹn.
+  \item Render trực tiếp với lệnh: \code{manim -pql scene.py RadixAttentionTreeScene}.''
+\end{enumerate}
+\end{quote}
+\end{simulationbox}
+
 ---
 
 \section{Hệ Thống Bài Tập \& Câu Hỏi Tư Duy Đa Tầng}
@@ -351,6 +651,8 @@ class ChunkedPrefillScheduler:
   \item \textbf{Câu A.3}: Tại sao thuật toán mã hóa BPE có thể vô tình tạo ra các lỗ hổng ``Glitch Tokens'' (các token khiến mô hình đưa ra câu trả lời ngớ ngẩn hoặc từ chối trả lời dù câu hỏi rất bình thường)?
   \item \textbf{Câu A.4 (Bản Chất Toán Học Của Speculative Decoding)}: Tại sao Speculative Decoding có thể tăng tốc độ sinh chữ từ 2 đến 3 lần mà không làm biến dạng phân phối xác suất của mô hình Target?
   \item \textbf{Câu A.5 (Khắc Phục Head-of-Line Blocking)}: Phân tích cơ chế của Chunked Prefill trong việc bảo đảm cam kết chất lượng dịch vụ (SLA) về độ trễ giữa các token liên tiếp (Inter-Token Latency -- ITL).
+  \item \textbf{Câu A.6 (So Sánh PagedAttention \& RadixAttention)}: Phân tích sự khác biệt cốt lõi giữa cơ chế phân trang tĩnh của PagedAttention (vLLM) và cây tiền tố phân cấp của RadixAttention (SGLang). Trong tình huống nào RadixAttention mang lại ưu thế vượt trội?
+  \item \textbf{Câu A.7 (Kiến Trúc Suy Luận Phỏng Đoán Đa Đầu Medusa)}: Tại sao kiến trúc Medusa loại bỏ nhu cầu vận hành một mô hình Draft độc lập? Giải thích cơ chế dự đoán song song của các Medusa heads và phương thức xác thực bằng Tree Attention.
 \end{enumerate}
 
 \subsection{Nhóm B: Bài Toán Tính Toán Giải Tích Bằng Tay (Analytical Problems)}
@@ -371,6 +673,26 @@ class ChunkedPrefillScheduler:
   Xét một hệ thống Speculative Decoding sinh $K = 4$ token phỏng đoán tại mỗi lượt. Giả sử xác suất chấp nhận độc lập của mỗi token phỏng đoán là $\alpha = 0.8$.
   Hệ thống dừng chấp nhận ngay khi có một token bị từ chối và sinh thêm một token hiệu chỉnh từ Target Model.
   Tính số lượng token trung bình được sinh ra bởi Target Model sau mỗi bước lặp $\mathbb{E}[N]$.
+
+  \item \textbf{Bài B.4 (Chứng Minh Giải Tích Tính Đồng Nhất Phân Phối Của Speculative Decoding)}:
+  Cho từ vựng rời rạc $\mathcal{V}$, mô hình Draft có phân phối xác suất $q(x)$ và mô hình Target có phân phối $p(x)$ thỏa mãn $q(x) > 0, p(x) \ge 0, \sum_{x \in \mathcal{V}} q(x) = \sum_{x \in \mathcal{V}} p(x) = 1$.
+  Xác suất chấp nhận ứng viên $x \sim q$ là $\alpha(x) = \min\left(1, \frac{p(x)}{q(x)}\right)$. Khi bị từ chối, token mới được lấy mẫu từ phân phối phần dư hiệu chỉnh:
+  \begin{equation*}
+  p'(x) = \frac{\max(0, p(x) - q(x))}{\sum_{y \in \mathcal{V}} \max(0, p(y) - q(y))}
+  \end{equation*}
+  \begin{itemize}
+    \item[a)] Chứng minh xác suất chấp nhận kỳ vọng tại pha Draft là $\beta = \sum_{x \in \mathcal{V}} \min(p(x), q(x))$.
+    \item[b)] Chứng minh mẫu số của $p'(x)$ thỏa mãn $\sum_{y \in \mathcal{V}} \max(0, p(y) - q(y)) = 1 - \beta$.
+    \item[c)] Sử dụng định lý xác suất toàn phần để chứng minh $P(X = x) \equiv p(x)$ với mọi $x \in \mathcal{V}$.
+  \end{itemize}
+
+  \item \textbf{Bài B.5 (Phân Tích Định Lượng TTFT \& Tiết Kiệm FLOPs Của Radix Tree)}:
+  Một hệ thống tiếp nhận $R = 100\text{ requests/giây}$. Mỗi request có độ dài prompt $L = 2.000$ tokens, trong đó phần tiền tố chung (System Prompt và Few-shot Examples) chiếm $L_{\text{prefix}} = 1.700$ tokens ($85\%$).
+  Mô hình 70B FP8 tiêu tốn xấp xỉ $C = 140\text{ GFLOPs/token}$ trong pha Prefill. GPU H100 đạt thông lượng tính toán thực tế $1.000\text{ TFLOPs/s}$.
+  \begin{itemize}
+    \item[a)] Khi không có Cache tiền tố, tính tổng công suất tính toán (TFLOPs/s) cần thiết để phục vụ lượng request trên và thời gian tính toán Prefill lý thuyết cho mỗi request trên 1 GPU.
+    \item[b)] Khi Radix Tree đạt tỷ lệ khớp $85\%$ cho toàn bộ các request, tính số TFLOPs được giải phóng mỗi giây và mức cải thiện thời gian Prefill.
+  \end{itemize}
 \end{enumerate}
 
 \subsection{Nhóm C: Thực Hành Kỹ Nghệ \& Lập Trình (Implementation Labs)}
@@ -383,6 +705,9 @@ class ChunkedPrefillScheduler:
 
   \item \textbf{Bài C.3 (Bộ Lập Lịch Chunked Prefill Scheduler)}:
   Xây dựng lớp \code{ChunkedPrefillScheduler} chia nhỏ các prompt lớn thành các khối $512$ tokens và ưu tiên bảo đảm 1 token cho tất cả các phiên decode đang hoạt động.
+
+  \item \textbf{Bài C.4 (Cấu Trúc Cây Tiền Tố Radix Tree Với Phân Tách Nút \& Thu Hồi LRU)}:
+  Hiện thực hóa lớp \code{RadixCacheManager} hoàn chỉnh mô phỏng cơ chế bộ nhớ đệm tiền tố của SGLang, bao gồm khớp tiền tố dài nhất (\code{match_prefix}), chèn chuỗi và tự động chia tách nút (\code{insert}), cùng cơ chế trục xuất lá theo thời gian truy cập gần nhất (\code{LRU eviction}).
 \end{enumerate}
 
 \subsection{Nhóm D: Phân Tích Thất Bại \& Debugging Thực Tế (Post-Mortem Analysis)}
@@ -416,6 +741,14 @@ class ChunkedPrefillScheduler:
 
   \item \textbf{Lời giải Câu A.5}:
   Khi một prompt dài xuất hiện, nếu xử lý nguyên khối, nó sẽ độc chiếm Tensor Cores suốt hàng trăm mili-giây, chặn đứng mọi luồng Decode đang chạy. Chunked Prefill chia prompt thành các đoạn nhỏ (ví dụ 512 tokens), tại mỗi bước lặp chỉ xử lý 1 chunk và dành phần năng lực còn lại để phục vụ 1 token cho toàn bộ các luồng Decode. Nhờ đó, độ trễ ITL không bao giờ bị tăng đột biến.
+
+  \item \textbf{Lời giải Câu A.6}:
+  \textbf{PagedAttention} (vLLM) giải quyết bài toán phân mảnh bộ nhớ động trong phạm vi một request hoặc các nhánh song song của cùng một request (như Beam Search, Copy-on-Write). Khi request kết thúc, toàn bộ các trang KV Cache bị giải phóng, không duy trì trạng thái ngữ cảnh qua các request kế tiếp.
+  Ngược lại, \textbf{RadixAttention} (SGLang) duy trì một cây tiền tố Radix Tree trên toàn bộ không gian VRAM, biến KV Cache thành kho tri thức sống giữa nhiều request độc lập. Khi request mới đến, giải thuật khớp tiền tố dài nhất (\code{match_prefix}) tái sử dụng $100\%$ các block KV Cache của phần tiền tố chung (System Prompt, Few-shot Examples, lịch sử Multi-turn Chat), đưa chi phí tính toán prefill của phần này về 0. Khi VRAM đầy, RadixAttention tự động thu hồi các nút lá ít truy cập nhất bằng LRU. Do đó, RadixAttention vượt trội trong các ứng dụng Agent lặp nhiều vòng, trích xuất thông tin cấu trúc ít shot, và các hệ thống chatbot doanh nghiệp có System Prompt đồ sộ.
+
+  \item \textbf{Lời giải Câu A.7}:
+  Kiến trúc \textbf{Medusa} (Cai et al., 2024) không cần mô hình Draft độc lập vì nó tích hợp các đầu dự đoán bổ sung (Medusa heads) trực tiếp trên tầng ẩn cuối cùng của mô hình Target. Mỗi đầu thứ $k$ học cách dự đoán token thứ $t+k$ một cách song song. Điều này loại bỏ hoàn toàn chi phí VRAM để nạp mô hình thứ hai và độ trễ truyền dữ liệu qua PCIe/NVLink.
+  Để xác thực đồng thời nhiều chuỗi token phỏng đoán mà không tốn nhiều chu kỳ forward, Medusa tổ chức các ứng viên thành một cấu trúc cây (Candidate Tree) và áp dụng cơ chế \textbf{Tree Attention}. Ma trận mặt nạ Attention Mask được cấu hình để mỗi token chỉ chú ý đến các nút tổ tiên trên nhánh cây của nó. Nhờ đó, Target Model chỉ cần đúng \textbf{1 chu kỳ forward pass} để kiểm chứng toàn bộ các nhánh ứng viên song song.
 \end{itemize}
 
 \subsection{Lời Giải Nhóm B: Bài Toán Tính Toán Giải Tích Bằng Tay}
@@ -469,12 +802,81 @@ Với $K = 4$ và $\alpha = 0.8$:
 \end{equation*}
 Trong mỗi bước forward của Target Model, hệ thống thu được trung bình **3.36 tokens** thay vì chỉ 1 token! Tốc độ suy luận tăng hơn $3\times$ lần!
 
+\paragraph{Lời giải Bài B.4}:
+\begin{itemize}
+  \item[a)] Xác suất Draft Model sinh ra $x$ và được Target Model chấp nhận trực tiếp là:
+  \begin{equation*}
+  P(\text{Draft } x \text{ được chấp nhận}) = q(x) \alpha(x) = q(x) \min\left(1, \frac{p(x)}{q(x)}\right) = \min(q(x), p(x))
+  \end{equation*}
+  Xác suất chấp nhận toàn phần tại pha Draft là tổng trên mọi $x \in \mathcal{V}$:
+  \begin{equation*}
+  \beta = \sum_{x \in \mathcal{V}} P(\text{Draft } x \text{ được chấp nhận}) = \sum_{x \in \mathcal{V}} \min(p(x), q(x))
+  \end{equation*}
+
+  \item[b)] Sử dụng hằng đẳng thức đại số: với mọi cặp số thực không âm $a, b$, ta có $\max(0, a - b) + \min(a, b) = a$.
+  Áp dụng cho $a = p(y)$ và $b = q(y)$:
+  \begin{equation*}
+  \max(0, p(y) - q(y)) = p(y) - \min(p(y), q(y))
+  \end{equation*}
+  Lấy tổng trên toàn bộ không gian từ vựng $\mathcal{V}$:
+  \begin{equation*}
+  \sum_{y \in \mathcal{V}} \max(0, p(y) - q(y)) = \sum_{y \in \mathcal{V}} p(y) - \sum_{y \in \mathcal{V}} \min(p(y), q(y)) = 1 - \beta
+  \end{equation*}
+
+  \item[c)] Áp dụng công thức xác suất toàn phần:
+  \begin{align*}
+  P(X = x) &= P(\text{chấp nhận } x) + P(\text{từ chối}) \cdot p'(x) \\
+  &= \min(p(x), q(x)) + (1 - \beta) \cdot \frac{\max(0, p(x) - q(x))}{1 - \beta} \\
+  &= \min(p(x), q(x)) + \max(0, p(x) - q(x)) = p(x)
+  \end{align*}
+  Vậy phân phối xác suất cuối cùng $P(X = x) \equiv p(x)$ với mọi $x \in \mathcal{V}$. (Điều phải chứng minh).
+\end{itemize}
+
+\paragraph{Lời giải Bài B.5}:
+\begin{itemize}
+  \item[a)] Khi không có Cache tiền tố:
+  Mỗi request cần tính toán lại toàn bộ $L = 2.000$ tokens:
+  \begin{equation*}
+  W_{\text{req}} = 2.000 \times 140\text{ GFLOPs} = 280.000\text{ GFLOPs} = 280\text{ TFLOPs}
+  \end{equation*}
+  Với tốc độ tiếp nhận $R = 100\text{ req/s}$, tổng công suất tính toán yêu cầu:
+  \begin{equation*}
+  W_{\text{total}} = 100 \times 280\text{ TFLOPs} = \mathbf{28.000\text{ TFLOPs/s}}
+  \end{equation*}
+  Hệ thống cần tối thiểu $\lceil 28.000 / 1.000 \rceil = 28$ GPU H100 riêng cho pha Prefill.
+  Thời gian Prefill lý thuyết trên 1 GPU H100:
+  \begin{equation*}
+  \text{TTFT}_{\text{compute}} = \frac{280\text{ TFLOPs}}{1.000\text{ TFLOPs/s}} = 0.28\text{ s} = \mathbf{280\text{ ms}}
+  \end{equation*}
+
+  \item[b)] Khi Radix Tree đạt tỷ lệ khớp $85\%$ ($1.700$ tokens prefix được tái sử dụng):
+  Số token cần tính toán prefill thực tế chỉ còn $L_{\text{new}} = 2.000 - 1.700 = 300\text{ tokens}$.
+  Lượng tính toán cho mỗi request:
+  \begin{equation*}
+  W_{\text{req, cached}} = 300 \times 140\text{ GFLOPs} = 42\text{ TFLOPs}
+  \end{equation*}
+  Tổng công suất tính toán của cả cụm cho $100\text{ req/s}$:
+  \begin{equation*}
+  W_{\text{total, cached}} = 100 \times 42\text{ TFLOPs} = \mathbf{4.200\text{ TFLOPs/s}}
+  \end{equation*}
+  Số TFLOPs được giải phóng mỗi giây:
+  \begin{equation*}
+  \Delta W = 28.000 - 4.200 = \mathbf{23.800\text{ TFLOPs/s}}\quad (\text{tiết kiệm đúng } 85\%)
+  \end{equation*}
+  Thời gian Prefill trên 1 GPU H100 giảm xuống còn:
+  \begin{equation*}
+  \text{TTFT}_{\text{cached}} = \frac{42\text{ TFLOPs}}{1.000\text{ TFLOPs/s}} = 0.042\text{ s} = \mathbf{42\text{ ms}}
+  \end{equation*}
+  Độ trễ TTFT giảm tới \textbf{$6.67\times$ lần}, đồng thời hạ quy mô phần cứng từ 28 GPU xuống chỉ còn 5 GPU H100!
+\end{itemize}
+
 \subsection{Lời Giải Nhóm C: Thực Hành Kỹ Nghệ \& Lập Trình}
 Toàn bộ mã nguồn hoàn chỉnh đã được trình bày tại Mục~\ref{sec:ch07-implementation}, bao gồm:
 1. \code{DecodingSampler}: Bộ lấy mẫu token ổn định số học.
 2. \code{SimplePagedKVCacheManager}: Trình mô phỏng phân trang bộ nhớ vLLM.
 3. \code{SpeculativeDecoderVerifier}: Bộ kiểm chứng phỏng đoán theo xác suất Rejection Sampling.
 4. \code{ChunkedPrefillScheduler}: Bộ lập lịch xen kẽ giữa prefill chunks và decode tokens.
+5. \code{RadixCacheManager}: Cây tiền tố Radix Tree quản lý KV Cache đa phiên với phân tách nút động và thu hồi LRU (được kiểm thử tự động trong bài test \code{test_radix_cache_prefix_matching_and_sharing}).
 
 \subsection{Lời Giải Nhóm D: Phân Tích Thất Bại Thực Tế (Post-Mortem Analysis)}
 

@@ -12,7 +12,14 @@ Trong các bản demo công nghệ hoặc ứng dụng mẫu dành cho người 
 
 Tuy nhiên, khi mang kiến trúc ngây thơ này (\textbf{Naive RAG}) vào triển khai tại các ngân hàng, tập đoàn viễn thông, bệnh viện hay doanh nghiệp quy mô lớn, hệ thống sẽ sụp đổ gần như ngay lập tức. Người dùng phàn nàn vì mô hình trả lời sai mã số hợp đồng, bỏ sót các quy định trong bảng biểu, nhầm lẫn giữa các phiên bản tài liệu, và đưa ra các câu trả lời chứa đầy thông tin rác.
 
-Một Kỹ sư AI cấp cao phải nhìn nhận RAG không phải là một chuỗi nối ghép API đơn giản, mà là một \textbf{Hệ thống Truy xuất Thông tin Chuyên sâu (Advanced Information Retrieval System)} kết hợp nhuần nhuyễn giữa tìm kiếm từ khóa kinh điển (\textbf{BM25}), tìm kiếm ngữ nghĩa dày (\textbf{Dense Vector Retrieval}), thuật toán đồ thị (\textbf{HNSW}), tái xếp hạng học sâu (\textbf{Cross-Encoder Reranking}), và kỹ thuật phân đoạn ngữ nghĩa (\textbf{Semantic Chunking}).
+Một Kỹ sư AI cấp cao phải nhìn nhận RAG không phải là một chuỗi nối ghép API đơn giản, mà là một \textbf{Hệ thống Truy xuất Thông tin Chuyên sâu (Advanced Information Retrieval System)} kết hợp nhuần nhuyễn giữa:
+\begin{enumerate}
+  \item Tìm kiếm từ khóa chính xác kinh điển (\textbf{BM25}) và tìm kiếm ngữ nghĩa dày (\textbf{Dense Vector Retrieval}).
+  \item Thuật toán chỉ mục đồ thị xấp xỉ (\textbf{HNSW}) và tái xếp hạng học sâu (\textbf{Cross-Encoder Reranking}).
+  \item Đồ thị tri thức doanh nghiệp (\textbf{GraphRAG}) giải quyết bài toán suy luận toàn cục (\textit{Global Sensemaking}).
+  \item Vòng lặp tự phản hồi sửa lỗi (\textbf{Self-RAG \& Corrective RAG}).
+  \item Hệ thống đo lường chất lượng định lượng cấp độ công nghiệp (\textbf{RAG Triad \& Ragas}).
+\end{enumerate}
 
 ---
 
@@ -34,10 +41,10 @@ Người dùng thường chỉ nhập một câu hỏi ngắn ngủi từ 5 đ�
 Mô hình nhúng véc-tơ (Embedding Models) được huấn luyện để nắm bắt ý niệm ngữ nghĩa chung (Semantic Gist), nhưng chúng hoàn toàn mù tịt trước các ký hiệu số học và mã định danh chính xác:
 \begin{itemize}
   \item Mã định danh sản phẩm: \code{SKU-X100-PRO-V2} vs \code{SKU-X100-STD-V1}.
-  \item Số hợp đồng kinh tế: \code{HĐ-2024/098/TC} vs \code{HĐ-2023/098/TC}.
+  \item Số hợp đồng kinh tế: \code{HD-2024/098/TC} vs \code{HD-2023/098/TC}.
   \item Mã lỗi máy chủ: \code{ERR_CONNECTION_TIMED_OUT_504}.
 \end{itemize}
-Đối với mô hình Embedding, các chuỗi ký tự trên có khoảng cách Cosine gần như bằng nhau. Nếu người dùng hỏi về quy chế áp dụng cho hợp đồng \code{HĐ-2024/098/TC}, tìm kiếm véc-tơ có thể thản nhiên trả về hợp đồng năm 2023, dẫn tới hậu quả pháp lý nghiêm trọng!
+Đối với mô hình Embedding, các chuỗi ký tự trên có khoảng cách Cosine gần như bằng nhau. Nếu người dùng hỏi về quy chế áp dụng cho hợp đồng \code{HD-2024/098/TC}, tìm kiếm véc-tơ có thể thản nhiên trả về hợp đồng năm 2023, dẫn tới hậu quả pháp lý nghiêm trọng!
 
 ---
 
@@ -63,13 +70,13 @@ Cho hai véc-tơ biểu diễn đa chiều $\mathbf{u}, \mathbf{v} \in \mathbb{R
   \end{equation}
 \end{itemize}
 
-\begin{note}
+\begin{intuitionbox}[Tại Sao Phải Chuẩn Hóa L2 Trước Khi Lưu Vào Vector DB?]
 Nếu tất cả các véc-tơ trong cơ sở dữ liệu đều được chuẩn hóa độ dài về $1$ ($\|\mathbf{u}\|_2 = \|\mathbf{v}\|_2 = 1$ ngay khi nạp vào), ta có mối liên hệ toán học hoàn hảo:
 \begin{equation}
 D_{L2}^2(\mathbf{u}, \mathbf{v}) = \|\mathbf{u} - \mathbf{v}\|_2^2 = \|\mathbf{u}\|_2^2 + \|\mathbf{v}\|_2^2 - 2 \mathbf{u} \cdot \mathbf{v} = 2 - 2 \langle \mathbf{u}, \mathbf{v} \rangle = 2 D_{\text{Cosine}}(\mathbf{u}, \mathbf{v})
 \end{equation}
 Do đó, việc tối đa hóa Cosine Similarity hoàn toàn tương đương với việc tối đa hóa Dot Product và tối thiểu hóa khoảng cách Euclid. Trong sản xuất, các kỹ sư luôn chuẩn hóa $L_2$ trước để chỉ cần tính Dot Product, tận dụng tối đa tập lệnh SIMD/AVX-512 trên CPU hoặc Tensor Cores trên GPU.
-\end{note}
+\end{intuitionbox}
 
 \subsection{Thuật Toán IVFFlat (Inverted File with Flat Vectors)}
 IVFFlat giải quyết bài toán tìm kiếm ANN bằng phương pháp phân vùng không gian Voronoi:
@@ -84,8 +91,6 @@ IVFFlat giải quyết bài toán tìm kiếm ANN bằng phương pháp phân v�
   \end{itemize}
 \end{enumerate}
 
-\textit{Đánh đổi kỹ thuật (Trade-offs)}: IVFFlat có chi phí bộ nhớ rất thấp (chỉ lưu các véc-tơ gốc và một mảng con trỏ danh sách ngược). Tuy nhiên, nếu các cụm có kích thước không đều hoặc nếu $\text{nprobe}$ đặt quá nhỏ, độ bao phủ (Recall) sẽ sụt giảm thảm hại.
-
 \subsection{Thuật Toán HNSW (Hierarchical Navigable Small World)}
 Được phát minh bởi Malkov và Yashunin (2018), \textbf{HNSW} là chuẩn mực vàng thống trị hầu hết các Vector Database hiện đại nhờ tốc độ tìm kiếm $O(\log N)$ vượt trội.
 
@@ -99,300 +104,227 @@ HNSW lấy cảm hứng từ cấu trúc dữ liệu \textbf{Skip-List} (Danh s�
   \item \textbf{Cơ chế tìm kiếm}: Bắt đầu từ điểm vào (Entry Point) ở tầng đỉnh $l_{\max}$, thuật toán thực hiện tìm kiếm tham lam (Greedy Search) để tìm ra điểm gần truy vấn $\mathbf{q}$ nhất trên tầng đó. Điểm này sau đó được dùng làm điểm xuất phát để rơi xuống tầng tiếp theo. Quá trình lặp lại cho đến Layer 0.
 \end{itemize}
 
-\begin{tradeoffbox}[Các Siêu Tham Số Sống Còn Của Chỉ Mục HNSW]
-\begin{itemize}
-  \item \textbf{$M$ (Số cạnh tối đa trên mỗi node)}: Thường đặt từ $16$ đến $64$. Giá trị $M$ càng lớn, đồ thị càng dày, độ chính xác (Recall) càng cao nhưng dung lượng RAM tiêu thụ tăng tuyến tính.
-  \item \textbf{$\text{efConstruction}$ (Kích thước hàng đợi khi lập chỉ mục)}: Thường đặt từ $100$ đến $400$. Quyết định chất lượng liên kết khi xây dựng đồ thị; giá trị cao giúp tăng Recall nhưng làm chậm quá trình nạp dữ liệu (Index Build Time).
-  \item \textbf{$\text{efSearch}$ (Kích thước hàng đợi khi tìm kiếm)}: Thường đặt từ $32$ đến $128$. Được cấu hình động tại thời điểm truy vấn. Tăng $\text{efSearch}$ giúp tăng Recall nhưng giảm thông lượng QPS của hệ thống.
-  \item \textbf{Cái giá của HNSW}: Chỉ mục HNSW bắt buộc phải nằm hoàn toàn trên bộ nhớ RAM. Với 10 triệu véc-tơ 1536 chiều, chỉ riêng các con trỏ cạnh đồ thị của HNSW đã ngốn thêm từ $30\text{ GB}$ đến $50\text{ GB}$ RAM máy chủ ngoài dữ liệu véc-tơ gốc!
-\end{itemize}
-\end{tradeoffbox}
-
 ---
 
-\section{Tìm Kiếm Lai Đa Tầng (Multi-Stage Hybrid Search): BM25 + Dense Retrieval}
-\label{sec:hybrid-search}
+\section{Tìm Kiếm Lai Đa Tầng (Multi-Stage Hybrid Search) \& RRF}
+\label{sec:hybrid-search-rrf}
 
-Để giải quyết triệt để sự thất bại của Naive RAG trước các từ khóa chính xác (mã SKU, tên riêng, số hiệu), các hệ thống doanh nghiệp bắt buộc phải phối hợp sức mạnh của hai trường phái:
+Để khắc phục hoàn toàn nhược điểm của tìm kiếm véc-tơ thuần túy, kiến trúc công nghiệp áp dụng mô hình \textbf{Tìm Kiếm Lai Đa Tầng (Multi-Stage Hybrid Search)}:
 \begin{enumerate}
-  \item \textbf{Truy xuất Thưa (Sparse Retrieval -- BM25)}: Dựa trên tần suất từ khóa chính xác trong văn bản.
-  \item \textbf{Truy xuất Dày (Dense Retrieval -- Vector Embedding)}: Dựa trên khoảng cách ngữ nghĩa trừu tượng trong không gian đa chiều.
+  \item \textbf{Sparse Retrieval (BM25)}: Bắt chính xác từng từ khóa, mã số hợp đồng, tên riêng.
+  \item \textbf{Dense Retrieval (Vector ANN)}: Nắm bắt ngữ nghĩa, khái niệm tương đương và văn cảnh tổng quát.
+  \item \textbf{Dung hợp thứ hạng (Rank Fusion)}: Kết hợp kết quả từ hai nguồn độc lập mà không cần chuẩn hóa điểm số dị biệt thông qua thuật toán \textbf{Reciprocal Rank Fusion (RRF)}.
+  \item \textbf{Cross-Encoder Reranking}: Tái xếp hạng Top-50 tài liệu thu hồi bằng mô hình Transformer tương tác sâu để chọn ra Top-5 tinh túy nhất gửi cho LLM.
 \end{enumerate}
 
-\subsection{Giải Phẫu Thuật Toán Okapi BM25}
-BM25 (Best Matching 25) là đỉnh cao của ngành Khoa học Truy xuất Thông tin cổ điển (Information Retrieval). Điểm số BM25 giữa tài liệu $D$ và câu hỏi $Q$ gồm các từ khóa $q_1, q_2, \dots, q_m$ được định nghĩa bằng công thức:
-
+\subsection{Toán Học Thuật Toán Okapi BM25}
+BM25 (Best Matching 25) là đỉnh cao của mô hình xác suất trong thu hồi thông tin (Information Retrieval):
+\begin{definition}[Công Thức Chấm Điểm Okapi BM25]
+Cho câu truy vấn $Q = \{q_1, q_2, \dots, q_n\}$ và một tài liệu $D$ trong tập văn bản gồm $N$ tài liệu với độ dài trung bình $\text{avgdl}$:
 \begin{equation}
-\text{Score}_{\text{BM25}}(D, Q) = \sum_{i=1}^m \text{IDF}(q_i) \cdot \frac{f(q_i, D) \cdot (k_1 + 1)}{f(q_i, D) + k_1 \left(1 - b + b \cdot \frac{|D|}{\text{avgdl}}\right)}
+\text{Score}_{\text{BM25}}(D, Q) = \sum_{i=1}^n \text{IDF}(q_i) \cdot \frac{f(q_i, D) \cdot (k_1 + 1)}{f(q_i, D) + k_1 \cdot \left(1 - b + b \cdot \frac{|D|}{\text{avgdl}}\right)}
 \end{equation}
-
-Trong đó:
+trong đó:
 \begin{itemize}
-  \item $f(q_i, D)$: Tần số xuất hiện của từ khóa $q_i$ trong tài liệu $D$ (Term Frequency).
-  \item $|D|$: Tổng số từ trong tài liệu $D$.
-  \item $\text{avgdl}$: Độ dài trung bình của tất cả các tài liệu trong toàn bộ kho dữ liệu (Average Document Length).
-  \item $k_1$ (Hệ số bão hòa tần suất từ): Thường chọn $k_1 \in [1.2, 2.0]$. Khi $f(q_i, D)$ tăng lên rất lớn, số hạng phân số tiệm cận mức trần $(k_1 + 1)$, ngăn chặn việc một tài liệu cố tình lặp lại một từ khóa 100 lần để thao túng thứ hạng.
-  \item $b$ (Hệ số chuẩn hóa độ dài tài liệu): Thường chọn $b = 0.75$. Nếu tài liệu dài hơn mức trung bình ($|D| > \text{avgdl}$), mẫu số sẽ tăng lên để phạt điểm số, loại bỏ sự thiên vị tự nhiên đối với các tài liệu dài.
-  \item $\text{IDF}(q_i)$ (Nghịch đảo tần suất tài liệu): Đo lường độ hiếm và lượng thông tin của từ khóa $q_i$:
+  \item $f(q_i, D)$: Tần số xuất hiện của từ $q_i$ trong tài liệu $D$.
+  \item $|D|$: Độ dài (tổng số từ) của tài liệu $D$.
+  \item $k_1$: Tham số kiểm soát độ bão hòa tần số từ (mặc định $k_1 \in [1.2, 2.0]$, thường chọn $1.5$).
+  \item $b$: Tham số phạt độ dài tài liệu (mặc định $b \in [0.75, 1.0]$, thường chọn $0.75$).
+  \item $\text{IDF}(q_i)$: Trọng số nghịch đảo tần số tài liệu có làm mịn:
   \begin{equation}
   \text{IDF}(q_i) = \ln \left( \frac{N - n(q_i) + 0.5}{n(q_i) + 0.5} + 1 \right)
   \end{equation}
-  (với $N$ là tổng số tài liệu trong kho, và $n(q_i)$ là số tài liệu có chứa từ khóa $q_i$).
+  với $n(q_i)$ là số lượng tài liệu trong tập văn bản có chứa từ $q_i$.
 \end{itemize}
+\end{definition}
 
-\subsection{Thuật Toán Dung Hợp Thứ Hạng Tương Hỗ (Reciprocal Rank Fusion -- RRF)}
-Một thách thức kỹ thuật lớn xuất hiện: Điểm số của BM25 là một giá trị không giới hạn trần ($S_{\text{BM25}} \in [0, +\infty)$), trong khi điểm Cosine Similarity của véc-tơ lại nằm trong khoảng $[-1, 1]$. Nếu thực hiện phép cộng điểm tuyến tính thô ($S_{\text{final}} = \alpha S_{\text{BM25}} + \beta S_{\text{Dense}}$), hệ thống sẽ cực kỳ nhạy cảm với việc chọn siêu tham số $\alpha, \beta$ và dễ dàng bị lệch hoàn toàn về phía một phương thức tìm kiếm.
+\subsection{Dung Hợp Thứ Hạng Bằng Reciprocal Rank Fusion (RRF)}
+Một thách thức lớn trong tìm kiếm lai là: Điểm số của BM25 (chạy từ $0$ đến $+\infty$, phụ thuộc độ dài văn bản) và điểm số của Dense Vector (Cosine Similarity chạy từ $-1$ đến $1$) không cùng một phân phối xác suất. Việc cộng trực tiếp $\alpha \cdot \text{Score}_{\text{BM25}} + \beta \cdot \text{Score}_{\text{Vector}}$ đòi hỏi cân chỉnh tham số rất nhạy cảm và dễ vỡ khi dữ liệu thay đổi.
 
-Để giải quyết vấn đề này, thuật toán \textbf{Reciprocal Rank Fusion (RRF)} (Cormack et al., 2009) được áp dụng: RRF hoàn toàn không quan tâm đến điểm số thô của từng hệ thống, mà chỉ quan tâm đến \textbf{thứ hạng (Rank Positions)} của tài liệu trong từng danh sách kết quả!
+Thuật toán \term{Reciprocal Rank Fusion (RRF)} do Cormack et al. đề xuất giải quyết triệt để vấn đề này bằng cách chỉ dựa vào \textbf{thứ hạng (Rank)} thay vì điểm số thô.
 
-\begin{definition}[Công thức Reciprocal Rank Fusion]
-Cho $M$ danh sách kết quả xếp hạng độc lập. Điểm dung hợp RRF của tài liệu $d$ được tính bằng:
+\begin{definition}[Công Thức Reciprocal Rank Fusion]
+Cho $M$ danh sách xếp hạng tài liệu độc lập từ các hệ thống tìm kiếm khác nhau. Với mỗi tài liệu $d$, điểm số RRF tổng hợp được tính theo:
 \begin{equation}
 \text{RRF\_Score}(d) = \sum_{m=1}^M \frac{1}{k + r_m(d)}
 \end{equation}
-Trong đó:
-\begin{itemize}
-  \item $r_m(d) \in \{1, 2, 3, \dots\}$ là thứ tự xếp hạng (1-indexed) của tài liệu $d$ trong hệ thống truy xuất thứ $m$. Nếu tài liệu $d$ không xuất hiện trong Top kết quả của hệ thống $m$, số hạng đó được coi bằng $0$ (hoặc gán rank cực lớn).
-  \item $k$ là hằng số làm mịn (Smoothing constant), giá trị chuẩn mực trong công nghiệp là \textbf{$k = 60$}.
-\end{itemize}
+trong đó $r_m(d) \in \{1, 2, 3, \dots\}$ là thứ hạng (1-indexed) của tài liệu $d$ trong danh sách thứ $m$. Hằng số làm mịn $k$ (thường chọn $k = 60$) có tác dụng giảm độ dốc giữa các thứ hạng đầu, ngăn chặn việc một tài liệu đứng hạng 1 ở một danh sách đơn lẻ lấn át hoàn toàn một tài liệu đứng hạng 2 và hạng 3 ở cả hai danh sách. Nếu tài liệu $d$ không xuất hiện trong danh sách $m$, ta quy ước $r_m(d) = \infty \implies \frac{1}{k + r_m(d)} = 0$.
 \end{definition}
 
-*Ý nghĩa của hằng số $k=60$*: Nó ngăn chặn hiện tượng một tài liệu đứng vị trí số 1 trong một danh sách có thể đè bẹp hoàn toàn một tài liệu đứng vị trí thứ 2 hoặc thứ 3 trong cả hai danh sách. RRF ưu tiên những tài liệu được cả hai bộ máy tìm kiếm độc lập cùng đánh giá cao!
+\begin{workedexamplebox}[Tính Toán Bằng Tay Dung Hợp Thứ Hạng RRF]
+Xét 4 tài liệu $\{A, B, C, D\}$ được xếp hạng bởi 2 động cơ:
+\begin{itemize}
+  \item Danh sách 1 (BM25): Hạng 1 là $A$, Hạng 2 là $B$, Hạng 3 là $C$. ($D$ không có trong danh sách).
+  \item Danh sách 2 (Dense Vector): Hạng 1 là $B$, Hạng 2 là $D$, Hạng 3 là $A$. ($C$ không có trong danh sách).
+\end{itemize}
+Áp dụng RRF với $k = 60$:
+\begin{itemize}
+  \item Tài liệu $A$: $\text{RRF}(A) = \frac{1}{60 + 1} + \frac{1}{60 + 3} = \frac{1}{61} + \frac{1}{63} \approx 0.016393 + 0.015873 = 0.032266$
+  \item Tài liệu $B$: $\text{RRF}(B) = \frac{1}{60 + 2} + \frac{1}{60 + 1} = \frac{1}{62} + \frac{1}{61} \approx 0.016129 + 0.016393 = 0.032522$
+  \item Tài liệu $C$: $\text{RRF}(C) = \frac{1}{60 + 3} + 0 = \frac{1}{63} \approx 0.015873$
+  \item Tài liệu $D$: $\text{RRF}(D) = 0 + \frac{1}{60 + 2} = \frac{1}{62} \approx 0.016129$
+\end{itemize}
+Thứ hạng chung cuộc: \textbf{$B > A > D > C$}.
+Tài liệu $B$ giành chiến thắng vì nó giữ vị trí rất cao trên cả hai kênh tìm kiếm, chứng minh sức mạnh của nguyên lý xếp hạng tương hỗ!
+\end{workedexamplebox}
 
 ---
 
-\section{Tầng Tái Xếp Hạng (Reranking) Chuyên Sâu Bằng Cross-Encoder}
-\label{sec:cross-encoder-reranking}
+\section{GraphRAG: Đồ Thị Tri Thức \& Suy Luận Toàn Cầu (Global Sensemaking)}
+\label{sec:graph-rag}
 
-Sau khi Hybrid Search (BM25 + HNSW + RRF) lọc ra Top-100 tài liệu tiềm năng nhất, chúng ta chưa thể đưa ngay 100 tài liệu này vào LLM vì chi phí token và hiện tượng Lost in the Middle. Chúng ta cần một tầng lọc thứ hai có độ chính xác tuyệt đối: \textbf{Cross-Encoder Reranker}.
+\subsection{Giới Hạn Của Vector RAG Trước Câu Hỏi Toàn Cục}
+Một trong những điểm mù lớn nhất của Vector RAG là bài toán \term{Global Sensemaking} (Suy luận toàn cục).
+Giả sử doanh nghiệp có 5.000 báo cáo kiểm toán nội bộ. Người dùng đặt câu hỏi:
+\begin{center}
+\textit{``Các rủi ro tuân thủ pháp lý phổ biến nhất xuyên suốt toàn bộ các chi nhánh năm qua là gì?''}
+\end{center}
+Vector RAG hoàn toàn bất lực trước câu hỏi này! Vì sao?
+Vector Search được thiết kế cho bài toán \textit{``Tìm kiếm kim trong đáy bể''} (Needle in a haystack) -- tức tìm các đoạn văn bản cụ thể khớp với một thực thể rõ ràng. Nhưng với câu hỏi trên, không có bất kỳ một đoạn văn bản (chunk) đơn lẻ nào chứa câu trả lời tổng hợp. Câu trả lời đòi hỏi phải liên kết thông tin phân mảnh từ hàng trăm tài liệu khác nhau.
 
-\begin{figure}[ht]
+\subsection{Kiến Trúc GraphRAG: Từ Trích Xuất Bộ Ba Tới Phân Cụm Cộng Đồng}
+Để giải quyết bài toán này, Microsoft Research đã công bố kiến trúc \term{GraphRAG} kết hợp giữa Đồ thị Tri thức (Knowledge Graph) và Mô hình Ngôn ngữ Lớn:
+
+\begin{figure}[htbp]
 \centering
-\footnotesize
-\begin{verbatim}
-1. BI-ENCODER (Dense Retrieval):
-   Query ---> [ Transformer ] ---> Vector q \
-                                             ---> Dot Product(q, d) -> Score
-   Doc   ---> [ Transformer ] ---> Vector d /
-   * Đặc tính: Tách biệt, tốc độ micro-giây, KHÔNG có Cross-Attention.
+\begin{tikzpicture}[node distance=1.1cm, auto,
+    box/.style={rectangle, draw=primarycolor, thick, fill=boxbg, text centered, rounded corners=2pt, minimum height=0.8cm, font=\small},
+    arrow/.style={draw=primarycolor, -Stealth, thick}
+]
+    \node[box, text width=9.5cm] (b1) {1. Extraction: LLM trích xuất Thực thể (Entities) \& Quan hệ (Relations)};
+    \node[box, below=0.4cm of b1, text width=9.5cm, fill=accentcolor!20] (b2) {2. Graph Construction: Xây dựng Đồ thị Tri thức $G = (V, E)$};
+    \node[box, below=0.4cm of b2, text width=9.5cm, fill=yellow!15] (b3) {3. Community Detection: Thuật toán Leiden phân cụm đồ thị phân cấp};
+    \node[box, below=0.4cm of b3, text width=9.5cm, fill=green!15] (b4) {4. Community Summarization: LLM tóm tắt báo cáo cho từng cộng đồng tri thức};
+    \node[box, below=0.4cm of b4, text width=9.5cm, fill=primarycolor!15] (b5) {5. Global Search: Map-Reduce các bản tóm tắt cộng đồng để sinh câu trả lời toàn cục};
 
-2. CROSS-ENCODER (Reranking):
-   [CLS] Query [SEP] Doc [SEP] ---> [ TẤT CẢ TẦNG TRANSFORMER ] ---> Score
-   * Đặc tính: Tương tác từ-từ trực tiếp qua Full Self-Attention!
-\end{verbatim}
-\caption{So sánh cấu trúc tương tác thông tin giữa Bi-Encoder và Cross-Encoder.}
-\label{fig:bi-vs-cross-encoder}
+    \path[arrow] (b1) -- (b2);
+    \path[arrow] (b2) -- (b3);
+    \path[arrow] (b3) -- (b4);
+    \path[arrow] (b4) -- (b5);
+\end{tikzpicture}
+\caption{Quy trình lập chỉ mục và truy xuất tri thức phân cấp trong GraphRAG}
+\label{fig:graph-rag-pipeline}
+\end{figure}
+
+\begin{enumerate}
+  \item \textbf{Trích xuất Thực thể \& Quan hệ (Entity-Relation Extraction)}:
+  Sử dụng LLM quét qua từng chunk tài liệu để trích xuất các bộ ba thực thể (Triplets):
+  \begin{equation}
+  (\text{Entity}_A, \text{Relationship}, \text{Entity}_B) \quad \text{ví dụ: } (\text{vLLM}, \text{implements}, \text{PagedAttention})
+  \end{equation}
+  \item \textbf{Phát hiện Cộng đồng Phân cấp (Hierarchical Community Detection)}:
+  Áp dụng thuật toán \term{Leiden} để phân chia đồ thị tri thức thành các cộng đồng (Clusters) ở nhiều cấp độ phân giải khác nhau (Cấp 0: tổng quan vĩ mô; Cấp 1: phân ngành; Cấp 2: tiểu tiết).
+  \item \textbf{Tóm tắt Cộng đồng (Community Summaries)}:
+  Với mỗi cộng đồng ở từng tầng, hệ thống dùng LLM tạo một báo cáo tóm tắt cấu trúc (Executive Summary) mô tả các thực thể cốt lõi, mối quan hệ chính và rủi ro tiềm ẩn.
+  \item \textbf{Truy vấn Toàn Cục (Global Search)}:
+  Khi có câu hỏi toàn cục, GraphRAG không tìm kiếm trên các chunk nhỏ, mà gửi câu hỏi song song tới các báo cáo tóm tắt cộng đồng ở tầng vĩ mô (Map step), sau đó tổng hợp các câu trả lời cục bộ thành câu trả lời tổng quan cuối cùng (Reduce step).
+\end{enumerate}
+
+---
+
+\section{Adaptive RAG: Corrective RAG (CRAG) \& Self-RAG}
+\label{sec:adaptive-rag}
+
+Một hệ thống RAG tĩnh chỉ thực hiện một chiều: \code{Retrieve -> Generate}. Nếu tài liệu trích xuất sai, LLM chắc chắn sinh ảo giác.
+Kiến trúc thế hệ mới chuyển đổi RAG thành một quy trình có khả năng \textbf{tự nhận thức và tự sửa lỗi (Self-Correction)}:
+
+\begin{figure}[htbp]
+\centering
+\begin{tikzpicture}[node distance=1.3cm, auto,
+    decision/.style={diamond, draw=warncolor, thick, fill=yellow!15, align=center, font=\footnotesize, aspect=1.6},
+    block/.style={rectangle, draw=primarycolor, thick, fill=boxbg, align=center, rounded corners=2pt, minimum height=0.8cm, font=\small},
+    arrow/.style={draw=primarycolor, -Stealth, thick}
+]
+    \node[block] (query) {User Query};
+    \node[block, right=0.8cm of query] (ret) {Retrieval};
+    \node[decision, right=0.8cm of ret] (eval) {Retrieval\\Quality?};
+    \node[block, above right=0.6cm and 0.6cm of eval, fill=green!15] (correct) {Generate Answer\\(Citations)};
+    \node[block, below right=0.6cm and 0.6cm of eval, fill=red!15] (web) {Fallback Web Search\\(Tavily / Serper)};
+    \node[block, right=1.0cm of eval, fill=accentcolor!25] (refine) {Knowledge Refinement\\(Strip-level filtering)};
+
+    \path[arrow] (query) -- (ret);
+    \path[arrow] (ret) -- (eval);
+    \path[arrow] (eval) -- node[above, font=\tiny\bfseries] {Correct} (correct);
+    \path[arrow] (eval) -- node[below, font=\tiny\bfseries] {Incorrect} (web);
+    \path[arrow] (eval) -- node[above, font=\tiny\bfseries] {Ambiguous} (refine);
+    \path[arrow] (refine) -- (correct);
+    \path[arrow] (web) |- (correct);
+\end{tikzpicture}
+\caption{Luồng công việc tự thích ứng trong Corrective RAG (CRAG)}
+\label{fig:crag-flowchart}
 \end{figure}
 
 \begin{itemize}
-  \item \textbf{Bi-Encoder}: Nhúng Query và Document độc lập thành hai véc-tơ cố định. Vì nén 500 từ của tài liệu thành đúng một điểm duy nhất trong không gian 1024 chiều, Bi-Encoder đánh mất toàn bộ các mối liên hệ chéo giữa từng từ cụ thể.
-  \item \textbf{Cross-Encoder}: Ghép trực tiếp Query và Document thành một chuỗi duy nhất đưa qua mô hình Transformer. Ở mọi tầng nơ-ron, từng từ trong câu hỏi đều được tính toán ma trận Attention trực tiếp với từng từ trong văn bản. Độ chính xác của Cross-Encoder cao hơn Bi-Encoder từ $20\%$ đến $35\%$.
-\end{itemize}
-
-\begin{tradeoffbox}[Kiến Trúc Pipeline Hai Tầng (Two-Stage Retrieval Pipeline)]
-Vì Cross-Encoder yêu cầu chạy toàn bộ mạng Transformer cho mỗi cặp (Query, Doc), độ trễ của nó rất lớn (khoảng $2\text{ ms}$ cho một tài liệu). Không thể dùng Cross-Encoder để quét qua 10 triệu tài liệu trong cơ sở dữ liệu!
-Do đó, kiến trúc chuẩn sản xuất luôn được tổ chức thành 2 tầng:
-\begin{enumerate}
-  \item \textbf{Tầng 1 (Truy xuất thô -- High Recall)}: Hybrid Search (BM25 + HNSW) quét 10 triệu tài liệu, lọc ra Top-100 ứng viên trong vòng $< 15\text{ ms}$.
-  \item \textbf{Tầng 2 (Tái xếp hạng sâu -- High Precision)}: Cross-Encoder (như BGE-Reranker-Large hoặc Cohere Rerank) chấm điểm lại đúng 100 ứng viên này, chọn ra Top-5 tài liệu hoàn hảo nhất trong vòng $< 40\text{ ms}$.
-\end{enumerate}
-Tổng thời gian toàn bộ pipeline chỉ khoảng $55\text{ ms}$, đạt sự cân bằng tối thượng giữa độ trễ và độ chính xác!
-\end{tradeoffbox}
-
----
-
-\section{Chiến Lược Phân Đoạn (Chunking) Tiên Tiến \& Xử Lý Dữ Liệu Cấu Trúc}
-\label{sec:advanced-chunking}
-
-\subsection{Semantic Chunking Dựa Trên Khoảng Cách Ngữ Nghĩa}
-Phương pháp cắt đoạn theo số lượng ký tự cố định (\textit{Fixed-size Chunking}, ví dụ 500 ký tự với 50 ký tự gối đầu) thường xé đôi một câu hoàn chỉnh hoặc cắt đứt một ý văn liền mạch. Kỹ thuật \textbf{Semantic Chunking} giải quyết điều này bằng giải tích:
-\begin{enumerate}
-  \item Tách toàn bộ văn bản thành danh sách các câu đơn lẻ: $\{s_1, s_2, \dots, s_n\}$.
-  \item Nhúng từng câu vào không gian véc-tơ để thu được $\{\mathbf{v}_1, \mathbf{v}_2, \dots, \mathbf{v}_n\}$.
-  \item Tính khoảng cách Cosine giữa các câu liên tiếp: $d_i = D_{\text{Cosine}}(\mathbf{v}_i, \mathbf{v}_{i+1})$.
-  \item Tính toán ngưỡng phân vị (Percentile Threshold, ví dụ phân vị thứ 95) của chuỗi khoảng cách $\{d_i\}$.
-  \item Bất kỳ vị trí nào mà khoảng cách $d_i$ vượt quá ngưỡng phân vị được xác định là điểm \textbf{đột biến chủ đề (Semantic Shift)}. Hệ thống thực hiện ngắt đoạn chính xác tại vị trí này.
-\end{enumerate}
-
-\subsection{Kỹ Thuật Parent-Document Retrieval (Small-to-Big Retrieval)}
-Đây là một trong những thiết kế kiến trúc thông minh nhất trong kỹ nghệ RAG doanh nghiệp:
-\begin{itemize}
-  \item \textbf{Mâu thuẫn kỹ thuật}: Khi đoạn văn bản nhỏ (ví dụ: $128$ tokens), véc-tơ nhúng rất sắc nét, phản ánh chính xác một ý niệm đơn lẻ, giúp việc tìm kiếm véc-tơ đạt độ chính xác cực cao. Nhưng khi gửi đoạn $128$ tokens cho LLM, mô hình lại thiếu bối cảnh xung quanh để đưa ra câu trả lời toàn diện. Ngược lại, nếu lưu đoạn lớn ($1024$ tokens), véc-tơ nhúng bị pha loãng ngữ nghĩa, khiến việc tìm kiếm thất bại!
-  \item \textbf{Giải pháp Small-to-Big}:
-  \begin{enumerate}
-    \item Văn bản gốc được chia thành các đoạn mẹ lớn (\textbf{Parent Chunks} -- $1.024$ tokens).
-    \item Mỗi đoạn mẹ tiếp tục được chia nhỏ thành các đoạn con (\textbf{Child Chunks} -- $128$ tokens).
-    \item Chỉ mục tìm kiếm véc-tơ chỉ lưu trữ các Child Chunks, kèm theo trường Metadata liên kết trỏ tới ID của Parent Chunk tương ứng.
-    \item Khi người dùng đặt câu hỏi, hệ thống tìm kiếm trên tập Child Chunks để tìm ra những đoạn con khớp nhất.
-    \item Trước khi gửi vào LLM, hệ thống tra cứu bảng ID để \textbf{trả về toàn bộ đoạn mẹ (Parent Chunk)} tương ứng. LLM nhận được đầy đủ bối cảnh văn phong mà không hề bị đánh đổi độ chính xác của tầng tìm kiếm!
-  \end{enumerate}
+  \item \textbf{Đánh giá chất lượng trích xuất (Retrieval Evaluator)}: Một mô hình phân loại nhẹ tính toán mức độ tin cậy $\mathcal{C}$ của các tài liệu thu hồi đối với câu hỏi:
+  \begin{itemize}
+    \item Nếu $\mathcal{C} \ge \gamma_{\text{high}}$ (\code{Correct}): Dữ liệu hoàn toàn đáng tin cậy $\implies$ Đẩy thẳng vào LLM để sinh câu trả lời có trích dẫn.
+    \item Nếu $\mathcal{C} < \gamma_{\text{low}}$ (\code{Incorrect}): Tài liệu thu hồi hoàn toàn lạc đề $\implies$ Kích hoạt tìm kiếm Internet (Web Search Fallback) hoặc từ chối trả lời an toàn.
+    \item Nếu $\gamma_{\text{low}} \le \mathcal{C} < \gamma_{\text{high}}$ (\code{Ambiguous}): Tài liệu có chứa thông tin nhưng bị lẫn tạp âm $\implies$ Kích hoạt bước chia nhỏ tri thức (Knowledge Stripping) để lọc bỏ câu từ dư thừa trước khi đưa vào LLM.
+  \end{itemize}
 \end{itemize}
 
 ---
 
-\section{Đánh Giá Chất Lượng RAG: Khung Đánh Giá RAG Triad \& Chỉ Số MRR}
-\label{sec:rag-evaluation-metrics}
+\section{Đo Lường Chất Lượng RAG: Khung Đánh Giá Ragas \& ARES}
+\label{sec:ragas-evaluation}
 
-Không thể cải tiến một hệ thống nếu không thể đo lường nó. Việc đánh giá một hệ thống RAG không chỉ dừng lại ở cảm nhận chủ quan của kỹ sư.
+Trong môi trường doanh nghiệp, bạn không thể đánh giá RAG bằng cảm tính hay một vài câu hỏi thử nghiệm ngẫu nhiên. Mọi nâng cấp (thay đổi chunk size, đổi embedding model, tinh chỉnh top-k) phải được chứng minh bằng các chỉ số định lượng.
 
-\subsection{Bộ Ba Tiêu Chuẩn Vàng (The RAG Triad)}
-Được phát triển bởi TruLens và Ragas, RAG Triad cô lập lỗi của hệ thống thành ba chiều độc lập không cần dữ liệu gắn nhãn thủ công của con người:
-\begin{enumerate}
-  \item \textbf{Context Relevance (Độ liên quan của ngữ cảnh)}: Đo lường xem các đoạn tài liệu được bộ máy tìm kiếm trích xuất có thực sự chứa thông tin để trả lời câu hỏi hay không. Nếu điểm này thấp: Lỗi nằm ở tầng Indexing, Chunking hoặc Hybrid Search.
-  \item \textbf{Groundedness / Faithfulness (Tính trung thực / Chống ảo giác)}: Đo lường xem tất cả các luận điểm trong câu trả lời của LLM có thể suy ra trực tiếp từ các đoạn ngữ cảnh trích xuất hay không. Nếu câu trả lời chứa thông tin không có trong tài liệu: Mô hình đang bị ảo giác.
-  \item \textbf{Answer Relevance (Độ liên quan của câu trả lời)}: Đo lường xem câu trả lời của LLM có giải quyết trúng đích câu hỏi ban đầu của người dùng hay không, bất kể ngữ cảnh trích xuất là gì.
-\end{enumerate}
+Khung đo lường \textbf{RAG Triad} chuẩn mực bao gồm 3 chỉ số cốt lõi:
 
-\subsection{Các Chỉ Số Đánh Giá Tầng Truy Xuất (Retrieval Metrics)}
-Để tinh chỉnh các siêu tham số của BM25 và HNSW, kỹ sư sử dụng hai chỉ số toán học chuẩn mực:
+\begin{figure}[htbp]
+\centering
+\begin{tikzpicture}[auto,
+    node_t/.style={circle, draw=primarycolor, thick, fill=boxbg, align=center, minimum size=2.0cm, font=\small\bfseries},
+    edge_label/.style={font=\footnotesize\bfseries, align=center}
+]
+    \node[node_t] (query) at (0, 0) {Query};
+    \node[node_t] (ctx) at (5.0, 0) {Context};
+    \node[node_t] (ans) at (2.5, -2.8) {Answer};
 
-\begin{definition}[Chỉ số Hit Rate@K]
-Tỷ lệ phần trăm các truy vấn kiểm thử mà tài liệu chuẩn (Ground-truth Document) nằm trong danh sách Top-K tài liệu được trích xuất:
+    \draw[<->, draw=primarycolor, thick] (query) -- node[above, edge_label] {Context Relevance} (ctx);
+    \draw[<->, draw=secondarycolor, thick] (ctx) -- node[right, edge_label, yshift=-0.2cm] {Faithfulness\\(Groundedness)} (ans);
+    \draw[<->, draw=accentcolor, thick] (ans) -- node[left, edge_label, yshift=-0.2cm] {Answer Relevance} (query);
+\end{tikzpicture}
+\caption{Tam giác chất lượng đánh giá RAG (RAG Triad)}
+\label{fig:rag-triad}
+\end{figure}
+
+\subsection{1. Độ Trung Thực (Faithfulness / Groundedness)}
+Đo lường mức độ mà câu trả lời của LLM được chứng minh bởi ngữ cảnh trích xuất (chống ảo giác).
 \begin{equation}
-\text{HitRate@K} = \frac{1}{|Q|} \sum_{q=1}^{|Q|} \mathbb{I}(\text{rank}_q \le K)
+\text{Faithfulness} = \frac{|\text{Số lượng khẳng định (Claims) được chứng minh bởi Context}|}{|\text{Tổng số khẳng định (Claims) có trong Answer}|}
 \end{equation}
-Trong đó $\mathbb{I}$ là hàm chỉ thị nhận giá trị $1$ nếu tài liệu đúng xuất hiện trong Top-K, ngược lại nhận $0$.
-\end{definition}
 
-\begin{definition}[Chỉ số MRR -- Mean Reciprocal Rank]
-Trung bình cộng của nghịch đảo thứ hạng vị trí của tài liệu chuẩn đầu tiên xuất hiện trong danh sách kết quả:
+\subsection{2. Độ Phù Hợp Của Câu Trả Lời (Answer Relevance)}
+Đo lường mức độ câu trả lời giải quyết đúng trọng tâm câu hỏi của người dùng (tránh trả lời vòng vo, lạc đề).
+Để đo lường khách quan mà không cần ground truth, ta dùng LLM sinh ngược $N$ câu hỏi tiềm năng từ câu trả lời đã sinh: $\{Q_1', Q_2', \dots, Q_N'\}$. Sau đó đo độ tương đồng Cosine trung bình giữa câu hỏi gốc $Q$ và các câu hỏi được sinh ngược:
 \begin{equation}
-\text{MRR} = \frac{1}{|Q|} \sum_{q=1}^{|Q|} \frac{1}{\text{rank}_q}
+\text{Answer Relevance} = \frac{1}{N} \sum_{i=1}^N \cos(\mathbf{e}_Q, \mathbf{e}_{Q_i'})
 \end{equation}
-Nếu tài liệu đúng đứng vị trí số 1: Điểm số là $1.0$. Nếu đứng vị trí thứ 2: Điểm số là $0.5$. Nếu không xuất hiện trong danh sách: Điểm số bằng $0$.
-\end{definition}
+
+\subsection{3. Độ Chính Xác Ngữ Cảnh (Context Precision)}
+Đo lường xem các tài liệu thực sự liên quan có được sắp xếp ở những vị trí đầu tiên của danh sách trích xuất hay không:
+\begin{equation}
+\text{Context Precision@K} = \frac{\sum_{k=1}^K \text{Precision@k} \times v_k}{\text{Tổng số tài liệu liên quan trong Top-K}}
+\end{equation}
+trong đó $v_k \in \{0, 1\}$ là chỉ số nhị phân báo hiệu tài liệu ở hạng $k$ có liên quan hay không.
 
 ---
 
-\section{Ví Dụ Giải Mẫu Tính Toán Số Học Bằng Tay}
-\label{sec:rag-worked-examples}
-
-Chúng ta cùng thực hiện tính toán số học chi tiết để hiểu sâu sắc cơ chế hoạt động của thuật toán Okapi BM25 và Reciprocal Rank Fusion.
-
-\begin{example}[Tính Toán Điểm Số Okapi BM25 Bằng Tay]
-Xét một kho ngữ liệu mini gồm $N = 3$ tài liệu kỹ thuật:
-\begin{itemize}
-  \item Tài liệu $D_1$: \code{["mô", "hình", "llama", "phục", "vụ", "nhanh"]} $\implies |D_1| = 6$ từ.
-  \item Tài liệu $D_2$: \code{["tối", "ưu", "bộ", "nhớ", "kv", "cache", "cho", "llama"]} $\implies |D_2| = 8$ từ.
-  \item Tài liệu $D_3$: \code{["học", "máy", "và", "xử", "lý", "ngôn", "ngữ", "tự", "nhiên"]} $\implies |D_3| = 9$ từ.
-\end{itemize}
-Người dùng đưa ra câu truy vấn $Q$: \code{["kv", "cache", "llama"]}.
-Cấu hình siêu tham số: $k_1 = 1.5$, $b = 0.75$.
-
-Hãy tính toán chi tiết:
-\begin{enumerate}
-  \item Độ dài trung bình của kho ngữ liệu $\text{avgdl}$.
-  \item Giá trị $\text{IDF}$ của từng từ khóa trong truy vấn.
-  \item Điểm số BM25 của tài liệu $D_2$ đối với truy vấn $Q$.
-\end{enumerate}
-\end{example}
-
-\paragraph{Lời giải chi tiết từng bước}:
-
-\paragraph{Bước 1: Tính độ dài trung bình $\text{avgdl}$}
-\begin{equation*}
-\text{avgdl} = \frac{|D_1| + |D_2| + |D_3|}{3} = \frac{6 + 8 + 9}{3} = \frac{23}{3} \approx 7.6667\text{ từ}
-\end{equation*}
-
-\paragraph{Bước 2: Tính tần số tài liệu $n(q)$ và giá trị $\text{IDF}$ cho từng từ khóa}
-Kho ngữ liệu có $N = 3$ tài liệu.
-\begin{itemize}
-  \item Từ \code{"kv"}: Chỉ xuất hiện trong $D_2 \implies n(\text{"kv"}) = 1$.
-  \begin{equation*}
-  \text{IDF}(\text{"kv"}) = \ln \left( \frac{3 - 1 + 0.5}{1 + 0.5} + 1 \right) = \ln \left( \frac{2.5}{1.5} + 1 \right) = \ln \left( 1.6667 + 1 \right) = \ln(2.6667) \approx 0.9808
-  \end{equation*}
-  \item Từ \code{"cache"}: Chỉ xuất hiện trong $D_2 \implies n(\text{"cache"}) = 1$.
-  \begin{equation*}
-  \text{IDF}(\text{"cache"}) = \ln(2.6667) \approx 0.9808
-  \end{equation*}
-  \item Từ \code{"llama"}: Xuất hiện trong cả $D_1$ và $D_2 \implies n(\text{"llama"}) = 2$.
-  \begin{equation*}
-  \text{IDF}(\text{"llama"}) = \ln \left( \frac{3 - 2 + 0.5}{2 + 0.5} + 1 \right) = \ln \left( \frac{1.5}{2.5} + 1 \right) = \ln(0.6 + 1) = \ln(1.6) \approx 0.4700
-  \end{equation*}
-\end{itemize}
-\textit{Nhận xét}: Từ hiếm (\code{"kv"}, \code{"cache"}) có trọng số thông tin $\text{IDF} \approx 0.9808$, cao hơn gấp đôi so với từ phổ biến (\code{"llama"} có $\text{IDF} \approx 0.4700$).
-
-\paragraph{Bước 3: Tính điểm số BM25 cho tài liệu $D_2$}
-Tài liệu $D_2$ có độ dài $|D_2| = 8$.
-Hệ số chuẩn hóa độ dài mẫu số:
-\begin{equation*}
-B = 1 - b + b \cdot \left(\frac{|D_2|}{\text{avgdl}}\right) = 1 - 0.75 + 0.75 \times \left(\frac{8}{7.6667}\right) = 0.25 + 0.75 \times 1.0435 = 0.25 + 0.7826 = 1.0326
-\end{equation*}
-Trong $D_2$, mỗi từ \code{"kv"}, \code{"cache"}, \code{"llama"} đều xuất hiện đúng $1$ lần ($f = 1$):
-Số hạng chuẩn hóa tần số cho mỗi từ:
-\begin{equation*}
-\text{TF\_Norm} = \frac{f \cdot (k_1 + 1)}{f + k_1 \cdot B} = \frac{1 \cdot (1.5 + 1)}{1 + 1.5 \times 1.0326} = \frac{2.5}{1 + 1.5489} = \frac{2.5}{2.5489} \approx 0.9808
-\end{equation*}
-Tổng hợp điểm số BM25 của $D_2$:
-\begin{align*}
-\text{Score}_{\text{BM25}}(D_2, Q) &= \text{IDF}(\text{"kv"}) \cdot \text{TF\_Norm} + \text{IDF}(\text{"cache"}) \cdot \text{TF\_Norm} + \text{IDF}(\text{"llama"}) \cdot \text{TF\_Norm} \\
-&= (0.9808 \times 0.9808) + (0.9808 \times 0.9808) + (0.4700 \times 0.9808) \\
-&= 0.9620 + 0.9620 + 0.4610 = 2.3850
-\end{align*}
-Tài liệu $D_2$ đạt điểm số $2.3850$, xếp hạng cao nhất áp đảo hoàn toàn $D_1$ (chỉ chứa từ \code{"llama"} với điểm số $\approx 0.46$) và $D_3$ (điểm số bằng $0$).
-
----
-
-\begin{example}[Tính Toán Điểm Số Dung Hợp Thứ Hạng RRF Bằng Tay]
-Hệ thống Hybrid Search thực hiện tìm kiếm trên 4 tài liệu $\{A, B, C, D\}$.
-Hai danh sách xếp hạng độc lập trả về như sau:
-\begin{itemize}
-  \item Danh sách 1 (BM25 Sparse): Hạng 1 là $A$, Hạng 2 là $B$, Hạng 3 là $C$. (Tài liệu $D$ không có trong Top-3).
-  \item Danh sách 2 (Dense Vector): Hạng 1 là $B$, Hạng 2 là $D$, Hạng 3 là $A$. (Tài liệu $C$ không có trong Top-3).
-\end{itemize}
-Áp dụng công thức RRF với hằng số $k = 60$:
-\begin{equation*}
-\text{RRF}(d) = \sum_{m=1}^2 \frac{1}{60 + r_m(d)}
-\end{equation*}
-Hãy tính điểm RRF cho cả 4 tài liệu và xác định tài liệu nào chiến thắng chung cuộc.
-\end{example}
-
-\paragraph{Lời giải chi tiết}:
-\begin{itemize}
-  \item \textbf{Tài liệu A}: Hạng 1 ở danh sách 1, Hạng 3 ở danh sách 2:
-  \begin{equation*}
-  \text{RRF}(A) = \frac{1}{60 + 1} + \frac{1}{60 + 3} = \frac{1}{61} + \frac{1}{63} \approx 0.016393 + 0.015873 = 0.032266
-  \end{equation*}
-
-  \item \textbf{Tài liệu B}: Hạng 2 ở danh sách 1, Hạng 1 ở danh sách 2:
-  \begin{equation*}
-  \text{RRF}(B) = \frac{1}{60 + 2} + \frac{1}{60 + 1} = \frac{1}{62} + \frac{1}{61} \approx 0.016129 + 0.016393 = 0.032522
-  \end{equation*}
-
-  \item \textbf{Tài liệu C}: Hạng 3 ở danh sách 1, không xuất hiện ở danh sách 2 ($r_2 = \infty$):
-  \begin{equation*}
-  \text{RRF}(C) = \frac{1}{60 + 3} + 0 = \frac{1}{63} \approx 0.015873
-  \end{equation*}
-
-  \item \textbf{Tài liệu D}: Không xuất hiện ở danh sách 1, Hạng 2 ở danh sách 2:
-  \begin{equation*}
-  \text{RRF}(D) = 0 + \frac{1}{60 + 2} = \frac{1}{62} \approx 0.016129
-  \end{equation*}
-\end{itemize}
-
-\textit{Kết luận}:
-Bảng thứ hạng tổng hợp RRF:
-\begin{equation*}
-\text{RRF}(B) = 0.032522 > \text{RRF}(A) = 0.032266 > \text{RRF}(D) = 0.016129 > \text{RRF}(C) = 0.015873
-\end{equation*}
-Tài liệu \textbf{$B$ giành chiến thắng chung cuộc}! Mặc dù $A$ đứng vị trí Quán quân ở danh sách BM25, nhưng $B$ thể hiện sự xuất sắc và đồng đều trên cả hai phương diện từ khóa và ngữ nghĩa (Hạng 2 BM25 và Hạng 1 Dense), hoàn toàn phản ánh đúng nguyên lý dung hợp đa nguồn tin cậy!
-
----
-
-\section{Hiện Thực Hóa: Bộ Động Cơ Tìm Kiếm Lai Đa Tầng}
+\section{Hiện Thực Hóa: Bộ Động Cơ Tìm Kiếm Lai Đa Tầng \& Đánh Giá}
 \label{sec:python-hybrid-engine}
 
-Dưới đây là mã nguồn Python chuẩn mực, tự chứa và không phụ thuộc vào các framework cồng kềnh, hiện thực hóa hoàn chỉnh thuật toán Okapi BM25, dung hợp thứ hạng RRF, và bộ chỉ số kiểm thử chất lượng truy xuất.
+Dưới đây là mã nguồn Python chuẩn mực, tự chứa và không phụ thuộc vào framework bên ngoài, hiện thực hóa hoàn chỉnh thuật toán Okapi BM25, dung hợp thứ hạng RRF, tái xếp hạng Cross-Encoder hai tầng, mô-đun mở rộng đồ thị GraphRAG, và bộ đo lường Faithfulness.
 
-\begin{lstlisting}[language=Python, caption={Cài đặt Okapi BM25 và Reciprocal Rank Fusion thuần Python.}]
+\subsection{1. Okapi BM25 \& Reciprocal Rank Fusion}
+\begin{lstlisting}[language=Python]
 import math
 from collections import Counter
 from typing import List, Tuple, Dict
 
 class SimpleBM25:
-    """
-    Hien thuc hoa thuat toan Okapi BM25 chuan xac.
-    """
+    """Hien thuc hoa thuat toan Okapi BM25 chuan xac."""
     def __init__(self, corpus: List[List[str]], k1: float = 1.5, b: float = 0.75):
         self.k1 = k1
         self.b = b
@@ -409,12 +341,10 @@ class SimpleBM25:
                 self.doc_freqs[term] += 1
 
     def idf(self, term: str) -> float:
-        """Tinh IDF theo cong thuc Okapi co lam min +1.0."""
         n_q = self.doc_freqs.get(term, 0)
         return math.log((self.corpus_size - n_q + 0.5) / (n_q + 0.5) + 1.0)
 
     def score(self, query: List[str], doc_idx: int) -> float:
-        """Tinh diem BM25 cua mot tai lieu doi voi cau truy van."""
         score = 0.0
         doc_len = self.doc_lens[doc_idx]
         term_counts = self.doc_term_counts[doc_idx]
@@ -439,11 +369,7 @@ def reciprocal_rank_fusion(
     ranked_lists: List[List[int]],
     k: int = 60
 ) -> List[Tuple[int, float]]:
-    """
-    Dung hop thu hang Reciprocal Rank Fusion (RRF).
-    Input: Danh sach cac list chua doc_id da sap xep theo thu tu giam dan.
-    Output: Danh sach (doc_id, rrf_score) giam dan.
-    """
+    """Dung hop thu hang Reciprocal Rank Fusion (RRF)."""
     scores: Dict[int, float] = {}
     for rank_list in ranked_lists:
         for rank_idx, doc_id in enumerate(rank_list):
@@ -453,20 +379,79 @@ def reciprocal_rank_fusion(
     return sorted(scores.items(), key=lambda x: x[1], reverse=True)
 \end{lstlisting}
 
-Tiếp theo là module đánh giá tầng truy xuất:
+\subsection{2. Tái Xếp Hạng Hai Tầng (Two-Stage Hybrid Retriever)}
+\begin{lstlisting}[language=Python]
+class TwoStageHybridRetriever:
+    """Ket hop BM25 va Dense Search qua RRF, sau do Rerank bang Cross-Encoder."""
+    def __init__(self, corpus: List[List[str]], bm25_engine: SimpleBM25, cross_encoder_fn):
+        self.corpus = corpus
+        self.bm25 = bm25_engine
+        self.reranker = cross_encoder_fn
 
-\begin{lstlisting}[language=Python, caption={Đánh giá tầng truy xuất với MRR và HitRate@K.}]
-def compute_mrr(ground_truth_id: int, retrieved_ids: List[int]) -> float:
-    """Tinh Reciprocal Rank (RR) cho mot cau hoi."""
-    for rank_idx, doc_id in enumerate(retrieved_ids):
-        if doc_id == ground_truth_id:
-            return 1.0 / (rank_idx + 1)
-    return 0.0
+    def retrieve(self, query: List[str], dense_ranked_ids: List[int], 
+                 top_k_stage1: int = 10, top_k_final: int = 3) -> List[Tuple[int, float]]:
+        # 1. Sparse Search qua BM25
+        bm25_results = self.bm25.search(query, top_k=top_k_stage1)
+        sparse_ranked = [doc_id for doc_id, _ in bm25_results]
 
-def compute_hit_rate_at_k(ground_truth_id: int, retrieved_ids: List[int], k: int) -> float:
-    """Tinh HitRate@K cho mot cau hoi."""
-    top_k_ids = retrieved_ids[:k]
-    return 1.0 if ground_truth_id in top_k_ids else 0.0
+        # 2. Stage 1 Fusion qua RRF
+        rrf_ranked = reciprocal_rank_fusion([sparse_ranked, dense_ranked_ids], k=60)
+        candidate_ids = [doc_id for doc_id, _ in rrf_ranked[:top_k_stage1]]
+
+        # 3. Stage 2 Rerank chuyen sau bang Cross-Encoder
+        query_str = " ".join(query)
+        scored_candidates = []
+        for doc_id in candidate_ids:
+            doc_text = " ".join(self.corpus[doc_id])
+            score = self.reranker(query_str, doc_text)
+            scored_candidates.append((doc_id, score))
+
+        scored_candidates.sort(key=lambda x: x[1], reverse=True)
+        return scored_candidates[:top_k_final]
+\end{lstlisting}
+
+\subsection{3. Module Đánh Giá Faithfulness \& Mở Rộng Đồ Thị GraphRAG}
+\begin{lstlisting}[language=Python]
+class FaithfulnessEvaluator:
+    """Danh gia ty le khang dinh trong cau tra loi duoc chung minh boi ngu canh."""
+    def evaluate(self, claims: List[str], context: str) -> Dict[str, float]:
+        if not claims:
+            return {"faithfulness": 1.0, "supported_count": 0, "total_claims": 0}
+
+        context_lower = context.lower()
+        supported = 0
+        for claim in claims:
+            claim_tokens = [w for w in claim.lower().split() if len(w) > 2]
+            if all(token in context_lower for token in claim_tokens):
+                supported += 1
+
+        score = supported / len(claims)
+        return {
+            "faithfulness": score,
+            "supported_count": supported,
+            "total_claims": len(claims)
+        }
+
+class GraphEntityRetriever:
+    """Truy xuat mo rong lang gieng k-hop tren do thi tri thuc."""
+    def __init__(self, adjacency_list: Dict[str, List[str]]):
+        self.adj = adjacency_list
+
+    def expand_subgraph(self, seed_entities: List[str], k_hops: int = 1) -> set:
+        visited = set(seed_entities)
+        current_frontier = set(seed_entities)
+
+        for _ in range(k_hops):
+            next_frontier = set()
+            for entity in current_frontier:
+                neighbors = self.adj.get(entity, [])
+                for neighbor in neighbors:
+                    if neighbor not in visited:
+                        visited.add(neighbor)
+                        next_frontier.add(neighbor)
+            current_frontier = next_frontier
+
+        return visited
 \end{lstlisting}
 
 ---
@@ -479,6 +464,9 @@ def compute_hit_rate_at_k(ground_truth_id: int, retrieved_ids: List[int], k: int
   \item \textbf{Câu A.1}: Tại sao việc chuẩn hóa độ dài véc-tơ ($L_2$ Normalization) trước khi lưu vào Vector Database lại biến phép tính Cosine Similarity thành phép tính Dot Product? Lợi ích phần cứng của việc này trên CPU máy chủ là gì?
   \item \textbf{Câu A.2}: Phân tích nguyên nhân tại sao thuật toán HNSW bắt buộc phải duy trì toàn bộ cấu trúc chỉ mục trên RAM vật lý, và tại sao việc lưu chỉ mục HNSW trên ổ đĩa SSD truyền thống lại dẫn đến sụp đổ hiệu năng truy vấn.
   \item \textbf{Câu A.3}: Trong kỹ thuật Parent-Document Retrieval, tại sao chúng ta không nhúng trực tiếp cả đoạn mẹ và đoạn con vào cùng một không gian véc-tơ để tìm kiếm, mà lại tách biệt rõ ràng giữa chỉ mục tìm kiếm và dữ liệu trả về?
+  \item \textbf{Câu A.4 (GraphRAG vs Vector RAG)}: Tại sao Vector RAG thuần túy lại thất bại trước các câu hỏi dạng suy luận toàn cục (Global Sensemaking)? GraphRAG sử dụng cơ chế nào để tổng hợp thông tin ở tầm vĩ mô?
+  \item \textbf{Câu A.5 (Dense vs Sparse vs ColBERT Late Interaction)}: So sánh sự đánh đổi về độ trễ suy luận, chi phí lưu trữ bộ nhớ và độ chính xác giữa: Bi-Encoder (Dense), BM25 (Sparse) và ColBERT (Late Interaction).
+  \item \textbf{Câu A.6 (Bản Chất Adaptive RAG)}: Tại sao việc bổ sung bước Retrieval Evaluator trong Corrective RAG (CRAG) lại ngăn chặn được hiện tượng ảo giác dây chuyền (\textit{Cascade Hallucination})?
 \end{enumerate}
 
 \subsection{Nhóm B: Bài Toán Tính Toán Giải Tích Bằng Tay (Analytical Problems)}
@@ -499,29 +487,41 @@ def compute_hit_rate_at_k(ground_truth_id: int, retrieved_ids: List[int], k: int
   \begin{equation*}
   \text{RRF\_Score}(d) = \sum_{m=1}^M \frac{1}{k + r_m(d)}
   \end{equation*}
-  Chứng minh rằng khi $k \to \infty$, thứ tự xếp hạng của RRF tiệm cận chính xác thứ tự xếp hạng của thuật toán tính trung bình thứ hạng (Mean Rank Borda Count):
-  \begin{equation*}
-  \text{Score}_{\text{Borda}}(d) = -\sum_{m=1}^M r_m(d)
-  \end{equation*}
+  Chứng minh rằng khi $k \to \infty$, thứ tự xếp hạng của RRF tiệm cận chính xác thứ tự xếp hạng của thuật toán tính trung bình thứ hạng (Mean Rank Borda Count): $\text{Score}_{\text{Borda}}(d) = -\sum_{m=1}^M r_m(d)$.
+
+  \item \textbf{Bài B.3 (Tính Toán Chỉ Số Đánh Giá Ragas Bằng Tay)}:
+  Một câu hỏi của người dùng nhận được câu trả lời từ LLM gồm 4 khẳng định (\textit{Atomic Claims}):
+  \begin{enumerate}
+    \item $C_1$: Doanh thu quý 3 của công ty đạt 150 tỷ đồng.
+    \item $C_2$: Lợi nhuận ròng tăng trưởng $25\%$ so với cùng kỳ năm trước.
+    \item $C_3$: Ban giám đốc quyết định chia cổ tức bằng tiền mặt tỷ lệ $10\%$.
+    \item $C_4$: Công ty mở rộng thêm 5 chi nhánh tại khu vực miền Trung.
+  \end{enumerate}
+  Đối chiếu với ngữ cảnh trích xuất từ 3 tài liệu, chuyên viên xác định $C_1$, $C_2$, $C_4$ đều có bằng chứng trực tiếp trong tài liệu, riêng $C_3$ hoàn toàn không được đề cập trong tài liệu.
+  Hãy tính chỉ số \textbf{Faithfulness} của câu trả lời trên. Nếu người dùng yêu cầu chỉ số Faithfulness tối thiểu phải đạt $0.90$ để phê duyệt xuất bản tự động, hệ thống có được phép trả lời người dùng hay không?
 \end{enumerate}
 
 \subsection{Nhóm C: Thực Hành Kỹ Nghệ \& Lập Trình (Implementation Labs)}
 \begin{enumerate}
-  \item \textbf{Bài C.1 (Bộ Tái Xếp Hạng Hai Tầng Hoàn Chỉnh)}:\\
-  Xây dựng lớp Python \code{TwoStageHybridRetriever} tích hợp các thành phần:
-  \begin{itemize}
-    \item Stage 1: Thực hiện tìm kiếm thưa qua \code{SimpleBM25} và tìm kiếm giả lập véc-tơ, kết hợp qua \code{reciprocal_rank_fusion} để lấy Top-50 tài liệu.
-    \item Stage 2: Nhận một hàm giả lập chấm điểm Cross-Encoder \code{mock_cross_encoder_score(query, doc)}, chấm điểm lại 50 tài liệu này và trả về đúng Top-5 kết quả chính xác nhất.
-    \item Viết Unit test kiểm chứng rằng một tài liệu dù đứng hạng 10 ở Stage 1 vẫn có thể vươn lên hạng 1 ở Stage 2 nếu điểm Cross-Encoder của nó vượt trội.
-  \end{itemize}
+  \item \textbf{Bài C.1 (Bộ Tái Xếp Hạng Hai Tầng Hoàn Chỉnh)}:
+  Hiện thực hóa lớp \code{TwoStageHybridRetriever} kết hợp BM25 và Dense Search qua RRF, sau đó dùng Cross-Encoder để tái xếp hạng Top-5 kết quả cuối cùng. Viết unit test chứng minh tài liệu đứng hạng 3 ở Stage 1 có thể leo lên hạng 1 ở Stage 2.
+
+  \item \textbf{Bài C.2 (Bộ Đánh Giá Độ Trung Thực Faithfulness)}:
+  Hiện thực hóa lớp \code{FaithfulnessEvaluator} nhận vào danh sách các câu khẳng định và văn bản ngữ cảnh, tự động tính toán chỉ số Faithfulness theo tỷ lệ các khẳng định có mặt trong ngữ cảnh.
+
+  \item \textbf{Bài C.3 (Bộ Truy Xuất Tri Thức Đồ Thị k-hop)}:
+  Xây dựng lớp \code{GraphEntityRetriever} lưu danh sách kề của đồ thị tri thức doanh nghiệp. Viết hàm \code{expand_subgraph(seed_entities, k_hops)} mở rộng không gian ngữ cảnh qua $k$ bước nhảy đồ thị để phục vụ bổ sung ngữ cảnh cho LLM.
 \end{enumerate}
 
 \subsection{Nhóm D: Phân Tích Thất Bại \& Debugging Thực Tế (Post-Mortem Analysis)}
 \begin{enumerate}
-  \item \textbf{Tình huống sự cố}: Ứng dụng trợ lý RAG nội bộ của ngân hàng trả về câu trả lời khẳng định: \textit{``Lãi suất tiền gửi kỳ hạn 12 tháng hiện tại là 7.2\%/năm''}. Tuy nhiên, thông tư mới nhất ban hành sáng nay quy định lãi suất đã hạ xuống \textit{5.5\%/năm}.
-  Kiểm tra hệ thống Vector DB cho thấy cả hai văn bản (Thông tư cũ năm ngoái và Thông tư mới sáng nay) đều nằm trong cơ sở dữ liệu.
-  Điều kỳ lạ là đoạn văn bản của Thông tư cũ có điểm Cosine Similarity với câu hỏi cao hơn đoạn của Thông tư mới ($0.89$ so với $0.81$), nên hệ thống đã chọn nhầm văn bản cũ!
-  Hãy phân tích nguyên nhân gốc rễ và đề xuất giải pháp kiến trúc khắc phục bài toán xung đột phiên bản tài liệu (Document Versioning / Temporal Invalidation).
+  \item \textbf{Sự Cố 1 (Xung Đột Phiên Bản Tài Liệu / Lỗi Trôi Thời Gian)}:
+  Trợ lý RAG của ngân hàng trả về lãi suất cũ $7.2\%$ thay vì thông tư mới $5.5\%$, mặc dù cả hai văn bản đều có trong Vector DB và văn bản cũ có điểm Cosine cao hơn. Hãy phân tích nguyên nhân gốc rễ và đề xuất giải pháp khắc phục triệt để.
+
+  \item \textbf{Sự Cố 2 (Lỗi Chunking Cắt Ngang Bảng Biểu Tài Chính)}:
+  Một công ty chứng khoán triển khai RAG phân tích báo cáo tài chính PDF. Người dùng hỏi: ``Doanh thu mảng bán lẻ của công ty năm 2025 là bao nhiêu?''. Hệ thống trả về con số của năm 2024!
+  Kiểm tra log cho thấy bộ chia nhỏ văn bản (\textit{Text Splitter}) dùng thuật toán cắt cố định $512$ ký tự đã vô tình cắt ngang bảng biểu Markdown: Hàng tiêu đề của bảng (\code{| Năm 2024 | Năm 2025 |}) nằm ở Chunk 1, trong khi các dòng số liệu (\code{| 1.200 tỷ | 1.850 tỷ |}) lại nằm ở Chunk 2! Khi Vector Search trích xuất Chunk 2, LLM hoàn toàn mất tiêu đề cột và tự gán sai số liệu!
+  Hãy viết báo cáo sự cố (Post-Mortem) và thiết kế giải pháp phân đoạn văn bản nhận biết cấu trúc (\textit{Table-Aware Chunking}).
 \end{enumerate}
 
 ---
@@ -541,6 +541,17 @@ def compute_hit_rate_at_k(ground_truth_id: int, retrieved_ids: List[int], k: int
 
   \item \textbf{Lời giải Câu A.3}:
   Nếu nhúng cả đoạn mẹ ($1.024$ tokens) và đoạn con ($128$ tokens) vào cùng một không gian véc-tơ, sẽ xảy ra sự cạnh tranh bất bình đẳng. Đoạn mẹ chứa nhiều ý tưởng hỗn hợp sẽ có véc-tơ bị kéo về phía trung tâm của không gian, trong khi đoạn con có véc-tơ tập trung ở các vùng rìa sắc nhọn. Việc này làm phá vỡ phân phối khoảng cách. Bằng cách chỉ nhúng các đoạn con, ta duy trì được một không gian metric đồng nhất và sắc nét nhất cho thuật toán tìm kiếm, trong khi việc dùng con trỏ Metadata lấy đoạn mẹ đảm bảo cung cấp ngữ cảnh đầy đủ nhất cho LLM.
+
+  \item \textbf{Lời giải Câu A.4}:
+  Vector RAG tìm kiếm dựa trên độ tương đồng giữa câu hỏi và từng chunk văn bản độc lập. Khi câu hỏi mang tính tổng hợp vĩ mô, không có chunk nào chứa trọn vẹn câu trả lời. GraphRAG giải quyết điểm mù này bằng cách trích xuất đồ thị thực thể-quan hệ, sau đó dùng thuật toán Leiden phân cụm đồ thị và sinh các báo cáo tóm tắt phân cấp (Hierarchical Community Summaries). Truy vấn toàn cục sẽ map-reduce các bản tóm tắt cộng đồng vĩ mô này, mang lại câu trả lời bao quát toàn diện.
+
+  \item \textbf{Lời giải Câu A.5}:
+  - \textbf{Bi-Encoder (Dense)}: Nén toàn bộ đoạn văn bản thành 1 véc-tơ duy nhất. Tốc độ tìm kiếm ANN cực nhanh ($O(\log N)$ với HNSW), bộ nhớ vừa phải, nhưng mất mát thông tin cục bộ và kém chính xác với từ khóa hiếm.
+  - \textbf{Sparse (BM25)}: Dựa trên tần số từ khóa đảo (Inverted Index). Không cần GPU, tốc độ cực nhanh, cực chuẩn với mã số và từ khóa chính xác, nhưng mù tịt về ngữ nghĩa đồng nghĩa.
+  - \textbf{ColBERT (Late Interaction)}: Giữ lại véc-tơ nhúng của từng token riêng biệt và tính tương đồng MaxSim. Độ chính xác tiệm cận Cross-Encoder nhưng dung lượng lưu trữ bộ nhớ tăng gấp hàng chục lần so với Bi-Encoder vì phải lưu hàng triệu token embeddings.
+
+  \item \textbf{Lời giải Câu A.6}:
+  Trong Naive RAG, nếu bước truy xuất trả về tài liệu rác, LLM vẫn buộc phải đọc và cố gắng sinh câu trả lời, dẫn tới ảo giác (Hallucination). Corrective RAG (CRAG) chèn thêm một bộ đánh giá chất lượng (Retrieval Evaluator). Nếu điểm tin cậy thấp, hệ thống ngắt luồng sinh câu trả lời từ tài liệu rác và tự động chuyển hướng (Fallback) sang Web Search hoặc đưa ra thông báo từ chối an toàn, dập tắt ảo giác ngay từ đầu vào.
 \end{itemize}
 
 \subsection{Lời Giải Nhóm B: Bài Toán Tính Toán Giải Tích Bằng Tay}
@@ -582,52 +593,54 @@ Lấy tổng trên toàn bộ $M$ hệ thống xếp hạng:
 \end{equation*}
 Vì $\frac{M}{k}$ là hằng số giống nhau cho mọi tài liệu $d$, và hệ số $\frac{1}{k^2} > 0$, việc tối đa hóa $\text{RRF\_Score}(d)$ tương đương với việc tối thiểu hóa tổng thứ hạng $\sum_{m=1}^M r_m(d)$ (tức tối đa hóa điểm Borda Count âm $-\sum r_m(d)$). (Điều phải chứng minh).
 
+\paragraph{Lời giải Bài B.3}:
+Tổng số khẳng định có trong câu trả lời: $|\text{Total Claims}| = 4$.
+Số khẳng định có bằng chứng trực tiếp trong ngữ cảnh trích xuất: $|\text{Supported Claims}| = 3$ ($C_1, C_2, C_4$).
+Chỉ số Faithfulness:
+\begin{equation*}
+\text{Faithfulness} = \frac{3}{4} = 0.75 \quad (\mathbf{75\%})
+\end{equation*}
+Vì $0.75 < 0.90$ (ngưỡng tối thiểu của doanh nghiệp), hệ thống \textbf{tuyệt đối không được phép tự động xuất bản câu trả lời này}! Hệ thống phải kích hoạt cờ cảnh báo hoặc yêu cầu chuyên viên thẩm định lại trước khi gửi cho khách hàng.
+
 \subsection{Lời Giải Nhóm C: Thực Hành Kỹ Nghệ \& Lập Trình}
-Hiện thực hóa hoàn chỉnh module `TwoStageHybridRetriever`:
+Toàn bộ mã nguồn kiểm chứng đã được cung cấp tại Mục~\ref{sec:python-hybrid-engine} với đầy đủ 3 module:
+\begin{enumerate}
+  \item \code{TwoStageHybridRetriever}: Kết hợp BM25 và Dense Search qua RRF, tái xếp hạng bằng Cross-Encoder.
+  \item \code{FaithfulnessEvaluator}: Đánh giá độ trung thực của câu trả lời dựa trên việc đối chiếu từng khẳng định nguyên tử với ngữ cảnh trích xuất.
+  \item \code{GraphEntityRetriever}: Mở rộng tri thức cục bộ theo đồ thị liên kết $k$-hop.
+\end{enumerate}
 
-\begin{lstlisting}[language=Python, caption={Bộ truy xuất kết hợp hai tầng với BM25, RRF và Cross-Encoder.}]
-class TwoStageHybridRetriever:
-    def __init__(self, corpus: List[str], bm25_engine: SimpleBM25, cross_encoder_fn):
-        self.corpus = corpus
-        self.bm25 = bm25_engine
-        self.reranker = cross_encoder_fn
+\subsection{Lời Giải Nhóm D: Phân Tích Thất Bại Thực Tế (Post-Mortem Analysis)}
 
-    def retrieve(self, query: str, top_k_stage1: int = 50, top_k_final: int = 5) -> List[Tuple[int, float]]:
-        tokenized_query = query.lower().split()
-        
-        # 1. Sparse Search qua BM25
-        bm25_results = self.bm25.search(tokenized_query, top_k=top_k_stage1)
-        sparse_ranked = [doc_id for doc_id, _ in bm25_results]
-
-        # 2. Gia lap Dense Search (trong thuc te goi Vector DB)
-        # O day dung ket qua gia lap de ket hop
-        dense_ranked = list(reversed(sparse_ranked))  # Minh hoa thu hang nguoc
-
-        # 3. Dung hop Stage 1 qua RRF
-        stage1_rrf = reciprocal_rank_fusion([sparse_ranked, dense_ranked], k=60)
-        candidate_ids = [doc_id for doc_id, _ in stage1_rrf[:top_k_stage1]]
-
-        # 4. Stage 2: Rerank chuyen sau qua Cross-Encoder
-        scored_candidates = []
-        for doc_id in candidate_ids:
-            doc_text = " ".join(self.corpus[doc_id])
-            rerank_score = self.reranker(query, doc_text)
-            scored_candidates.append((doc_id, rerank_score))
-
-        # Sap xep theo diem Cross-Encoder
-        scored_candidates.sort(key=lambda x: x[1], reverse=True)
-        return scored_candidates[:top_k_final]
-\end{lstlisting}
-
-\subsection{Lời Giải Nhóm D: Phân Tích Thất Bại \& Debugging Thực Tế}
+\begin{debugbox}[Báo Cáo Sự Cố 1: Xung Đột Phiên Bản Tài Liệu \& Lỗi Trôi Thời Gian]
+\textbf{1. Tóm tắt sự cố}: Hệ thống RAG trả về mức lãi suất cũ $7.2\%$ thay vì lãi suất mới $5.5\%$.
+\textbf{2. Phân tích nguyên nhân gốc rễ}: Mô hình nhúng véc-tơ không nhận thức về dòng thời gian (Time-agnostic). Tài liệu cũ diễn đạt dài và chứa nhiều từ khóa trùng với câu hỏi hơn tài liệu mới.
+\textbf{3. Giải pháp khắc phục}:
 \begin{itemize}
-  \item \textbf{Nguyên nhân gốc rễ (Root Cause)}:
-  Mô hình nhúng véc-tơ (Embedding) hoàn toàn không có nhận thức về dòng thời gian (Time-agnostic). Nếu hai văn bản diễn đạt cùng một chính sách nhưng chỉ khác nhau con số lãi suất ($7.2\%$ vs $5.5\%$), véc-tơ ngữ nghĩa của chúng gần như trùng khớp. Thậm chí văn bản cũ có thể được diễn đạt dài dòng hơn, chứa nhiều từ ngữ trùng khớp với câu hỏi hơn, dẫn tới điểm Cosine Similarity cao hơn văn bản mới.
-
-  \item \textbf{3 Biện pháp kiến trúc khắc phục triệt để}:
-  \begin{enumerate}
-    \item \textbf{Phân tầng Metadata \& Lọc theo thời gian (Metadata Pre-filtering)}: Bắt buộc gắn siêu dữ liệu \code{effective_date}, \code{expiration_date}, \code{status: "active"|"deprecated"}. Tầng truy xuất bắt buộc phải áp dụng bộ lọc cứng (Hard Filter) trên Metadata trước khi tính toán khoảng cách véc-tơ: \code{filter={"status": "active"}}.
-    \item \textbf{Cơ chế Hủy hiệu lực Chủ động (Document Invalidation / Tombstoning)}: Khi một thông tư mới được ban hành để thay thế thông tư cũ, hệ thống CMS/ETL phải kích hoạt webhook cập nhật trạng thái của thông tư cũ thành \code{deprecated} hoặc xóa véc-tơ cũ ra khỏi chỉ mục Vector DB ngay lập tức.
-    \item \textbf{Tiêm Dòng Thời Gian Vào Ngữ Cảnh LLM (Temporal Prompt Injection)}: Luôn tiêm ngày giờ hiện tại của hệ thống vào System Prompt: \textit{``Hôm nay là ngày 01/10/2026. Nếu có sự xung đột giữa các văn bản, chỉ áp dụng văn bản có ngày ban hành gần nhất.''}.
-  \end{enumerate}
+  \item Gắn metadata cứng: \code{effective_date}, \code{status: "active"}.
+  \item Áp dụng lọc Metadata Pre-filtering trước khi tính khoảng cách véc-tơ.
+  \item Thiết lập cơ chế tự động xóa hoặc đánh dấu \code{deprecated} các tài liệu đã hết hiệu lực.
 \end{itemize}
+\end{debugbox}
+
+\begin{debugbox}[Báo Cáo Sự Cố 2: Lỗi Chunking Cắt Ngang Bảng Biểu Tài Chính]
+\textbf{1. Tóm tắt sự cố}: Hệ thống RAG nhầm lẫn số liệu doanh thu năm 2024 thành năm 2025 do bộ chia đoạn cắt ngang giữa tiêu đề cột và hàng số liệu.
+\textbf{2. Phân tích nguyên nhân gốc rễ}:
+Thuật toán phân đoạn văn bản thông thường (Character-based hoặc Token-based Text Splitter) là thuật toán \textit{mù cấu trúc} (\textit{Structure-agnostic}). Nó chỉ đếm đủ 512 ký tự rồi bẻ đôi đoạn văn bản, bất kể vị trí cắt đang nằm giữa một bảng Markdown hay một câu lệnh code.
+\textbf{3. Giải pháp khắc phục (Table-Aware Semantic Chunking)}:
+\begin{enumerate}
+  \item Sử dụng bộ phân tích cú pháp cấu trúc (như Unstructured hoặc LlamaParse) để nhận diện đối tượng bảng biểu (Table Object).
+  \item \textbf{Cơ chế Table Header Injection}: Khi một bảng biểu quá dài buộc phải chia nhỏ, mỗi chunk con bắt buộc phải sao chép lại toàn bộ hàng tiêu đề cột (\code{Table Headers}) và tên bảng ở ngay dòng đầu tiên.
+  \item Chuyển đổi bảng biểu thành định dạng mô tả tự nhiên: Sử dụng LLM tóm tắt từng hàng thành một câu hoàn chỉnh (ví dụ: \textit{``Trong năm 2025, doanh thu mảng bán lẻ đạt 1.850 tỷ đồng''}) trước khi nhúng véc-tơ.
+\end{enumerate}
+\end{debugbox}
+
+\begin{checkpointbox}[Tiêu Chuẩn Đạt Yêu Cầu Về Kỹ Nghệ RAG Doanh Nghiệp]
+Một kỹ sư AI hoàn thành xuất sắc Chương 8 khi:
+\begin{itemize}
+  \item Phân tích cặn kẽ 4 điểm nghẽn vật lý của Naive RAG trong thực tế triển khai.
+  \item Nắm vững cơ sở toán học của IVFFlat, HNSW, BM25, và thuật toán dung hợp thứ hạng RRF.
+  \item Hiểu rõ giới hạn của Vector RAG trước bài toán Global Sensemaking và kiến trúc GraphRAG phân cấp.
+  \item Nắm vững quy trình phản hồi tự thích ứng của Corrective RAG (CRAG) và cách đo lường RAG Triad.
+\end{itemize}
+\end{checkpointbox}

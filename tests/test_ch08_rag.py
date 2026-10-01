@@ -144,3 +144,153 @@ def test_retrieval_metrics():
 
     # HitRate@3 should be 1 (in top 3)
     assert compute_hit_rate_at_k(ground_truth, retrieved, k=3) == 1.0
+
+
+# ==============================================================================
+# 4. TWO-STAGE HYBRID RETRIEVER
+# ==============================================================================
+
+class TwoStageHybridRetriever:
+    """Combines BM25 and Dense search via RRF, then reranks with Cross-Encoder."""
+    def __init__(self, corpus: list[list[str]], bm25_engine: SimpleBM25, cross_encoder_fn):
+        self.corpus = corpus
+        self.bm25 = bm25_engine
+        self.reranker = cross_encoder_fn
+
+    def retrieve(self, query: list[str], dense_ranked_ids: list[int], top_k_stage1: int = 10, top_k_final: int = 3) -> list[tuple[int, float]]:
+        # 1. Sparse search
+        bm25_results = self.bm25.search(query, top_k=top_k_stage1)
+        sparse_ranked = [doc_id for doc_id, _ in bm25_results]
+
+        # 2. Stage 1 Fusion
+        rrf_ranked = reciprocal_rank_fusion([sparse_ranked, dense_ranked_ids], k=60)
+        candidate_ids = [doc_id for doc_id, _ in rrf_ranked[:top_k_stage1]]
+
+        # 3. Stage 2 Cross-Encoder Rerank
+        query_str = " ".join(query)
+        scored_candidates = []
+        for doc_id in candidate_ids:
+            doc_text = " ".join(self.corpus[doc_id])
+            score = self.reranker(query_str, doc_text)
+            scored_candidates.append((doc_id, score))
+
+        scored_candidates.sort(key=lambda x: x[1], reverse=True)
+        return scored_candidates[:top_k_final]
+
+
+def test_two_stage_hybrid_retriever():
+    corpus = [
+        ["chính", "sách", "bảo", "hiểm", "y", "tế", "năm", "2024"], # 0
+        ["hướng", "dẫn", "thanh", "toán", "viện", "phí"],           # 1
+        ["điều", "kiện", "bồi", "thường", "bảo", "hiểm", "cháy", "nổ"] # 2
+    ]
+    bm25 = SimpleBM25(corpus)
+    query = ["bảo", "hiểm", "cháy", "nổ"]
+
+    # Suppose doc 2 is ranked lower initially in dense search [0, 1, 2]
+    dense_ranked = [0, 1, 2]
+
+    # Cross encoder accurately recognizes doc 2 is the exact match
+    def mock_cross_encoder(q, doc):
+        return 0.95 if "cháy nổ" in doc else 0.20
+
+    retriever = TwoStageHybridRetriever(corpus, bm25, mock_cross_encoder)
+    results = retriever.retrieve(query, dense_ranked, top_k_stage1=3, top_k_final=1)
+    
+    assert len(results) == 1
+    assert results[0][0] == 2
+    assert results[0][1] == pytest.approx(0.95)
+
+
+# ==============================================================================
+# 5. RAG EVALUATION: FAITHFULNESS EVALUATOR
+# ==============================================================================
+
+class FaithfulnessEvaluator:
+    """Evaluates the proportion of answer claims supported by retrieved context."""
+    def evaluate(self, claims: list[str], context: str) -> dict[str, float]:
+        if not claims:
+            return {"faithfulness": 1.0, "supported_count": 0, "total_claims": 0}
+
+        context_lower = context.lower()
+        supported = 0
+        for claim in claims:
+            # A claim is supported if key words exist in context
+            claim_tokens = [w for w in claim.lower().split() if len(w) > 2]
+            if all(token in context_lower for token in claim_tokens):
+                supported += 1
+
+        score = supported / len(claims)
+        return {
+            "faithfulness": score,
+            "supported_count": supported,
+            "total_claims": len(claims)
+        }
+
+
+def test_faithfulness_evaluator():
+    evaluator = FaithfulnessEvaluator()
+    context = "Lãi suất tiết kiệm kỳ hạn 12 tháng tại Techcombank là 5.5% một năm kể từ tháng 10 năm 2026."
+    
+    # Claim 1: Lãi suất 12 tháng là 5.5% (Supported)
+    # Claim 2: Lãi suất 24 tháng là 7.0% (Hallucinated / Not in context)
+    claims = [
+        "lãi suất tiết kiệm 5.5%",
+        "lãi suất 24 tháng 7.0%"
+    ]
+    res = evaluator.evaluate(claims, context)
+    assert res["faithfulness"] == pytest.approx(0.5)
+    assert res["supported_count"] == 1
+    assert res["total_claims"] == 2
+
+
+# ==============================================================================
+# 6. GRAPHRAG: K-HOP KNOWLEDGE GRAPH RETRIEVER
+# ==============================================================================
+
+class GraphEntityRetriever:
+    """Performs k-hop neighborhood expansion on knowledge graph entities."""
+    def __init__(self, adjacency_list: dict[str, list[str]]):
+        self.adj = adjacency_list
+
+    def expand_subgraph(self, seed_entities: list[str], k_hops: int = 1) -> set[str]:
+        visited = set(seed_entities)
+        current_frontier = set(seed_entities)
+
+        for _ in range(k_hops):
+            next_frontier = set()
+            for entity in current_frontier:
+                neighbors = self.adj.get(entity, [])
+                for neighbor in neighbors:
+                    if neighbor not in visited:
+                        visited.add(neighbor)
+                        next_frontier.add(neighbor)
+            current_frontier = next_frontier
+
+        return visited
+
+
+def test_graph_rag_khop_expansion():
+    # Graph: Transformer -> Attention -> FlashAttention -> GPU
+    #       Transformer -> FFN
+    adj = {
+        "Transformer": ["Attention", "FFN"],
+        "Attention": ["FlashAttention", "Transformer"],
+        "FlashAttention": ["GPU", "Attention"],
+        "GPU": ["FlashAttention"],
+        "FFN": ["Transformer"]
+    }
+    graph_retriever = GraphEntityRetriever(adj)
+
+    # 1-hop from Transformer: {Transformer, Attention, FFN}
+    hop1 = graph_retriever.expand_subgraph(["Transformer"], k_hops=1)
+    assert hop1 == {"Transformer", "Attention", "FFN"}
+
+    # 2-hop from Transformer: {Transformer, Attention, FFN, FlashAttention}
+    hop2 = graph_retriever.expand_subgraph(["Transformer"], k_hops=2)
+    assert hop2 == {"Transformer", "Attention", "FFN", "FlashAttention"}
+
+    # 3-hop from Transformer: reaches GPU
+    hop3 = graph_retriever.expand_subgraph(["Transformer"], k_hops=3)
+    assert "GPU" in hop3
+

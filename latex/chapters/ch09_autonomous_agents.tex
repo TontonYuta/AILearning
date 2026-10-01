@@ -452,6 +452,56 @@ class AgentMemoryBuffer:
         return prefix + "\n".join(self.messages)
 \end{lstlisting}
 
+\subsection{4. Động Cơ Tranh Biện Đa Tác Tử (MultiAgentDebateEngine)}
+Mô hình tranh biện đa tác tử (\term{Multi-Agent Debate}) cho phép hai tác tử với góc nhìn độc lập trao đổi, phản biện và hội tụ giải pháp tối ưu, trước khi chuyển giao cho Trọng tài (\term{Judge}) tổng hợp quyết định. Dưới đây là hiện thực hóa hoàn chỉnh với cơ chế dừng sớm khi đạt đồng thuận:
+
+\begin{lstlisting}[language=Python]
+class MultiAgentDebateEngine:
+    """Dong co tranh bien da tac tu (Proposer vs Opponent) voi co che dong thuan Judge."""
+    def __init__(
+        self,
+        proposer_fn: Callable[[str, List[dict]], str],
+        opponent_fn: Callable[[str, str, List[dict]], str],
+        judge_fn: Callable[[str, List[dict]], str],
+        similarity_fn: Callable[[str, str], float],
+        consensus_threshold: float = 0.85,
+        max_rounds: int = 3,
+    ):
+        self.proposer_fn = proposer_fn
+        self.opponent_fn = opponent_fn
+        self.judge_fn = judge_fn
+        self.similarity_fn = similarity_fn
+        self.consensus_threshold = consensus_threshold
+        self.max_rounds = max_rounds
+
+    def run_debate(self, task_prompt: str) -> dict:
+        history: List[dict] = []
+        status = "MAX_ROUNDS_REACHED"
+
+        for round_idx in range(1, self.max_rounds + 1):
+            prop_arg = self.proposer_fn(task_prompt, history)
+            opp_arg = self.opponent_fn(task_prompt, prop_arg, history)
+
+            history.append({
+                "round": round_idx,
+                "proposer": prop_arg,
+                "opponent": opp_arg,
+            })
+
+            sim = self.similarity_fn(prop_arg, opp_arg)
+            if sim >= self.consensus_threshold:
+                status = "EARLY_CONSENSUS"
+                break
+
+        verdict = self.judge_fn(task_prompt, history)
+        return {
+            "status": status,
+            "rounds_completed": len(history),
+            "final_verdict": verdict,
+            "trajectory": history,
+        }
+\end{lstlisting}
+
 ---
 
 \section{Hệ Thống Bài Tập \& Câu Hỏi Tư Duy Đa Tầng}
@@ -465,6 +515,8 @@ class AgentMemoryBuffer:
   \item \textbf{Câu A.4 (Debate vs Single Agent)}: Trong bài toán thẩm định hợp đồng pháp lý, tại sao kiến trúc hai Agent tranh biện (Generator vs Critic) lại giảm được tỷ lệ bỏ sót lỗi nghiêm trọng so với một Agent duy nhất chạy Chain-of-Thought?
   \item \textbf{Câu A.5 (Time-Travel Debugging)}: Cơ chế Checkpointing trong LangGraph giúp đội ngũ kỹ sư tái hiện và sửa lỗi các sự cố gián đoạn ngẫu nhiên (Heisenbugs) trong Agent như thế nào?
   \item \textbf{Câu A.6 (Hiểm Họa Khi Cấp Quyền SQL Cho Agent)}: Nếu một Agent được trang bị công cụ thực thi SQL, kẻ tấn công có thể lợi dụng những lỗ hổng nào để vượt qua rào chắn và đọc trộm bảng dữ liệu nhạy cảm?
+  \item \textbf{Câu A.7 (So Sánh Mô Thức ReAct vs Plan-and-Solve)}: Phân tích sự khác biệt cơ bản giữa cơ chế suy luận - hành động động \term{ReAct} (Reason + Act xen kẽ từng bước) và cơ chế lập kế hoạch tĩnh \term{Plan-and-Solve} (hoặc Plan-and-Execute). Khi nào kỹ sư nên chọn ReAct và khi nào nên ưu tiên Plan-and-Solve trong bài toán tự động hóa xí nghiệp?
+  \item \textbf{Câu A.8 (Time-Travel Debugging \& State Forking Trong LangGraph)}: Giải thích nguyên lý kỹ thuật của tính năng phân nhánh trạng thái (State Forking) từ một Checkpoint quá khứ trong kiến trúc LangGraph. Tại sao cơ chế này cho phép các kỹ sư AI tiến hành phân tích giả định (What-if Analysis) và sửa đổi trạng thái (State Mutation) mà không làm ô nhiễm hay phá hủy phiên làm việc thực tế của người dùng?
 \end{enumerate}
 
 \subsection{Nhóm B: Bài Toán Tính Toán Giải Tích Bằng Tay (Analytical Problems)}
@@ -488,6 +540,34 @@ class AgentMemoryBuffer:
   Mỗi ngày, một Agent tương tác trung bình 50 phiên, mỗi phiên tạo ra 4 bản ghi trải nghiệm (Episodes).
   Mỗi bản ghi được nhúng thành một véc-tơ $d = 768$ chiều (FP32) kèm 512 bytes siêu dữ liệu JSON.
   Tính dung lượng lưu trữ cần thiết cho toàn bộ cụm Agent sau 30 ngày hoạt động.
+
+  \item \textbf{Bài B.4 (Định Lượng Chi Phí Token \& Độ Trễ Trong Multi-Agent Debate)}:
+  Xét một hệ thống tranh biện gồm Agent A (Đề xuất) và Agent B (Phản biện) cùng Trọng tài (Judge) giải quyết một bài toán kiến trúc hệ thống:
+  \begin{itemize}
+    \item Đề bài ban đầu dài $T_0 = 500$ tokens.
+    \item Cuộc tranh luận diễn ra tối đa $R = 3$ vòng. Tại mỗi vòng $r \in \{1, 2, 3\}$, Agent A nhận toàn bộ ngữ cảnh trước đó để sinh phát biểu dài $T_{\text{out}} = 300$ tokens. Sau đó, Agent B nhận toàn bộ ngữ cảnh (bao gồm phát biểu mới của A) để phản biện dài $T_{\text{out}} = 300$ tokens.
+    \item Kết thúc 3 vòng, Trọng tài nhận toàn bộ đề bài và 6 lượt phát biểu để tổng hợp phán quyết dài $T_{\text{judge}} = 200$ tokens.
+    \item Đơn giá API: $\$3.00$ / $10^6$ input tokens và $\$15.00$ / $10^6$ output tokens.
+    \item Thời gian phản hồi token đầu tiên trung bình $\text{TTFT} = 200\text{ ms/call}$, tốc độ sinh token $t_{\text{gen}} = 20\text{ ms/token}$.
+  \end{itemize}
+  \begin{itemize}
+    \item[a)] Tính tổng số token đầu vào ($I_{\text{total}}$) và tổng số token đầu ra ($O_{\text{total}}$) của toàn bộ phiên tranh luận.
+    \item[b)] Tính tổng chi phí tài chính (USD) cho một phiên tranh luận.
+    \item[c)] Tính tổng thời gian trễ thực thi (End-to-End Latency) khi hệ thống chạy tuần tự hoàn toàn.
+  \end{itemize}
+
+  \item \textbf{Bài B.5 (Mô Hình Hóa Vòng Lặp Sửa Sai Có Hiện Tượng Suy Giảm Ngữ Cảnh - Context Fatigue)}:
+  Một Agent giải toán lập trình được thiết lập vòng lặp tự sửa sai (Retry Loop) tối đa $K = 3$ lần thử. Khi gặp lỗi, thông báo vết lỗi (Traceback) được nhồi trực tiếp vào Prompt của lần thử tiếp theo.
+  Do hiện tượng \term{Context Fatigue} (nhiễu ngữ cảnh do tích tụ lịch sử lỗi), xác suất thành công tại lần thử thứ $k$ ($k \ge 1$) suy giảm theo quy luật hàm mũ:
+  \begin{equation*}
+  p_k = p_0 \cdot \gamma^{k-1}
+  \end{equation*}
+  với xác suất thành công ở lần thử đầu $p_0 = 0.80$, và hệ số suy giảm do ô nhiễm ngữ cảnh $\gamma = 0.70$.
+  \begin{itemize}
+    \item[a)] Tính xác suất thành công $p_1, p_2, p_3$ ở từng lần thử và xác suất thất bại tương ứng $q_1, q_2, q_3$.
+    \item[b)] Tính xác suất hệ thống hoàn thành bài toán thành công sau tối đa 3 lần thử.
+    \item[c)] So sánh xác suất thành công toàn cục này với mô hình lý tưởng không bị ô nhiễm ngữ cảnh ($\gamma = 1.0$). Kỹ sư AI cần áp dụng giải pháp kiến trúc nào để khắc phục hiện tượng Context Fatigue?
+  \end{itemize}
 \end{enumerate}
 
 \subsection{Nhóm C: Thực Hành Kỹ Nghệ \& Lập Trình (Implementation Labs)}
@@ -503,6 +583,9 @@ class AgentMemoryBuffer:
 
   \item \textbf{Bài C.4 (Bộ Nhớ Ngữ Cảnh Nén Tự Động AgentMemoryBuffer)}:
   Xây dựng lớp \code{AgentMemoryBuffer} duy trì cửa sổ trượt tin nhắn và tự động nén các tin nhắn cũ thành bản tóm tắt khi vượt quá giới hạn $M$.
+
+  \item \textbf{Bài C.5 (Cài Đặt Động Cơ Tranh Biện Đa Tác Tử MultiAgentDebateEngine)}:
+  Hiện thực hóa lớp \code{MultiAgentDebateEngine} quản lý vòng lặp tranh biện đối kháng giữa hai tác tử và một trọng tài. Hệ thống phải hỗ trợ hàm đánh giá tương đồng ngữ nghĩa \code{similarity_fn} để tự động dừng sớm với trạng thái \code{"EARLY_CONSENSUS"} khi độ đồng thuận vượt ngưỡng $\theta = 0.85$, hoặc hoàn tất đủ $R_{\max} = 3$ vòng và nhận phán quyết cuối cùng từ Trọng tài.
 \end{enumerate}
 
 \subsection{Nhóm D: Phân Tích Thất Bại \& Debugging Thực Tế (Post-Mortem Analysis)}
@@ -512,6 +595,9 @@ class AgentMemoryBuffer:
 
   \item \textbf{Sự Cố 2 (SQL Injection Gián Tiếp Qua Lời Thoại Người Dùng)}:
   Một công ty tài chính triển khai Text-to-SQL Agent. Người dùng hỏi: ``Tìm khách hàng có tên là: \code{Nguyen'; SELECT * FROM credit_cards; --}''. LLM ngây thơ ghép chuỗi này vào câu truy vấn SQL gửi tới cơ sở dữ liệu, dẫn tới rò rỉ toàn bộ thông tin thẻ tín dụng! Hãy phân tích nguyên nhân tại sao parameterized query lại bắt buộc phải được áp dụng ngay cả khi truy vấn được sinh bởi AI.
+
+  \item \textbf{Sự Cố 3 (Context Drift \& Goal Anchoring Trong Tác Tử Xử Lý Chu Trình Dài)}:
+  Một tác tử tự hành quét qua 25 tệp báo cáo tài chính nội bộ. Đến bước thứ 22, do lịch sử hội thoại vượt quá 40.000 tokens, chỉ thị bảo mật cốt lõi trong System Prompt (``Tuyệt đối không để lộ dữ liệu lương thưởng của ban điều hành'') bị trôi xa khỏi vùng chú ý hiệu dụng (\term{Lost in the Middle}). Tác tử đã xuất thông tin lương bí mật vào bảng tổng hợp công khai. Hãy viết báo cáo sự cố và đề xuất kiến trúc đồ thị trạng thái với kỹ thuật phân lập ngữ cảnh (Context Isolation) để ngăn chặn triệt để.
 \end{enumerate}
 
 ---

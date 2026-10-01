@@ -240,3 +240,205 @@ def test_agent_memory_buffer_compression():
     # Recent messages remain active
     assert "Msg_5" in buffer.messages
 
+
+# ==============================================================================
+# 7. MULTI-AGENT DEBATE METRICS & CONTEXT FATIGUE ANALYTICS (EXERCISES B.4 & B.5)
+# ==============================================================================
+
+def calculate_debate_metrics(
+    prompt_tokens: int,
+    speech_tokens: int,
+    judge_tokens: int,
+    rounds: int,
+    cost_in_per_m: float = 3.0,
+    cost_out_per_m: float = 15.0,
+    ttft_sec: float = 0.2,
+    gen_sec_per_token: float = 0.02,
+) -> dict:
+    """Computes total token volume, API cost, and sequential latency for multi-agent debate."""
+    input_tokens = 0
+    current_context = prompt_tokens
+    
+    # 2 speeches per round
+    for _ in range(rounds):
+        # Proposer input
+        input_tokens += current_context
+        current_context += speech_tokens
+        # Opponent input
+        input_tokens += current_context
+        current_context += speech_tokens
+
+    # Judge input
+    input_tokens += current_context
+    output_tokens = (rounds * 2 * speech_tokens) + judge_tokens
+
+    cost = (input_tokens * cost_in_per_m / 1e6) + (output_tokens * cost_out_per_m / 1e6)
+    
+    total_calls = (rounds * 2) + 1
+    total_latency = (total_calls * ttft_sec) + (output_tokens * gen_sec_per_token)
+
+    return {
+        "input_tokens": input_tokens,
+        "output_tokens": output_tokens,
+        "total_cost": cost,
+        "total_latency": total_latency,
+    }
+
+
+def calculate_retry_success_with_fatigue(
+    p0: float,
+    gamma: float,
+    max_attempts: int,
+) -> tuple[list[float], float]:
+    """Computes per-step success probabilities and overall system reliability with context fatigue."""
+    p_list = [p0 * (gamma ** i) for i in range(max_attempts)]
+    fail_prob = 1.0
+    for p in p_list:
+        fail_prob *= (1.0 - p)
+    success_prob = 1.0 - fail_prob
+    return p_list, success_prob
+
+
+def test_debate_cost_latency_metrics():
+    res = calculate_debate_metrics(
+        prompt_tokens=500,
+        speech_tokens=300,
+        judge_tokens=200,
+        rounds=3,
+        cost_in_per_m=3.0,
+        cost_out_per_m=15.0,
+        ttft_sec=0.2,
+        gen_sec_per_token=0.02,
+    )
+    assert res["input_tokens"] == 9800
+    assert res["output_tokens"] == 2000
+    assert pytest.approx(res["total_cost"], 1e-5) == 0.0594
+    assert pytest.approx(res["total_latency"], 1e-3) == 41.4
+
+
+def test_retry_context_fatigue_math():
+    p_list, p_success = calculate_retry_success_with_fatigue(p0=0.8, gamma=0.7, max_attempts=3)
+    assert pytest.approx(p_list[0], 1e-5) == 0.8
+    assert pytest.approx(p_list[1], 1e-5) == 0.56
+    assert pytest.approx(p_list[2], 1e-5) == 0.392
+
+    # Overall failure: 0.20 * 0.44 * 0.608 = 0.053504
+    # Overall success: 1 - 0.053504 = 0.946496
+    assert pytest.approx(p_success, 1e-5) == 0.946496
+
+    # Compare with ideal retry (gamma = 1.0)
+    _, p_ideal = calculate_retry_success_with_fatigue(p0=0.8, gamma=1.0, max_attempts=3)
+    assert pytest.approx(p_ideal, 1e-5) == 0.992
+
+
+# ==============================================================================
+# 8. MULTI-AGENT DEBATE ENGINE (EXERCISE C.5)
+# ==============================================================================
+
+class MultiAgentDebateEngine:
+    """Multi-agent debate engine with early consensus termination and judge synthesis."""
+    def __init__(
+        self,
+        proposer_fn: Callable[[str, list[dict]], str],
+        opponent_fn: Callable[[str, str, list[dict]], str],
+        judge_fn: Callable[[str, list[dict]], str],
+        similarity_fn: Callable[[str, str], float],
+        consensus_threshold: float = 0.85,
+        max_rounds: int = 3,
+    ):
+        self.proposer_fn = proposer_fn
+        self.opponent_fn = opponent_fn
+        self.judge_fn = judge_fn
+        self.similarity_fn = similarity_fn
+        self.consensus_threshold = consensus_threshold
+        self.max_rounds = max_rounds
+
+    def run_debate(self, task_prompt: str) -> dict:
+        history: list[dict] = []
+        status = "MAX_ROUNDS_REACHED"
+
+        for round_idx in range(1, self.max_rounds + 1):
+            prop_arg = self.proposer_fn(task_prompt, history)
+            opp_arg = self.opponent_fn(task_prompt, prop_arg, history)
+
+            history.append({
+                "round": round_idx,
+                "proposer": prop_arg,
+                "opponent": opp_arg,
+            })
+
+            sim = self.similarity_fn(prop_arg, opp_arg)
+            if sim >= self.consensus_threshold:
+                status = "EARLY_CONSENSUS"
+                break
+
+        verdict = self.judge_fn(task_prompt, history)
+        return {
+            "status": status,
+            "rounds_completed": len(history),
+            "final_verdict": verdict,
+            "trajectory": history,
+        }
+
+
+def test_debate_engine_early_consensus():
+    def mock_proposer(prompt: str, hist: list[dict]) -> str:
+        if not hist:
+            return "Option A is optimal because of lower latency."
+        return "Option A with caching meets all SLA requirements."
+
+    def mock_opponent(prompt: str, prop: str, hist: list[dict]) -> str:
+        if not hist:
+            return "Option B offers higher throughput."
+        return "Option A with caching is acceptable and meets SLA."
+
+    def mock_judge(prompt: str, hist: list[dict]) -> str:
+        return f"Approved solution: {hist[-1]['proposer']}"
+
+    def mock_sim(s1: str, s2: str) -> float:
+        # If both mention 'caching', high similarity
+        if "caching" in s1 and "caching" in s2:
+            return 0.92
+        return 0.40
+
+    engine = MultiAgentDebateEngine(
+        proposer_fn=mock_proposer,
+        opponent_fn=mock_opponent,
+        judge_fn=mock_judge,
+        similarity_fn=mock_sim,
+        consensus_threshold=0.85,
+        max_rounds=3,
+    )
+    result = engine.run_debate("Select architectural caching strategy")
+    assert result["status"] == "EARLY_CONSENSUS"
+    assert result["rounds_completed"] == 2
+    assert "Option A with caching" in result["final_verdict"]
+
+
+def test_debate_engine_max_rounds():
+    def mock_proposer(prompt: str, hist: list[dict]) -> str:
+        return f"Proposer argument step {len(hist) + 1}"
+
+    def mock_opponent(prompt: str, prop: str, hist: list[dict]) -> str:
+        return f"Opponent persistent disagreement {len(hist) + 1}"
+
+    def mock_judge(prompt: str, hist: list[dict]) -> str:
+        return "Judge ruling after 3 rounds of deadlock: Compromise solution C"
+
+    def mock_sim(s1: str, s2: str) -> float:
+        return 0.20  # Always low similarity
+
+    engine = MultiAgentDebateEngine(
+        proposer_fn=mock_proposer,
+        opponent_fn=mock_opponent,
+        judge_fn=mock_judge,
+        similarity_fn=mock_sim,
+        consensus_threshold=0.85,
+        max_rounds=3,
+    )
+    result = engine.run_debate("Arbitrate database consistency model")
+    assert result["status"] == "MAX_ROUNDS_REACHED"
+    assert result["rounds_completed"] == 3
+    assert "Compromise solution C" in result["final_verdict"]
+
+

@@ -208,7 +208,7 @@ Một địa chỉ IPv4 là một số nguyên không dấu 32-bit, được chi
 Ký hiệu CIDR (Classless Inter-Domain Routing) dùng cú pháp \code{/n}, trong đó $n$ là số lượng bit 1 liên tục từ trái sang phải của \textbf{Mặt Nạ Mạng (Subnet Mask)}.
 \end{definition}
 
-\begin{workedexamplebox}[Cách Tính Số Lượng Máy Chủ Khả Dụng Trong Dải Mạng CIDR]
+\begin{example}[Cách Tính Số Lượng Máy Chủ Khả Dụng Trong Dải Mạng CIDR]
 Xét một dải mạng cụm GPU: \code{10.0.1.0/24}:
 \begin{itemize}
   \item Số bit dành cho Network ID: $n = 24$.
@@ -224,7 +224,7 @@ Xét một dải mạng cụm GPU: \code{10.0.1.0/24}:
   N_{\text{hosts}} = 2^{32 - n} - 2 = 2^8 - 2 = \mathbf{254 \text{ máy chủ}}
   \end{equation}
 \end{itemize}
-\end{workedexamplebox}
+\end{example}
 
 \begin{table}[htbp]
 \centering
@@ -331,7 +331,10 @@ Trong hạ tầng AI, các ứng dụng Backend tuyệt đối không bao giờ 
 
 Để thấu hiểu bản chất cách một Web Server như Uvicorn hay vLLM tiếp nhận request, chúng ta hãy tự tay xây dựng một máy chủ TCP Server thuần túy bằng thư viện chuẩn \code{socket} của Python mà không sử dụng bất kỳ framework bên ngoài nào:
 
-\begin{workedexamplebox}[Xây Dựng Máy Chủ Web HTTP/1.1 Thuần Túy Bằng Python Socket]
+\begin{example}[Xây Dựng Máy Chủ Web HTTP/1.1 Thuần Túy Bằng Python Socket]
+Đoạn mã dưới đây minh họa cách nhân Linux quản lý kết nối socket tầng thấp:
+\end{example}
+
 \begin{lstlisting}[language=Python]
 import socket
 import threading
@@ -381,7 +384,6 @@ def start_tcp_server(host: str = "0.0.0.0", port: int = 8080):
         thread.daemon = True
         thread.start()
 \end{lstlisting}
-\end{workedexamplebox}
 
 ---
 
@@ -507,12 +509,194 @@ Thời gian truyền tín hiệu mạng hai chiều (\textit{Round-Trip Time -- 
 
 ---
 
+\section{Kiến Trúc Ghép Kênh I/O Trong Nhân Linux: Từ select Đến io\_uring}
+\label{sec:linux-io-multiplexing}
+
+\subsection{Bài Toán C10K \& Giới Hạn Của Mô Hình Đa Luồng (Thread-per-Connection)}
+Trong những ngày đầu của Internet, mô hình phục vụ web truyền thống dựa trên cơ chế: Mỗi khi có một kết nối TCP mới từ người dùng, máy chủ sẽ tạo một luồng (\textit{Thread}) hoặc tiến trình con (\textit{Process}) độc lập để xử lý (như Apache MPM Prefork).
+
+Khi các hệ thống AI hiện đại bước vào kỷ nguyên suy luận trực tuyến với hàng chục nghìn người dùng duy trì kết nối truyền luồng (SSE / WebSocket) đồng thời, mô hình đa luồng lập tức sụp đổ trước bài toán \textbf{C10K (Concurrent 10,000 Connections)}:
+\begin{itemize}
+  \item \textbf{Cạn kiệt bộ nhớ ảo}: Mỗi luồng trên Linux mặc định tiêu tốn từ $2\text{ MiB}$ đến $8\text{ MiB}$ bộ nhớ ngăn xếp (\textit{Thread Stack}). Để duy trì $50,000$ kết nối đồng thời, hệ điều hành cần cấp phát:
+  \begin{equation}
+  \text{Memory}_{\text{Stack}} = 50,000 \times 8\text{ MiB} \approx 400\text{ GiB RAM}
+  \end{equation}
+  chỉ để giữ các luồng ở trạng thái ngủ (\textit{Sleeping}) chờ người dùng gõ phím tiếp theo!
+  \item \textbf{Bão hòa CPU do Chuyển Ngữ Cảnh (Context Switching)}: Khi số lượng luồng vượt quá hàng nghìn lần số lượng nhân CPU vật lý, bộ lập lịch CFS (Completely Fair Scheduler) của Linux phải liên tục tạm dừng luồng này, lưu trạng thái thanh ghi và nạp luồng khác. Chi phí chuyển ngữ cảnh ngốn sạch toàn bộ chu kỳ CPU, khiến thông lượng thực tế sụt giảm về 0.
+\end{itemize}
+
+\subsection{Tiến Hóa Của Các Bộ Ghép Kênh I/O (I/O Multiplexing)}
+
+Để giải quyết triệt để điểm nghẽn trên, khoa học máy tính chuyển đổi sang mô hình \textbf{I/O Phi Chặn Kết Hợp Ghép Kênh Sự Kiện (Event-Driven Non-blocking I/O)}: Duy nhất một luồng chính (Event Loop) có thể giám sát đồng thời hàng chục nghìn Socket thông qua sự hỗ trợ từ nhân hệ điều hành.
+
+\begin{table}[htbp]
+\centering
+\small
+\caption{So Sánh Giải Tích Độ Phức Tạp Của Các Cơ Chế Ghép Kênh I/O Trong Nhân Linux}
+\label{tab:io-multiplexing-evolution}
+\begin{tabular}{p{2.8cm}p{3.2cm}p{3.0cm}p{4.2cm}}
+\toprule
+\textbf{Cơ Chế I/O} & \textbf{Cấu Trúc Dữ Liệu Kernel} & \textbf{Độ Phức Tạp} & \textbf{Giới Hạn Kỹ Thuật} \\
+\midrule
+\code{select()} (1983) & Mảng Bitmask tĩnh (\code{fd_set}) & $\mathcal{O}(N)$ & Cố định tối đa $1024$ File Descriptors (\code{FD_SETSIZE}). \\
+\code{poll()} (1997) & Mảng động \code{struct pollfd} & $\mathcal{O}(N)$ & Không giới hạn 1024, nhưng vẫn phải duyệt tuần tự toàn bộ mảng. \\
+\code{epoll()} (2002) & Cây Đỏ-Đen (RB-Tree) \& Ready List & $\mathcal{O}(1)$ & Không phụ thuộc số lượng kết nối; là trái tim của Uvicorn, Nginx, Redis. \\
+\code{io_uring} (2019) & 2 Ring Buffers chia sẻ User/Kernel & $\mathcal{O}(1)$ & Triệt tiêu $100\%$ chi phí Syscall; tốc độ hàng triệu IOPS. \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\begin{figure}[htbp]
+\centering
+\begin{tikzpicture}[node distance=1.5cm, auto,
+    kernel/.style={rectangle, draw=primarycolor, thick, fill=boxbg, text centered, rounded corners=2pt, minimum height=1.0cm, minimum width=3.2cm, font=\small\bfseries, align=center},
+    user/.style={rectangle, draw=secondarycolor, thick, fill=accentcolor!20, text centered, rounded corners=2pt, minimum height=1.0cm, minimum width=3.2cm, font=\small\bfseries, align=center},
+    arrow/.style={draw=primarycolor, -Stealth, thick}
+]
+    \node[user] (app) {User Space\\ \footnotesize (Python / uvloop / Event Loop)};
+    \node[kernel, right=4cm of app] (epoll) {Kernel Space\\ \footnotesize (epoll Red-Black Tree và Ready List)};
+    \node[kernel, below=1.2cm of epoll] (nic) {Hardware NIC\\ \footnotesize (Gói tin mạng TCP cập bến)};
+
+    \draw[arrow] (app) -- node[above, font=\scriptsize] {\code{epoll_ctl(EPOLL_CTL_ADD, fd)}} (epoll);
+    \draw[arrow] (nic) -- node[right, font=\scriptsize] {Hardware Interrupt (IRQ)} (epoll);
+    \draw[arrow] (epoll) -- node[below, font=\scriptsize] {\code{epoll_wait()} trả về mảng Event $\mathcal{O}(1)$} (app);
+\end{tikzpicture}
+\caption{Kiến trúc vận hành của Linux epoll: Phân tách danh sách theo dõi và danh sách sẵn sàng}
+\label{fig:epoll-architecture}
+\end{figure}
+
+Trong cơ chế \code{epoll}:
+\begin{itemize}
+  \item \textbf{Cây Đỏ-Đen (Red-Black Tree)}: Quản lý toàn bộ các socket đang mở. Việc thêm mới, sửa đổi hoặc đóng một kết nối chỉ tốn $\mathcal{O}(\log N)$.
+  \item \textbf{Danh Sách Kích Hoạt (Ready List)}: Khi card mạng nhận được gói tin dữ liệu, bộ điều khiển ngắt phần cứng (Hardware Interrupt) gọi hàm callback trong nhân để đưa socket đó vào Ready List. Khi tiến trình gọi \code{epoll_wait()}, kernel chỉ việc sao chép danh sách các socket đang sẵn sàng dữ liệu về User-space mà hoàn toàn không cần quét lại hàng chục nghìn socket đang nhàn rỗi!
+\end{itemize}
+
+---
+
+\section{Giải Thuật Điều Khiển Tắc Nghẽn TCP \& Tích Số Băng Thông - Độ Trễ}
+\label{sec:tcp-congestion-control}
+
+\subsection{Bản Chất Toán Học Của Cửa Sổ Tắc Nghẽn (CWND)}
+Giao thức TCP điều khiển lưu lượng truyền thông qua kích thước cửa sổ tắc nghẽn (\textit{Congestion Window} -- $CWND$), đo bằng số lượng byte tối đa mà bên gửi được phép phát đi mà không cần chờ gói tin xác nhận ACK từ bên nhận.
+
+Tốc độ truyền dữ liệu tức thời của kết nối bị chặn trên bởi:
+\begin{equation}
+\text{Throughput} \le \frac{\min(CWND, RWND)}{\text{RTT}}
+\end{equation}
+trong đó $RWND$ là cửa sổ tiếp nhận do bên nhận quảng bá (Receive Window), và $\text{RTT}$ là thời gian khứ hồi của mạng.
+
+\subsection{Từ AIMD Đến CUBIC \& BBR Của Google}
+
+\begin{enumerate}
+  \item \textbf{Giải thuật AIMD (TCP Reno)}: Tăng tuyến tính và giảm một nửa (\textit{Additive Increase, Multiplicative Decrease}): Cứ sau mỗi RTT không mất gói thì tăng $CWND \leftarrow CWND + 1\text{ MSS}$; khi phát hiện mất gói tin thì lập tức cắt giảm $CWND \leftarrow CWND / 2$. Trên đường truyền tốc độ cao xuyên đại lục, việc giảm một nửa khiến kết nối mất hàng chục giây mới phục hồi lại băng thông tối đa.
+
+  \item \textbf{Giải thuật CUBIC (Mặc định trong Linux Kernel)}:
+  CUBIC mô hình hóa đường cong tăng trưởng của cửa sổ tắc nghẽn theo một hàm đa thức bậc ba độc lập với RTT:
+  \begin{equation}
+  W_{\text{cubic}}(t) = C (t - K)^3 + W_{\max}
+  \end{equation}
+  với $W_{\max}$ là kích thước cửa sổ ngay trước khi xảy ra sự cố giảm tải, $C \approx 0.4$ là hệ số tỷ lệ, và hằng số thời gian cân bằng:
+  \begin{equation}
+  K = \sqrt[3]{\frac{W_{\max} \beta}{C}} \quad (\text{với } \beta = 0.2)
+  \end{equation}
+  Đặc tính hình học: Khi $t < K$, hàm số lồi và tăng trưởng nhanh; khi $t \approx K$, độ dốc tiệm cận 0 giúp hệ thống ổn định lâu dài tại điểm hoạt động tốt nhất; khi $t > K$, hàm số mở rộng mạnh mẽ để tìm kiếm dung lượng băng thông mới.
+
+  \item \textbf{Giải thuật BBR (Bottleneck Bandwidth and RTT)}:
+  Do các kỹ sư mạng của Google phát minh (Cardwell et al., 2016). BBR chỉ ra sai lầm lịch sử: \textbf{Mất gói tin không đồng nghĩa với tắc nghẽn đường truyền}. Trong các mạng viễn thông hiện đại có bộ đệm lớn (Deep Buffers), thuật toán mất gói cổ điển khiến hàng đợi của Router bị lấp đầy, gây hiện tượng phình bộ đệm (\textit{Bufferbloat}) làm độ trễ tăng vọt từ $20\text{ms}$ lên $500\text{ms}$.
+  
+  BBR liên tục đo đạc độc lập hai tham số vật lý:
+  \begin{itemize}
+    \item Băng thông cổ chai thực tế: $BtlBw = \max(\text{Delivery Rate})$.
+    \item Độ trễ lan truyền thuần túy tối thiểu: $RTprop = \min(\text{RTT})$.
+  \end{itemize}
+  BBR duy trì lượng dữ liệu đang bay trên đường truyền đúng bằng Tích số Băng thông -- Độ trễ (BDP), triệt tiêu hoàn toàn hàng đợi chờ tại Router!
+\end{enumerate}
+
+\subsection{Tính Toán Tích Số Băng Thông - Độ Trễ (BDP)}
+
+\begin{definition}[Tích Số Băng Thông - Độ Trễ - Bandwidth-Delay Product]
+BDP là lượng dữ liệu tối đa có thể đồng thời nằm trên đường truyền cáp quang giữa bên gửi và bên nhận:
+\begin{equation}
+\text{BDP} = \text{Bandwidth (Bytes/s)} \times \text{RTT (Seconds)}
+\end{equation}
+\end{definition}
+
+\begin{example}[Tính Toán Kích Thước Bộ Đệm Socket Cho Cụm AI Đa Vùng]
+Xét đường truyền kết nối giữa cụm GPU tại Singapore và API Gateway tại Hà Nội:
+\begin{itemize}
+  \item Băng thông thuê bao riêng: $B = 10\text{ Gbps} = \frac{10 \times 10^9}{8} = 1.25 \times 10^9\text{ Bytes/giây}$.
+  \item Độ trễ mạng khứ hồi: $\text{RTT} = 35\text{ ms} = 0.035\text{ giây}$.
+\end{itemize}
+Tích số BDP của đường truyền là:
+\begin{equation*}
+\text{BDP} = (1.25 \times 10^9) \times 0.035 = 43,750,000\text{ Bytes} \approx \mathbf{41.72\text{ MiB}}
+\end{equation*}
+Nếu kỹ sư hệ thống giữ nguyên cấu hình bộ nhớ đệm nhận mặc định của Linux (\code{tcp_rmem} max là $4\text{ MiB}$):
+\begin{equation*}
+\text{Băng Thông Thực Tế Tối Đa} = \frac{4\text{ MiB}}{0.035\text{ s}} \approx \frac{4.194 \times 10^6 \times 8}{0.035} \approx \mathbf{958.6\text{ Mbps}}
+\end{equation*}
+Hệ thống chỉ khai thác được chưa đầy $10\%$ đường truyền $10\text{ Gbps}$! Do đó, kỹ sư buộc phải tăng tham số bộ nhớ đệm nhận \code{tcp_rmem} tối đa lên ít nhất $64\text{ MiB}$ trong cấu hình \file{/etc/sysctl.conf}.
+\end{example}
+
+---
+
+\section{Cơ Sở Toán Học Mật Mã Của Bắt Tay Bảo Mật TLS 1.3 \& ECDH}
+\label{sec:tls13-ecdh-mathematics}
+
+Trong phiên bản TLS 1.3 (RFC 8446), toàn bộ các giải pháp trao đổi khóa tĩnh RSA cổ điển đều bị loại bỏ vì không bảo đảm tính bí mật chuyển tiếp hoàn hảo (\textit{Perfect Forward Secrecy} -- PFS). Thay vào đó, giao thức bắt buộc sử dụng thuật toán trao đổi khóa trên Đường cong Elliptic: \term{ECDHE (Elliptic Curve Diffie-Hellman Ephemeral)}.
+
+\subsection{Toán Học Trên Đường Cong Elliptic (Elliptic Curves Over Finite Fields)}
+
+Một đường cong Elliptic Weierstrass chuẩn tắc trên trường hữu hạn $\mathbb{F}_p$ ($p > 3$ là số nguyên tố lớn) được xác định bởi phương trình:
+\begin{equation}
+y^2 \equiv x^3 + a x + b \pmod p, \quad \text{với điều kiện } 4a^3 + 27b^2 \not\equiv 0 \pmod p
+\end{equation}
+Tập hợp các điểm $(x, y) \in \mathbb{F}_p \times \mathbb{F}_p$ thỏa mãn phương trình cùng với điểm vô cực $\mathcal{O}$ tạo thành một nhóm Abel hữu hạn dưới phép cộng điểm hình học:
+\begin{itemize}
+  \item \textbf{Phép cộng hai điểm phân biệt $P(x_1, y_1) + Q(x_2, y_2) = R(x_3, y_3)$}:
+  \begin{align}
+  \lambda &= \frac{y_2 - y_1}{x_2 - x_1} \pmod p \\
+  x_3 &= \lambda^2 - x_1 - x_2 \pmod p \\
+  y_3 &= \lambda(x_1 - x_3) - y_1 \pmod p
+  \end{align}
+  \item \textbf{Phép nhân vô hướng (Scalar Multiplication)}: Với số nguyên $k$, điểm $k \cdot P$ được tính bằng cách cộng điểm $P$ với chính nó $k$ lần thông qua thuật toán Double-and-Add với độ phức tạp $\mathcal{O}(\log k)$.
+\end{itemize}
+
+\subsection{Bài Toán Logarithm Rời Rạc Trên Đường Cong Elliptic (ECDLP)}
+\begin{definition}[Bài Toán ECDLP]
+Cho trước điểm cơ sở $G$ có bậc $n$ lớn và một điểm công khai $Q = d \cdot G$ trên đường cong Elliptic. Tìm số nguyên bí mật $d \in [1, n-1]$.
+\end{definition}
+Trong khi phép tính thuận $Q = d \cdot G$ chỉ tốn vài micro-giây tính toán trên chip, bài toán nghịch đảo tìm $d$ khi chỉ biết $Q$ và $G$ đòi hỏi độ phức tạp tiệm cận $\mathcal{O}(\sqrt{n})$ bằng thuật toán Pollard's rho. Với đường cong Curve25519 hoặc secp256r1 ($n \approx 2^{256}$), siêu máy tính mạnh nhất thế giới cần hàng tỷ năm để phá vỡ.
+
+\subsection{Quy Trình Trao Đổi Khóa 1-RTT Trong TLS 1.3}
+
+\begin{enumerate}
+  \item \textbf{Client Khởi Tạo}: Client sinh khóa bí mật tạm thời $d_C \in_R [1, n-1]$, tính khóa công khai:
+  \begin{equation}
+  Q_C = d_C \cdot G
+  \end{equation}
+  Gửi $Q_C$ ngay trong gói tin đầu tiên \code{ClientHello} (thông qua trường \code{KeyShare}).
+  \item \textbf{Server Phản Hồi}: Server nhận $Q_C$, tự sinh khóa bí mật tạm thời $d_S \in_R [1, n-1]$, tính khóa công khai:
+  \begin{equation}
+  Q_S = d_S \cdot G
+  \end{equation}
+  Tính toán điểm bí mật chung:
+  \begin{equation}
+  K_{\text{Shared}} = d_S \cdot Q_C = d_S (d_C \cdot G) = d_C (d_S \cdot G) = d_C \cdot Q_S
+  \end{equation}
+  Server gửi $Q_S$ trong gói tin \code{ServerHello}.
+  \item \textbf{Khóa Đối Xứng Phục Vụ Truyền Tin}: Cả Client và Server đều sở hữu cùng một tọa độ điểm $K_{\text{Shared}}$, đưa qua hàm băm dẫn xuất khóa HKDF-Extract và HKDF-Expand (RFC 5869) để sinh bộ khóa mã hóa đối xứng AES-GCM-256 hoặc ChaCha20-Poly1305.
+\end{enumerate}
+
+Toàn bộ quá trình hoàn tất trong đúng **1 RTT duy nhất**, vừa bảo mật tuyệt đối trước sự giải mã trong tương lai (\textit{Forward Secrecy}), vừa tối ưu độ trễ TTFT cho hệ thống AI phục vụ sản xuất.
+
+---
+
 \section{Hiện Thực Hóa: Bộ Phân Tích Độ Trễ Mạng \& Rate Limiter}
 \label{sec:ch03-implementation}
 
 Dưới đây là một mô đun Python hoàn chỉnh triển khai thuật toán Cửa sổ trượt kiểm soát tốc độ truy vấn kết hợp bộ đo độ trễ mạng có kiểm định chặt chẽ:
 
-\begin{workedexamplebox}[Mô Đun Đo Độ Trễ Mạng \& Rate Limiter Bằng Python]
 \begin{lstlisting}[language=Python]
 import time
 from typing import Dict, Any, List, Optional
@@ -578,7 +762,6 @@ class CIDRSubnetCalculator:
             return 0
         return (2 ** (32 - cidr_prefix)) - 2
 \end{lstlisting}
-\end{workedexamplebox}
 
 ---
 

@@ -1,4 +1,5 @@
 """Test suite for Chapter 3 Systems and Networking code examples."""
+import math
 import pytest
 import socket
 from typing import Dict, Any, List, Optional
@@ -127,3 +128,59 @@ def test_network_health_checker_mock():
         mock_sock.connect.side_effect = ConnectionRefusedError
         res = AINetworkHealthChecker.check_port("127.0.0.1", 8000)
         assert res["status"] == "CLOSED"
+
+def test_bandwidth_delay_product_calculation():
+    """Verify BDP calculation: BDP = Bandwidth * RTT."""
+    bandwidth_gbps = 10.0
+    rtt_ms = 35.0
+    
+    # In bytes: 10 Gbps = (10 * 10^9 / 8) Bytes/s = 1.25 * 10^9 Bytes/s
+    bandwidth_bytes_per_sec = (bandwidth_gbps * 1e9) / 8.0
+    rtt_sec = rtt_ms / 1000.0
+    
+    bdp_bytes = bandwidth_bytes_per_sec * rtt_sec
+    bdp_mib = bdp_bytes / (1024 * 1024)
+    
+    assert math.isclose(bdp_bytes, 43_750_000.0, rel_tol=1e-7)
+    assert abs(bdp_mib - 41.72) < 0.01
+
+def test_tcp_cubic_window_growth_simulation():
+    """Verify TCP CUBIC mathematical window growth: W(t) = C*(t - K)^3 + W_max."""
+    import math
+    W_max = 1000.0  # packets
+    beta = 0.2
+    C = 0.4
+    
+    K = (W_max * beta / C) ** (1.0 / 3.0)  # K = (200 / 0.4)^(1/3) = 500^(1/3) ~ 7.937
+    
+    # At t = 0: W(0) = C * (-K)^3 + W_max = - (W_max * beta) + W_max = (1 - beta) * W_max
+    W_0 = C * (0 - K)**3 + W_max
+    assert math.isclose(W_0, (1 - beta) * W_max, rel_tol=1e-5)
+    
+    # At t = K: W(K) reaches exactly W_max
+    W_K = C * (K - K)**3 + W_max
+    assert math.isclose(W_K, W_max, rel_tol=1e-5)
+    
+    # For t > K: window probes aggressively higher than W_max
+    W_future = C * (K + 2.0 - K)**3 + W_max
+    assert W_future > W_max
+
+def test_ecdh_key_exchange_toy_simulation():
+    """Verify Diffie-Hellman discrete log key exchange property: (g^a)^b == (g^b)^a mod p."""
+    # Toy prime and generator
+    p = 23
+    g = 5
+    
+    # Client secret d_C, Server secret d_S
+    d_C = 6
+    d_S = 15
+    
+    # Public keys
+    Q_C = pow(g, d_C, p)  # 5^6 mod 23 = 8
+    Q_S = pow(g, d_S, p)  # 5^15 mod 23 = 19
+    
+    # Derived shared secret
+    K_client = pow(Q_S, d_C, p)  # 19^6 mod 23 = 2
+    K_server = pow(Q_C, d_S, p)  # 8^15 mod 23 = 2
+    
+    assert K_client == K_server == 2

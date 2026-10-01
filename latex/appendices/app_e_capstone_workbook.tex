@@ -10,7 +10,7 @@
 
 Để thực sự làm chủ năng lực của một Kỹ sư AI cao cấp, việc nắm vững lý thuyết trừu tượng là chưa đủ. Bạn cần trực tiếp nhúng tay vào việc giải quyết các bài toán kỹ nghệ thế giới thực từ con số 0: Từ việc đọc từng gói tin mạng thô, giải tích các phương trình kiểm toán, đến việc thiết kế luồng suy luận của AI Agent có khả năng tự sửa lỗi và tích hợp hệ thống phòng thủ đa tầng.
 
-Phụ lục chuyên khảo này thiết kế 4 đồ án ứng dụng AI cấp độ doanh nghiệp hoàn chỉnh. Mỗi đồ án đều được xây dựng theo quy trình kỹ nghệ 5 bước chuẩn mực:
+Phụ lục chuyên khảo này thiết kế 6 đồ án ứng dụng AI cấp độ doanh nghiệp hoàn chỉnh. Mỗi đồ án đều được xây dựng theo quy trình kỹ nghệ 5 bước chuẩn mực:
 \begin{enumerate}
   \item \textbf{Khởi điểm từ con số 0}: Định nghĩa các khái niệm nền tảng về mạng, tài chính, y tế hoặc thuật toán mà không giả định người đọc đã biết trước.
   \item \textbf{Phân tích động cơ \& Mô hình toán học}: Giải thích cặn kẽ tại sao phải áp dụng công thức giải tích hoặc xác suất cụ thể.
@@ -295,3 +295,332 @@ def compute_infonce_loss(user_embeddings: np.ndarray,
     loss = - np.mean(np.log(pos_exp / sum_exp))
     return float(loss)
 \end{lstlisting}
+
+\subsection{Bộ Câu Hỏi Phản Biện Bảo Vệ Đồ Án}
+\begin{enumerate}
+  \item \textbf{Tại sao hệ gợi ý Two-Tower không thể so sánh tương tác chéo (\textit{Cross-Features}) giữa thuộc tính người dùng và sản phẩm?}
+  \item \textbf{Hiện tượng phổ biến của In-Batch Negatives là \textit{Selection Bias} (các sản phẩm thịnh hành xuất hiện quá nhiều lần dưới dạng mẫu âm). Làm thế nào để hiệu chỉnh bằng xác suất lấy mẫu LogQ?}
+  \item \textbf{Làm thế nào để phục vụ suy luận với thời gian trễ dưới 5ms khi tập sản phẩm mở rộng lên hơn 100 triệu phần tử?}
+\end{enumerate}
+
+---
+
+\section{Đồ Án 5: Tường Lửa Proxy AI Tốc Độ Cực Cao Độ Trễ Thấp Dưới 5ms Cho Cụm Phục Vụ LLM (Ultra-Low Latency AI Firewall \& Prompt Guardrail Proxy)}
+\label{sec:workbook-ai-firewall-proxy}
+
+\subsection{Khởi Điểm Từ Con Số 0: Giao Thức HTTP Streaming \& Thách Thức Độ Trễ Guardrail}
+Trong các ứng dụng trí tuệ nhân tạo hiện đại, trải nghiệm người dùng phụ thuộc sống còn vào chỉ số \term{TTFT (Time To First Token)} -- thời gian tính từ khi người dùng bấm gửi câu hỏi cho đến khi ký tự đầu tiên hiện ra trên màn hình. Để đạt được phản hồi mượt mà, các mô hình ngôn ngữ lớn (LLM) sử dụng cơ chế phát trực tuyến qua giao thức \term{Server-Sent Events (SSE)} trên nền HTTP/1.1 hoặc HTTP/2. Máy chủ gửi về client từng token một dưới dạng các khối bản tin liên tục:
+\begin{center}
+\code{data: \{"token": "Xin", "finish_reason": null\}}\\[2pt]
+\code{data: \{"token": " chao", "finish_reason": null\}}
+\end{center}
+
+Tuy nhiên, một rào cản kỹ nghệ khổng lồ xuất hiện khi doanh nghiệp muốn bổ sung tầng bảo mật \term{Guardrails} để chống tấn công Prompt Injection, lộ lọt dữ liệu cá nhân (PII: số căn cước, mã thẻ ngân hàng), hoặc phát ngôn độc hại:
+\begin{itemize}
+  \item \textbf{Nghịch lý độ trễ của Guardrail LLM}: Nếu sử dụng một mô hình ngôn ngữ an toàn riêng biệt (ví dụ: Llama Guard 7B hoặc GPT-4o-mini) để đọc và phân loại prompt trước khi chuyển sang cụm phục vụ vLLM, thời gian phản hồi TTFT sẽ bị cộng thêm từ $250\text{ms}$ đến $600\text{ms}$. Đây là mức tăng độ trễ không thể chấp nhận được trong các hệ thống giao dịch tài chính hoặc trợ lý giọng nói trực tiếp.
+  \item \textbf{Mục tiêu thiết kế}: Xây dựng một tầng \term{Reverse Guardrail Proxy} phi đồng bộ cắm ngay trước cụm vLLM. Proxy này kiểm duyệt hai chiều (cả prompt đầu vào và dòng token streaming đầu ra) với độ trễ cộng thêm \textbf{dưới $5\text{ms}$}, chặn đứng hoàn toàn các cuộc tấn công đã biết và ngắt luồng kết nối ngay tức khắc khi phát hiện nội dung vi phạm.
+\end{itemize}
+
+\subsection{Mô Hình Toán Học: Thuật Toán Aho-Corasick Đa Mẫu \& Phân Cách Siêu Phẳng Embedding}
+Để đạt được tốc độ kiểm duyệt hàng triệu ký tự chỉ trong vài phần nghìn giây, ta kết hợp hai kỹ thuật toán học:
+
+\paragraph{1. Thuật toán so khớp chuỗi hữu hạn Aho-Corasick}:
+Cho một từ điển gồm $K$ mẫu nguy hại $\mathcal{P} = \{p_1, p_2, \dots, p_K\}$ với tổng độ dài các ký tự là $M = \sum |p_k|$. Một chuỗi văn bản đầu vào $\mathcal{T}$ có độ dài $N$ ký tự.
+Nếu dùng thuật toán so khớp ngây thơ hoặc chạy $K$ biểu thức chính quy (Regex) độc lập, độ phức tạp tính toán là $\mathcal{O}(K \times N)$ -- chi phí sẽ bùng nổ khi tập mẫu luật tăng lên hàng chục ngàn từ.
+
+Thuật toán Aho-Corasick ánh xạ toàn bộ tập từ điển $\mathcal{P}$ thành một cây tiền tố Trie kết hợp với hàm chuyển tiếp thất bại (\textit{Failure Link}):
+\begin{itemize}
+  \item \textbf{Hàm chuyển tiếp gốc $g(u, c)$}: Chuyển từ trạng thái $u$ sang trạng thái con khi gặp ký tự $c$.
+  \item \textbf{Hàm thất bại $f(u)$}: Khi ký tự tiếp theo không có nhánh đi tiếp trong Trie, $f(u)$ trỏ về trạng thái tương ứng với hậu tố thực sự dài nhất của chuỗi ký tự dẫn tới $u$.
+  \item \textbf{Hàm đầu ra $\text{out}(u)$}: Tập hợp tất cả các mẫu độc hại kết thúc tại trạng thái $u$ hoặc các hậu tố của $u$.
+\end{itemize}
+Nhờ cấu trúc đồ thị này, toàn bộ văn bản đầu vào $N$ ký tự được quét qua đúng một lần duy nhất theo thời gian tuyến tính:
+\begin{equation}
+\mathcal{T}_{\text{search}} = \mathcal{O}(N + Z)
+\end{equation}
+trong đó $Z$ là số lần xuất hiện của các mẫu vi phạm trong văn bản, hoàn toàn độc lập với kích thước từ điển $K$!
+
+\paragraph{2. Phân loại ngữ nghĩa tuyến tính nhúng (Embedding Linear Hyperplane)}:
+Đối với các đòn tấn công diễn đạt gián tiếp (Paraphrased Injection), ta sử dụng một mô hình nhúng siêu nhẹ (Tiny-Embedding 384 chiều) kết hợp phân loại nhị phân qua siêu phẳng Support Vector Machine:
+\begin{equation}
+\hat{y} = \sigma\left(\mathbf{w}^T \frac{\mathbf{e}(\mathcal{T})}{\|\mathbf{e}(\mathcal{T})\|_2} + b\right) \ge \theta_{\text{threshold}}
+\end{equation}
+Phép nhân vô hướng giữa véc-tơ 384 chiều và véc-tơ trọng số $\mathbf{w}$ trên tập lệnh SIMD CPU chỉ tiêu tốn chưa đầy $0.15\text{ms}$.
+
+\subsection{Kiến Trúc Hệ Thống: Cửa Sổ Trượt Token \& Cắt Luồng Streaming (Streaming Cut-Off)}
+Tường lửa hoạt động như một Reverse Proxy cắm giữa Client và Backend vLLM:
+\begin{enumerate}
+  \item \textbf{Kiểm duyệt đầu vào (Pre-Execution Ingress)}: Quét toàn bộ nội dung prompt qua máy Aho-Corasick và bộ phân loại tuyến tính. Nếu điểm nguy cơ vượt ngưỡng, Proxy trả về mã lỗi HTTP 403 Forbidden ngay lập tức trong $1.2\text{ms}$ mà không tiêu tốn một chu kỳ tính toán nào của GPU backend.
+  \item \textbf{Kiểm duyệt dòng token đầu ra (Post-Execution Egress)}: Khi vLLM bắt đầu sinh dữ liệu, Proxy duy trì một \term{Sliding Window Ring Buffer} kích thước $W = 16$ tokens. Dòng token được truyền thông suốt tới người dùng để bảo đảm TTFT cực thấp. Ngay khi cửa sổ trượt phát hiện một mẫu vi phạm (ví dụ rò rỉ mã bí mật API Key hoặc thông tin y tế nhạy cảm), Proxy lập tức:
+  \begin{itemize}
+    \item Phát tín hiệu hủy luồng (\textit{Client Abort / Backend RST}) tới vLLM để giải phóng GPU KV-cache.
+    \item Chèn thông báo thay thế \code{[REDACTED BY AI GUARDRAIL]} và ngắt dòng SSE với cờ \code{finish_reason: "content_filter"}.
+  \end{itemize}
+\end{enumerate}
+
+\subsection{Triển Khai Mã Nguồn Python: Aho-Corasick Automaton \& Streaming Guardrail Proxy}
+
+\begin{lstlisting}[language=python]
+import time
+from collections import deque
+from dataclasses import dataclass, field
+from typing import Dict, List, Optional, Tuple, Set
+
+class AhoCorasickNode:
+    """Nut trong cay tien to Aho-Corasick Automaton."""
+    def __init__(self, depth: int = 0):
+        self.depth = depth
+        self.transitions: Dict[str, "AhoCorasickNode"] = {}
+        self.fail: Optional["AhoCorasickNode"] = None
+        self.outputs: List[str] = []
+
+class AhoCorasickAutomaton:
+    """Co che so khop da mau thoi gian tuyen tinh O(N + M)."""
+    def __init__(self, keywords: List[str]):
+        self.root = AhoCorasickNode(depth=0)
+        for kw in keywords:
+            self._insert(kw.lower())
+        self._build_failure_links()
+
+    def _insert(self, keyword: str) -> None:
+        curr = self.root
+        for char in keyword:
+            if char not in curr.transitions:
+                curr.transitions[char] = AhoCorasickNode(depth=curr.depth + 1)
+            curr = curr.transitions[char]
+        curr.outputs.append(keyword)
+
+    def _build_failure_links(self) -> None:
+        queue = deque()
+        # Level 1 nodes have fail link to root
+        for char, child in self.root.transitions.items():
+            child.fail = self.root
+            queue.append(child)
+
+        # BFS construction of failure transitions
+        while queue:
+            curr = queue.popleft()
+            for char, child in curr.transitions.items():
+                queue.append(child)
+                fail_node = curr.fail
+                while fail_node and char not in fail_node.transitions:
+                    fail_node = fail_node.fail
+                child.fail = fail_node.transitions[char] if fail_node else self.root
+                # Combine outputs with failure node
+                child.outputs.extend(child.fail.outputs)
+
+    def search(self, text: str) -> List[Tuple[int, str]]:
+        """Tim tat ca cac mau doc hai trong doan van text."""
+        results = []
+        curr = self.root
+        text_lower = text.lower()
+        for idx, char in enumerate(text_lower):
+            while curr and char not in curr.transitions:
+                curr = curr.fail
+            curr = curr.transitions[char] if curr else self.root
+            if curr.outputs:
+                for kw in curr.outputs:
+                    results.append((idx - len(kw) + 1, kw))
+        return results
+
+@dataclass
+class GuardrailVerdict:
+    is_safe: bool
+    latency_ms: float
+    violations: List[str] = field(default_factory=list)
+    action: str = "ALLOW"
+
+class StreamingGuardrailProxy:
+    """Tuong lua proxy AI do tre duoi 5ms cho cum vLLM."""
+    def __init__(self, forbidden_signatures: List[str], window_size: int = 16):
+        self.automaton = AhoCorasickAutomaton(forbidden_signatures)
+        self.window_size = window_size
+
+    def inspect_ingress_prompt(self, prompt: str) -> GuardrailVerdict:
+        t0 = time.perf_counter()
+        matches = self.automaton.search(prompt)
+        elapsed_ms = (time.perf_counter() - t0) * 1000.0
+        if matches:
+            violations = list({m[1] for m in matches})
+            return GuardrailVerdict(
+                is_safe=False,
+                latency_ms=elapsed_ms,
+                violations=violations,
+                action="BLOCK_403"
+            )
+        return GuardrailVerdict(is_safe=True, latency_ms=elapsed_ms, action="ALLOW")
+
+    def inspect_streaming_chunk(self, ring_buffer: str, new_token: str) -> Tuple[bool, str, str]:
+        """Kiem tra tung chunk token moi sinh ra tu engine."""
+        combined_text = ring_buffer + new_token
+        matches = self.automaton.search(combined_text)
+        if matches:
+            # Ngat luong va thay the bang token canh bao
+            violation = matches[0][1]
+            return False, violation, "[VIOLATION_INTERCEPTED]"
+        return True, "", new_token
+\end{lstlisting}
+
+\subsection{Bộ Câu Hỏi Phản Biện Bảo Vệ Đồ Án}
+\begin{enumerate}
+  \item \textbf{Tại sao thuật toán Aho-Corasick có thể đảm bảo thời gian xử lý không đổi bất kể từ điển mở rộng từ 100 từ lên 100.000 từ?}
+  \item \textbf{Nếu kẻ tấn công sử dụng kỹ thuật chèn ký tự vô hình (Zero-Width Space) hoặc ký tự đồng hình Unicode (Homoglyph) để vượt mặt Aho-Corasick, tầng Proxy cần bổ sung tiền xử lý gì?}
+  \item \textbf{Làm thế nào để thiết kế bộ đệm trượt Ring Buffer cho dòng streaming SSE mà không làm tăng độ trễ cảm nhận của người dùng?}
+\end{enumerate}
+
+---
+
+\section{Đồ Án 6: Nền Tảng Điều Phối Khôi Phục Thảm Họa Tự Động \& Dự Phòng Đa Vùng Cho Cụm AI (Multi-Region AI Disaster Recovery \& Autonomous Failover Orchestrator)}
+\label{sec:workbook-multi-region-failover}
+
+\subsection{Khởi Điểm Từ Con Số 0: Phân Vùng Mạng \& Hạ Tầng Phục Vụ AI Đa Vùng}
+Trong môi trường sản xuất của các tập đoàn công nghệ lớn, các cụm máy chủ phục vụ mô hình ngôn ngữ lớn (vLLM / Triton clusters) không bao giờ được đặt tại duy nhất một trung tâm dữ liệu. Một sự cố mất điện diện rộng, đứt cáp quang biển quốc tế, hoặc lỗi cấu hình mạng BGP có thể khiến toàn bộ một vùng dữ liệu (\textit{Cloud Region} ví dụ: \code{us-east-1}) bị cô lập hoàn toàn khỏi Internet.
+
+Hiện tượng một phần của mạng lưới bị mất liên lạc nhưng cả hai cụm máy chủ vẫn tiếp tục hoạt động độc lập được gọi là \term{Phân Vùng Mạng (Network Partition)}. Nếu không có cơ chế điều phối chặt chẽ, hệ thống rất dễ rơi vào trạng thái thảm họa \term{Split-Brain (Não Phân Liệt)}: Cả hai cụm máy chủ đều tự cho mình là cụm hoạt động duy nhất, cùng ghi đè trạng thái, gây mất đồng bộ dữ liệu và vi phạm các cam kết bảo mật.
+
+Để giải quyết bài toán này, các Kỹ sư AI cần thiết kế một hệ thống điều phối \term{Autonomous Multi-Region Failover Orchestrator} có khả năng phát hiện sự cố nút mạng trong vài giây và chuyển hướng lưu lượng tải hoàn toàn tự động với cam kết:
+\begin{itemize}
+  \item \textbf{RTO (Recovery Time Objective) $\le 3\text{ giây}$}: Thời gian tối đa để hệ thống khôi phục hoàn toàn khả năng phục vụ truy vấn sau khi cụm chính sụp đổ.
+  \item \textbf{RPO (Recovery Point Objective) $= 0$}: Không làm mất bất kỳ yêu cầu suy luận hợp lệ nào đang chờ trong hàng đợi.
+\end{itemize}
+
+\subsection{Mô Hình Toán Học: Thuật Toán Dự Báo Lỗi Phi-Accrual Failure Detector}
+Cơ chế kiểm tra tình trạng sống còn (\textit{Health Check}) truyền thống dựa trên ngưỡng thời gian cố định (\textit{Fixed Timeout}, ví dụ: 5 giây không thấy nhịp tim thì coi như chết) có nhược điểm chí mạng:
+\begin{itemize}
+  \item Nếu đặt ngưỡng quá nhỏ (ví dụ 1 giây): Hiện tượng nghẽn mạng thoáng qua (\textit{Network Jitter}) sẽ kích hoạt chuyển vùng giả mạo (\textit{False Failover}), gây xáo trộn luồng kết nối hàng triệu người dùng.
+  \item Nếu đặt ngưỡng quá lớn (ví dụ 10 giây): Thời gian phát hiện sự cố quá chậm, vi phạm chỉ tiêu SLA của doanh nghiệp.
+\end{itemize}
+
+Để giải quyết triệt để, ta áp dụng thuật toán dự báo lỗi thích ứng \term{$\Phi$-Accrual Failure Detector} (Hayashibara et al.):
+Hệ thống duy trì một cửa sổ trượt $W = 100$ khoảng thời gian giữa các nhịp tim liên tiếp (\textit{Heartbeat Inter-arrival Times}) $\{x_1, x_2, \dots, x_W\}$.
+Theo định lý giới hạn trung tâm, các biến ngẫu nhiên này có thể xấp xỉ bằng phân phối Gauss $\mathcal{N}(\mu, \sigma^2)$:
+\begin{equation}
+\mu = \frac{1}{W} \sum_{i=1}^W x_i, \quad \sigma^2 = \frac{1}{W-1} \sum_{i=1}^W (x_i - \mu)^2
+\end{equation}
+
+Tại thời điểm hiện tại $t$, nếu đã trôi qua một khoảng thời gian $\Delta = t - t_{\text{last}}$ kể từ lần cuối nhận được nhịp tim từ cụm máy chủ từ xa, xác suất để một nhịp tim bình thường xuất hiện muộn hơn thời điểm này là:
+\begin{equation}
+P_{\text{later}}(\Delta) = \frac{1}{\sigma \sqrt{2\pi}} \int_{\Delta}^{\infty} \exp\left(-\frac{(u - \mu)^2}{2\sigma^2}\right) du = 1 - \frac{1}{2} \left[ 1 + \text{erf}\left(\frac{\Delta - \mu}{\sigma \sqrt{2}}\right) \right]
+\end{equation}
+
+Mức độ nghi ngờ cụm máy chủ đã chết (\textit{Suspicion Level}) được định lượng trên thang đo Logarit:
+\begin{equation}
+\Phi = - \log_{10}\left( P_{\text{later}}(\Delta) \right)
+\end{equation}
+
+\textbf{Ý nghĩa định lượng của chỉ số $\Phi$}:
+\begin{itemize}
+  \item $\Phi = 1 \implies P_{\text{later}} = 0.1$ (khả năng trễ ngẫu nhiên là $10\%$).
+  \item $\Phi = 3 \implies P_{\text{later}} = 10^{-3}$ (khả năng trễ ngẫu nhiên chỉ còn $0.1\%$).
+  \item $\Phi \ge 8.0 \implies P_{\text{later}} \le 10^{-8}$ (sự chậm trễ này gần như chắc chắn $100\%$ là do trung tâm dữ liệu đã bị sập $\implies$ Kích hoạt quy trình chuyển vùng Failover tức thời!).
+\end{itemize}
+
+\paragraph{Phân tích độ sẵn sàng tổng thể hệ thống đa vùng}:
+Xét hệ thống gồm $R$ vùng độc lập (ví dụ US-East, EU-Central, AP-Southeast), mỗi vùng có độ sẵn sàng độc lập $A_r = 99.9\%$ ($0.999$). Độ sẵn sàng song song toàn cục của toàn hệ thống là:
+\begin{equation}
+A_{\text{system}} = 1 - \prod_{r=1}^R (1 - A_r) = 1 - (1 - 0.999)^3 = 1 - (10^{-3})^3 = 1 - 10^{-9} = \mathbf{99.9999999\%} \quad (\text{9 số 9})!
+\end{equation}
+
+\subsection{Kiến Trúc Hệ Thống: Bầu Chọn Quorum \& Chuyển Hướng Lưu Lượng Anycast}
+Hệ thống điều phối khôi phục thảm họa gồm 3 thành phần cốt lõi:
+\begin{enumerate}
+  \item \textbf{Cơ chế đồng thuận Quorum Trọng tài (Witness Arbiter)}: Để ngăn chặn Split-Brain khi đứt liên kết giữa Cụm 1 và Cụm 2, một thực thể trọng tài độc lập (\textit{Arbiter}) được đặt tại vùng thứ ba. Quyết định tiếp quản tải chỉ có hiệu lực khi đạt được sự đồng thuận của đa số tuyệt đối:
+  \begin{equation}
+  \text{Quorum} \ge \left\lfloor \frac{R}{2} \right\rfloor + 1
+  \end{equation}
+  \item \textbf{Chuyển hướng DNS \& BGP Anycast}: Khi kích hoạt chuyển vùng, Orchestrator cập nhật bản ghi DNS định tuyến độ trễ thấp (\textit{Latency-based DNS Routing}) qua Cloudflare/Route53 API và thu hồi tiền tố IP Anycast của cụm lỗi, chuyển hướng $100\%$ lưu lượng người dùng sang cụm dự phòng trong vòng $1.8\text{ giây}$.
+\end{enumerate}
+
+\subsection{Triển Khai Mã Nguồn Python: Phi-Accrual Detector \& Bộ Điều Phối Failover}
+
+\begin{lstlisting}[language=python]
+import math
+import time
+from collections import deque
+from dataclasses import dataclass
+from typing import Dict, List, Optional
+
+class PhiAccrualFailureDetector:
+    """Bo phat hien su co thich ung Phi-Accrual dua tren phan phoi Gauss."""
+    def __init__(self, window_size: int = 100, min_std_dev: float = 0.05):
+        self.window_size = window_size
+        self.min_std_dev = min_std_dev
+        self.intervals = deque(maxlen=window_size)
+        self.last_heartbeat_time: Optional[float] = None
+
+    def record_heartbeat(self, timestamp: float) -> None:
+        """Ghi nhan nhip tim moi tu nut mang."""
+        if self.last_heartbeat_time is not None:
+            interval = timestamp - self.last_heartbeat_time
+            if interval > 0:
+                self.intervals.append(interval)
+        self.last_heartbeat_time = timestamp
+
+    def compute_phi(self, current_time: float) -> float:
+        """Tinh toan muc do nghi ngo Phi tai thoi diem hien tai."""
+        if self.last_heartbeat_time is None or len(self.intervals) < 3:
+            return 0.0
+        
+        delta = current_time - self.last_heartbeat_time
+        if delta <= 0:
+            return 0.0
+
+        mean = sum(self.intervals) / len(self.intervals)
+        variance = sum((x - mean) ** 2 for x in self.intervals) / (len(self.intervals) - 1)
+        std_dev = max(math.sqrt(variance), self.min_std_dev)
+
+        # Tinh xac suat P_later qua ham sai so Gauss (erf)
+        y = (delta - mean) / (std_dev * math.sqrt(2.0))
+        # erf(y) xap xi tich phan Gauss
+        p_later = 0.5 * math.erfc(y)
+        
+        # Tranh loi chia cho 0 hoac log(0)
+        p_later = max(p_later, 1e-15)
+        phi = - math.log10(p_later)
+        return float(phi)
+
+@dataclass
+class RegionCluster:
+    region_id: str
+    is_primary: bool
+    is_healthy: bool
+    traffic_weight: float
+
+class MultiRegionFailoverOrchestrator:
+    """Dieu phoi chuyen vung tu dong cho cum phuc vu AI."""
+    def __init__(self, primary_region: str, backup_region: str, phi_threshold: float = 8.0):
+        self.clusters = {
+            primary_region: RegionCluster(primary_region, is_primary=True, is_healthy=True, traffic_weight=1.0),
+            backup_region: RegionCluster(backup_region, is_primary=False, is_healthy=True, traffic_weight=0.0)
+        }
+        self.primary_region = primary_region
+        self.backup_region = backup_region
+        self.detector = PhiAccrualFailureDetector()
+        self.phi_threshold = phi_threshold
+        self.failover_triggered = False
+
+    def handle_heartbeat(self, timestamp: float) -> None:
+        self.detector.record_heartbeat(timestamp)
+
+    def evaluate_cluster_health(self, current_time: float) -> Tuple[bool, float, str]:
+        """Danh gia suc khoe cum va tu dong chuyen vung neu can thiet."""
+        phi = self.detector.compute_phi(current_time)
+        if phi >= self.phi_threshold and not self.failover_triggered:
+            # Phat hien su co tham hoa -> Chuyen giao luu luong
+            self.failover_triggered = True
+            self.clusters[self.primary_region].is_healthy = False
+            self.clusters[self.primary_region].traffic_weight = 0.0
+            
+            self.clusters[self.backup_region].traffic_weight = 1.0
+            return True, phi, f"CRITICAL_FAILOVER: Diverted 100% traffic to {self.backup_region}"
+        
+        return False, phi, "NORMAL"
+\end{lstlisting}
+
+\subsection{Bộ Câu Hỏi Phản Biện Bảo Vệ Đồ Án}
+\begin{enumerate}
+  \item \textbf{Tại sao thuật toán $\Phi$-Accrual ưu việt hơn cơ chế Heartbeat Timeout cố định khi đối mặt với hiện tượng mạng chập chờn (\textit{Network Jitter})?}
+  \item \textbf{Trong bài toán phục vụ LLM, làm thế nào để đồng bộ bộ nhớ đệm tiền tố chung (\textit{Prefix KV-Cache}) giữa hai vùng địa lý cách nhau hàng ngàn kilomet mà không làm nghẽn băng thông?}
+  \item \textbf{Cơ chế Quorum Arbiter hoạt động như thế nào để ngăn chặn hiện tượng não phân liệt (\textit{Split-Brain}) khi đường truyền giữa Cụm chính và Cụm dự phòng bị đứt gãy hoàn toàn?}
+\end{enumerate}
+

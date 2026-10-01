@@ -12,7 +12,7 @@ import re
 import uuid
 import ast
 import time
-from typing import Dict, Any, Tuple, List
+from typing import Dict, Any, Tuple, List, Optional
 import pytest
 
 # ==============================================================================
@@ -614,5 +614,260 @@ def test_simple_jwt_validator():
     valid_tamp, _, msg_tamp = SimpleJWTValidator.verify_and_decode(secret, tampered_token)
     assert valid_tamp is False
     assert msg_tamp == "INVALID_SIGNATURE"
+
+
+# ==============================================================================
+# 11. PROCESS MEMORY & STACK FRAME CANARY SIMULATOR
+# ==============================================================================
+
+class StackSmashingDetectedError(Exception):
+    pass
+
+
+class StackFrameCanarySimulator:
+    """
+    Simulates a call stack frame layout in memory:
+    [ Local Buffer (N bytes) ] [ Canary Token (8 bytes) ] [ Saved RBP (8 bytes) ] [ Return Address (8 bytes) ]
+    """
+    CANARY_DEFAULT = 0xDEADBEEFCAFE0001
+    DEFAULT_RET_ADDR = 0x0000000000401150
+    DEFAULT_SAVED_RBP = 0x00007FFFFFFFE000
+
+    def __init__(self, buffer_size: int = 16, canary: int = CANARY_DEFAULT, return_addr: int = DEFAULT_RET_ADDR):
+        self.buffer_size = buffer_size
+        self.canary = canary
+        self.saved_rbp = self.DEFAULT_SAVED_RBP
+        self.return_addr = return_addr
+        
+        self.total_size = buffer_size + 24
+        self.memory = bytearray(self.total_size)
+        self._init_frame()
+
+    def _init_frame(self):
+        # Set canary (8 bytes little endian)
+        self.memory[self.buffer_size : self.buffer_size + 8] = self.canary.to_bytes(8, byteorder="little")
+        # Set saved rbp (8 bytes little endian)
+        self.memory[self.buffer_size + 8 : self.buffer_size + 16] = self.saved_rbp.to_bytes(8, byteorder="little")
+        # Set return address (8 bytes little endian)
+        self.memory[self.buffer_size + 16 : self.buffer_size + 24] = self.return_addr.to_bytes(8, byteorder="little")
+
+    def write_buffer(self, data: bytes) -> Dict[str, Any]:
+        """
+        Writes data into local buffer. If len(data) > buffer_size, overflow occurs!
+        """
+        bytes_to_write = min(len(data), self.total_size)
+        for i in range(bytes_to_write):
+            self.memory[i] = data[i]
+            
+        current_canary = int.from_bytes(self.memory[self.buffer_size : self.buffer_size + 8], byteorder="little")
+        current_ret = int.from_bytes(self.memory[self.buffer_size + 16 : self.buffer_size + 24], byteorder="little")
+        
+        overflowed = len(data) > self.buffer_size
+        canary_corrupted = (current_canary != self.canary)
+        ret_corrupted = (current_ret != self.return_addr)
+        
+        return {
+            "bytes_written": bytes_to_write,
+            "overflowed": overflowed,
+            "canary_corrupted": canary_corrupted,
+            "ret_corrupted": ret_corrupted,
+            "current_canary_hex": hex(current_canary),
+            "current_ret_hex": hex(current_ret),
+        }
+
+    def verify_and_return(self) -> int:
+        """
+        Simulates function epilogue (pop canary, check, ret).
+        Raises StackSmashingDetectedError if canary was corrupted.
+        """
+        current_canary = int.from_bytes(self.memory[self.buffer_size : self.buffer_size + 8], byteorder="little")
+        if current_canary != self.canary:
+            raise StackSmashingDetectedError(
+                f"*** stack smashing detected ***: Canary corrupted! "
+                f"Expected {hex(self.canary)}, found {hex(current_canary)}. Process terminated."
+            )
+        return int.from_bytes(self.memory[self.buffer_size + 16 : self.buffer_size + 24], byteorder="little")
+
+
+def test_stack_frame_normal_execution():
+    frame = StackFrameCanarySimulator(buffer_size=16)
+    write_res = frame.write_buffer(b"Hello safe world")
+    assert write_res["bytes_written"] == 16
+    assert write_res["overflowed"] is False
+    assert write_res["canary_corrupted"] is False
+    assert write_res["ret_corrupted"] is False
+    
+    # Clean return
+    ret_addr = frame.verify_and_return()
+    assert ret_addr == 0x0000000000401150
+
+
+def test_stack_frame_overflow_detected():
+    frame = StackFrameCanarySimulator(buffer_size=16)
+    # Overflow into canary: 16 bytes buffer + 8 bytes payload
+    malicious_payload = b"A" * 16 + b"EVILCAN!"
+    write_res = frame.write_buffer(malicious_payload)
+    assert write_res["overflowed"] is True
+    assert write_res["canary_corrupted"] is True
+    assert write_res["ret_corrupted"] is False  # hasn't reached ret yet
+    
+    # Verification should catch the corruption and abort
+    with pytest.raises(StackSmashingDetectedError) as exc_info:
+        frame.verify_and_return()
+    assert "stack smashing detected" in str(exc_info.value)
+
+
+def test_stack_frame_return_address_hijack_blocked():
+    frame = StackFrameCanarySimulator(buffer_size=16)
+    # Total overwrite: 16 (buf) + 8 (canary) + 8 (rbp) + 8 (shellcode ret addr 0xdeadbeef1337c0de)
+    hijack_payload = b"B" * 16 + b"C" * 8 + b"D" * 8 + (0xDEADBEEF1337C0DE).to_bytes(8, byteorder="little")
+    write_res = frame.write_buffer(hijack_payload)
+    assert write_res["overflowed"] is True
+    assert write_res["canary_corrupted"] is True
+    assert write_res["ret_corrupted"] is True
+    assert write_res["current_ret_hex"] == hex(0xDEADBEEF1337C0DE)
+
+    # Return must fail before CPU jumps to hijacked address
+    with pytest.raises(StackSmashingDetectedError):
+        frame.verify_and_return()
+
+
+# ==============================================================================
+# 12. DIFFERENTIAL PRIVACY & DP-SGD NOISE SIMULATOR
+# ==============================================================================
+
+class DPSGDNoiseSimulator:
+    """
+    Differentially Private Stochastic Gradient Descent (DP-SGD) Simulator.
+    Simulates per-sample gradient clipping and calibrated Gaussian noise perturbation.
+    """
+    def __init__(self, clip_norm: float = 1.0, epsilon: float = 1.0, delta: float = 1e-5):
+        self.clip_norm = clip_norm
+        self.epsilon = epsilon
+        self.delta = delta
+        # Calibrated sigma for Gaussian mechanism: sigma = sqrt(2 * ln(1.25 / delta)) / epsilon
+        self.sigma = math.sqrt(2.0 * math.log(1.25 / delta)) / epsilon
+        self.noise_std = self.sigma * self.clip_norm
+
+    def clip_per_sample_gradients(self, gradients: List[List[float]]) -> Tuple[List[List[float]], int]:
+        """
+        Clips each sample gradient to have L2 norm <= clip_norm.
+        Returns: (clipped_gradients, number_of_clipped_samples)
+        """
+        clipped = []
+        clipped_count = 0
+        for grad in gradients:
+            l2_norm = math.sqrt(sum(g * g for g in grad))
+            if l2_norm > self.clip_norm and l2_norm > 0:
+                scale = self.clip_norm / l2_norm
+                clipped.append([g * scale for g in grad])
+                clipped_count += 1
+            else:
+                clipped.append(list(grad))
+        return clipped, clipped_count
+
+    def compute_private_batch_gradient(
+        self,
+        gradients: List[List[float]],
+        random_seed: Optional[int] = None
+    ) -> Dict[str, Any]:
+        """
+        Applies DP-SGD: per-sample clipping -> sum -> add Gaussian noise N(0, (sigma*C)^2) -> average by B.
+        """
+        if not gradients:
+            return {"private_gradient": [], "batch_size": 0, "snr": 0.0}
+
+        if random_seed is not None:
+            import random
+            rng = random.Random(random_seed)
+            gauss_fn = rng.gauss
+        else:
+            import random
+            gauss_fn = random.gauss
+
+        batch_size = len(gradients)
+        dim = len(gradients[0])
+        
+        # 1. Per-sample clipping
+        clipped_grads, num_clipped = self.clip_per_sample_gradients(gradients)
+        
+        # 2. Sum clipped gradients
+        summed = [0.0] * dim
+        for g in clipped_grads:
+            for d in range(dim):
+                summed[d] += g[d]
+                
+        # 3. Add Gaussian noise with standard deviation = sigma * C
+        noise_std = self.sigma * self.clip_norm
+        noised_sum = [0.0] * dim
+        noise_vector = [0.0] * dim
+        for d in range(dim):
+            noise_val = gauss_fn(0.0, noise_std)
+            noise_vector[d] = noise_val
+            noised_sum[d] = summed[d] + noise_val
+            
+        # 4. Average by batch size B
+        private_grad = [val / batch_size for val in noised_sum]
+        true_mean_grad = [val / batch_size for val in summed]
+        
+        # Calculate Signal-to-Noise Ratio (SNR) in dB
+        signal_power = sum(v * v for v in true_mean_grad)
+        effective_noise = [nv / batch_size for nv in noise_vector]
+        noise_power = sum(nv * nv for nv in effective_noise)
+        snr = signal_power / noise_power if noise_power > 1e-12 else float("inf")
+        snr_db = 10.0 * math.log10(snr) if snr > 0 else -100.0
+
+        return {
+            "private_gradient": private_grad,
+            "true_mean_gradient": true_mean_grad,
+            "batch_size": batch_size,
+            "dimension": dim,
+            "num_clipped": num_clipped,
+            "clipping_ratio": num_clipped / batch_size,
+            "sigma": self.sigma,
+            "noise_std": noise_std,
+            "snr_db": round(snr_db, 2),
+            "epsilon": self.epsilon,
+            "delta": self.delta
+        }
+
+
+def test_dpsgd_gradient_clipping():
+    sim = DPSGDNoiseSimulator(clip_norm=2.0)
+    grads = [
+        [1.0, 1.0],         # norm = sqrt(2) approx 1.414 <= 2.0 -> not clipped
+        [3.0, 4.0],         # norm = 5.0 > 2.0 -> clipped by factor 2/5 = 0.4 -> [1.2, 1.6]
+        [0.0, 0.0],         # norm = 0.0 -> not clipped
+    ]
+    clipped, count = sim.clip_per_sample_gradients(grads)
+    assert count == 1
+    assert clipped[0] == [1.0, 1.0]
+    assert pytest.approx(clipped[1][0], abs=1e-5) == 1.2
+    assert pytest.approx(clipped[1][1], abs=1e-5) == 1.6
+    assert clipped[2] == [0.0, 0.0]
+
+
+def test_dpsgd_calibrated_sigma():
+    sim = DPSGDNoiseSimulator(clip_norm=1.5, epsilon=1.0, delta=1e-5)
+    # sigma = sqrt(2 * ln(1.25 / 1e-5)) / 1.0
+    expected_sigma = math.sqrt(2.0 * math.log(125000))
+    assert sim.sigma == pytest.approx(expected_sigma, abs=1e-4)
+    assert sim.noise_std == pytest.approx(expected_sigma * 1.5, abs=1e-4)
+
+
+def test_dpsgd_private_batch_gradient_properties():
+    sim = DPSGDNoiseSimulator(clip_norm=1.0, epsilon=2.0, delta=1e-4)
+    # 100 samples with gradient [0.5, 0.5]
+    grads = [[0.5, 0.5] for _ in range(100)]
+    res = sim.compute_private_batch_gradient(grads, random_seed=42)
+    assert res["batch_size"] == 100
+    assert res["dimension"] == 2
+    assert res["num_clipped"] == 0
+    assert res["clipping_ratio"] == 0.0
+    assert len(res["private_gradient"]) == 2
+    # With batch size 100, noise is averaged down by 100, so private_grad should be close to [0.5, 0.5]
+    assert pytest.approx(res["private_gradient"][0], abs=0.2) == 0.5
+    assert pytest.approx(res["private_gradient"][1], abs=0.2) == 0.5
+
 
 

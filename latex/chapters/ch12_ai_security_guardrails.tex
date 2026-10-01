@@ -324,6 +324,147 @@ Trong kiến trúc vi dịch vụ AI, \term{JWT (JSON Web Token)} là phương t
   Khi ứng dụng AI truy vấn tìm kiếm tương đồng vector, nhân cơ sở dữ liệu PostgreSQL sẽ tự động chèn thêm điều kiện lọc \code{tenant_id} vào tầng đĩa, triệt tiêu mọi khả năng rò rỉ dữ liệu chéo ngay cả khi câu prompt của người dùng có chứa chỉ thị tấn công Jailbreak!
 \end{itemize}
 
+\subsection{Giải Phẫu Bộ Nhớ Tiến Trình, Tràn Bộ Đệm (Buffer Overflow) \& Cơ Chế Stack Canary}
+\label{subsec:process-memory-buffer-overflow}
+Nhiều kỹ sư AI thường xem nhẹ an ninh bộ nhớ tầng thấp vì cho rằng mình chỉ lập trình Python cấp cao. Tuy nhiên, toàn bộ hạ tầng cốt lõi phục vụ suy luận và huấn luyện AI hiện đại---từ các nhân C++/CUDA tăng tốc của vLLM, TensorRT-LLM, llama.cpp cho tới các thư viện ONNX Runtime và PyTorch---đều được viết bằng C/C++ để tối ưu hóa hiệu năng phần cứng bare-metal. Một lỗ hổng an toàn bộ nhớ trong quá trình giải mã tensor (như lỗi phân tích cú pháp header file GGUF hoặc safetensors) có thể cho phép kẻ tấn công thực thi mã từ xa (RCE) và chiếm đoạt máy chủ GPU trị giá hàng trăm ngàn USD!
+
+\subsubsection{1. Kiến Trúc Không Gian Địa Chỉ Ảo Của Tiến Trình Linux (64-bit)}
+Mỗi tiến trình chạy trên hệ điều hành Linux 64-bit được cấp phát một không gian địa chỉ ảo (\textit{Virtual Address Space}) độc lập. Không gian này được phân chia thành 5 phân vùng bộ nhớ tiêu chuẩn (Hình~\ref{fig:process-memory-layout}):
+\begin{itemize}
+  \item \textbf{Phân vùng Text / Code}: Nằm ở địa chỉ thấp (thường bắt đầu từ \code{0x00400000}), chứa mã máy nhị phân thực thi của chương trình. Vùng này chỉ có quyền đọc và thực thi (\code{R-X}), cấm ghi để ngăn chặn việc tự sửa đổi mã lệnh.
+  \item \textbf{Phân vùng Data (Initialized Data Segment)}: Chứa các biến toàn cục (\textit{global variables}) và biến tĩnh (\textit{static variables}) đã được khởi tạo giá trị ban đầu khác không (ví dụ: \code{int max_connections = 1000;}).
+  \item \textbf{Phân vùng BSS (Block Started by Symbol)}: Chứa các biến toàn cục và tĩnh chưa được khởi tạo giá trị. Khi nạp vào RAM, nhân Linux tự động gán toàn bộ vùng này bằng các byte 0 (\code{0x00}).
+  \item \textbf{Vùng Heap (Bộ nhớ động)}: Được cấp phát động trong thời gian chạy thông qua các hàm \code{malloc()}, \code{calloc()} trong C hoặc toán tử \code{new} trong C++. Heap \textbf{phát triển từ địa chỉ thấp lên địa chỉ cao}.
+  \item \textbf{Vùng Stack (Ngăn xếp hàm)}: Chuyên trách lưu trữ các biến cục bộ, tham số hàm và địa chỉ trở về (\textit{Return Address}) khi gọi hàm. Stack \textbf{phát triển từ địa chỉ cao xuống địa chỉ thấp} (ngược chiều với Heap).
+\end{itemize}
+
+\begin{figure}[htbp]
+\centering
+\begin{tikzpicture}[node distance=0.45cm, auto,
+    memblock/.style={rectangle, draw=primarycolor, thick, fill=boxbg, text centered, minimum width=8.5cm, minimum height=0.7cm, font=\small},
+    stackblock/.style={rectangle, draw=dangercolor, thick, fill=red!10, text centered, minimum width=8.5cm, minimum height=0.75cm, font=\small\bfseries},
+    heapblock/.style={rectangle, draw=secondarycolor, thick, fill=accentcolor!15, text centered, minimum width=8.5cm, minimum height=0.75cm, font=\small\bfseries},
+    arrow/.style={draw=darktext, -Stealth, thick}
+]
+    \node[memblock, fill=gray!20] (kernel) {Không Gian Nhân Kernel (0xFFFF800000000000 -- 0xFFFFFFFFFFFFFFFF)};
+    \node[stackblock, below=0.25cm of kernel] (stack) {Stack (Ngăn xếp cục bộ) $\downarrow$ Phát triển xuống địa chỉ thấp};
+    \node[memblock, below=0.6cm of stack, dashed] (free) {Khoảng Trống Bộ Nhớ Tự Do (Free Memory Gap)};
+    \node[heapblock, below=0.6cm of free] (heap) {Heap (Cấp phát động malloc/new) $\uparrow$ Phát triển lên địa chỉ cao};
+    \node[memblock, below=0.25cm of heap] (bss) {BSS Segment (Biến toàn cục chưa khởi tạo)};
+    \node[memblock, below=0.25cm of bss] (data) {Data Segment (Biến toàn cục đã khởi tạo)};
+    \node[memblock, below=0.25cm of data] (text) {Text / Code Segment (Mã máy nhị phân, Quyền R-X)};
+
+    \draw[arrow] (stack.south) -- ++(0, -0.4) node[right, font=\scriptsize] {sub rsp, N};
+    \draw[arrow] (heap.north) -- ++(0, 0.4) node[right, font=\scriptsize] {brk() / sbrk()};
+    \draw[<->, primarycolor, thick] (text.south west) -- ++(-0.6, 0) |- (kernel.north west) 
+        node[pos=0.5, left, font=\scriptsize, align=center] {Địa chỉ\\ thấp $\to$ cao};
+\end{tikzpicture}
+\caption{Kiến trúc phân vùng không gian bộ nhớ ảo của một tiến trình Linux}
+\label{fig:process-memory-layout}
+\end{figure}
+
+\subsubsection{2. Giải Phẫu Khung Ngăn Xếp (Stack Frame) \& Tấn Công Tràn Bộ Đệm}
+Khi một hàm $f()$ được gọi trong kiến trúc x86-64, CPU thiết lập một khung ngăn xếp (\textit{Stack Frame}) gồm các thành phần byte tuần tự:
+\begin{enumerate}
+  \item \textbf{Địa chỉ trở về (Return Address -- Saved RIP, 8 bytes)}: Chứa địa chỉ con trỏ lệnh kế tiếp trong hàm gọi. Khi $f()$ kết thúc, lệnh máy \code{RET} sẽ nạp giá trị này vào thanh ghi \code{RIP} để tiếp tục thực thi luồng chương trình.
+  \item \textbf{Con trỏ khung lưu trữ (Saved RBP, 8 bytes)}: Địa chỉ đáy khung ngăn xếp của hàm gọi trước đó.
+  \item \textbf{Stack Canary (8 bytes)}: Giá trị token bảo mật ngẫu nhiên do trình biên dịch chèn vào để phát hiện tấn công.
+  \item \textbf{Bộ đệm cục bộ (Local Buffer, ví dụ: \code{char buffer[16]})}: Vùng nhớ dành cho các biến khai báo trong hàm.
+\end{enumerate}
+
+\paragraph{Cơ Chế Chiếm Quyền Điều Khiển Bằng Buffer Overflow}:
+Nếu chương trình sử dụng các hàm sao chép chuỗi không an toàn (như \code{strcpy}, \code{gets}, \code{sprintf}) và nhận đầu vào 32 bytes từ người dùng cho một mảng đệm 16 bytes:
+\begin{equation}
+\text{Dữ liệu tràn} \longrightarrow \text{Stack Canary} \longrightarrow \text{Saved RBP} \longrightarrow \mathbf{\text{Return Address (RIP)}}
+\end{equation}
+Kẻ tấn công tính toán chính xác để 8 bytes cuối cùng trong chuỗi dữ liệu độc hại trùng khớp với địa chỉ của mã độc shellcode hoặc một chuỗi con trỏ lệnh có sẵn (\textit{ROP -- Return-Oriented Programming Gadgets}). Khi hàm kết thúc và CPU thi hành lệnh \code{RET}, thay vì quay trở về luồng chương trình chính thống, CPU bị cưỡng ép nhảy tới địa chỉ của kẻ tấn công, trao quyền kiểm soát hoàn toàn máy chủ (\textit{Arbitrary Code Execution})!
+
+\subsubsection{3. Ba Tầng Phòng Thủ Bộ Nhớ Hiện Đại}
+\begin{enumerate}
+  \item \textbf{Stack Canary (SSP -- Stack Smashing Protector)}: \\
+  Trình biên dịch (GCC/Clang với cờ \code{-fstack-protector-strong}) tự động chèn một giá trị ngẫu nhiên 64-bit nằm ngay trước Saved RBP. Giá trị này chứa byte rỗng \code{0x00} ở đầu để ngăn chặn các hàm thao tác chuỗi (như \code{strcpy}) vô tình đọc lướt qua.
+  Trước khi thực thi lệnh \code{RET}, CPU luôn so sánh Canary trên Stack với bản sao an toàn lưu trong vùng nhớ chỉ định của luồng (\code{\%fs:0x28}). Nếu phát hiện giá trị bị sai khác, hệ thống lập tức gọi hàm ngắt khẩn cấp \code{__stack_chk_fail()} và hủy tiến trình (\textit{Abort}), dập tắt cuộc tấn công trước khi con trỏ lệnh kịp nhảy!
+  \item \textbf{DEP / NX Bit (Data Execution Prevention / No-Execute)}: \\
+  Phần cứng CPU hiện đại hỗ trợ cờ \code{NX} trong bảng phân trang bộ nhớ (Page Tables). Hệ điều hành đánh dấu toàn bộ phân vùng Stack và Heap là \code{NX} (chỉ đọc/ghi, không cho phép thực thi). Nếu kẻ tấn công nhảy vào mã độc trên Stack, CPU sinh lỗi ngoại lệ \code{General Protection Fault} và dừng tiến trình.
+  \item \textbf{ASLR (Address Space Layout Randomization)}: \\
+  Hệ điều hành ngẫu nhiên hóa vị trí nạp của Stack, Heap và các thư viện liên kết động (\file{libc.so}) sau mỗi lần tiến trình khởi động. Kẻ tấn công không thể dự đoán địa chỉ tuyệt đối của các hàm hệ thống để xây dựng payload tấn công tĩnh.
+\end{enumerate}
+
+\begin{simulationbox}[Mô Phỏng Tràn Bộ Đệm \& Kiểm Soát Stack Canary Bằng Python]
+Đoạn mã dưới đây mô phỏng cấu trúc bộ nhớ của một Stack Frame 64-bit và cơ chế phát hiện phá hoại ngăn xếp (\textit{Stack Smashing}):
+\begin{lstlisting}[language=Python]
+class StackSmashingDetectedError(Exception):
+    pass
+
+class StackFrameCanarySimulator:
+    """
+    Mo phong khung ngan xep (Stack Frame):
+    [ Local Buffer (16B) ] [ Canary Token (8B) ] [ Saved RBP (8B) ] [ Return Addr (8B) ]
+    """
+    CANARY_DEFAULT = 0xDEADBEEFCAFE0001
+    DEFAULT_RET_ADDR = 0x0000000000401150
+    DEFAULT_SAVED_RBP = 0x00007FFFFFFFE000
+
+    def __init__(self, buffer_size: int = 16, canary: int = CANARY_DEFAULT, return_addr: int = DEFAULT_RET_ADDR):
+        self.buffer_size = buffer_size
+        self.canary = canary
+        self.saved_rbp = self.DEFAULT_SAVED_RBP
+        self.return_addr = return_addr
+        
+        self.total_size = buffer_size + 24
+        self.memory = bytearray(self.total_size)
+        self._init_frame()
+
+    def _init_frame(self):
+        # Dat canary (8 bytes little endian)
+        self.memory[self.buffer_size : self.buffer_size + 8] = self.canary.to_bytes(8, byteorder="little")
+        # Dat saved rbp
+        self.memory[self.buffer_size + 8 : self.buffer_size + 16] = self.saved_rbp.to_bytes(8, byteorder="little")
+        # Dat return address
+        self.memory[self.buffer_size + 16 : self.buffer_size + 24] = self.return_addr.to_bytes(8, byteorder="little")
+
+    def write_buffer(self, data: bytes) -> dict:
+        bytes_to_write = min(len(data), self.total_size)
+        for i in range(bytes_to_write):
+            self.memory[i] = data[i]
+            
+        current_canary = int.from_bytes(self.memory[self.buffer_size : self.buffer_size + 8], byteorder="little")
+        current_ret = int.from_bytes(self.memory[self.buffer_size + 16 : self.buffer_size + 24], byteorder="little")
+        
+        return {
+            "bytes_written": bytes_to_write,
+            "overflowed": len(data) > self.buffer_size,
+            "canary_corrupted": current_canary != self.canary,
+            "ret_corrupted": current_ret != self.return_addr,
+            "current_canary_hex": hex(current_canary),
+            "current_ret_hex": hex(current_ret),
+        }
+
+    def verify_and_return(self) -> int:
+        """Kiem tra canary truoc khi thuc thi lenh RET."""
+        current_canary = int.from_bytes(self.memory[self.buffer_size : self.buffer_size + 8], byteorder="little")
+        if current_canary != self.canary:
+            raise StackSmashingDetectedError(
+                f"*** stack smashing detected ***: Canary bi sua doi! "
+                f"Ky vong {hex(self.canary)}, thuc te {hex(current_canary)}. Tien trinh bi huy."
+            )
+        return int.from_bytes(self.memory[self.buffer_size + 16 : self.buffer_size + 24], byteorder="little")
+\end{lstlisting}
+
+\paragraph{Prompt AI Mô Phỏng Thực Tế: Đấu Trí Red Team vs. Blue Team Tầng Bộ Nhớ}:
+\begin{quote}
+\small\itshape
+``Hãy đóng vai một Chuyên gia Kiểm thử Xâm nhập (Red Team Penetration Tester). \\
+Tôi đang kiểm thử bảo mật cho một API Server C++ phục vụ mô hình ngôn ngữ lớn vLLM. \\
+Một endpoint phân tích dữ liệu nhận mảng byte đầu vào nhưng hàm giải mã có bộ đệm stack 64 bytes.
+\begin{enumerate}
+  \item Hãy giải thích từng bước cách kẻ tấn công dò tìm độ dài offset để đè lên Stack Canary và Return Address bằng mẫu chuỗi cyclic (\code{pattern_create} / \code{pattern_offset}).
+  \item Phân tích điều gì xảy ra nếu hệ thống bật ASLR nhưng có lỗ hổng Format String rò rỉ địa chỉ bộ nhớ (Address Leakage).
+  \item Hướng dẫn kỹ sư phòng thủ (Blue Team) bật đầy đủ các cờ bảo vệ trình biên dịch GCC (\code{-fstack-protector-all}, \code{-D_FORTIFY_SOURCE=2}, \code{-Wl,-z,relro,-z,now}) và giải thích tác dụng kỹ thuật của từng cờ.''
+\end{enumerate}
+\end{quote}
+\end{simulationbox}
+
 \subsection{Kiến Trúc Netfilter, iptables \& Bước Chuyển Sang nftables}
 Mặc dù công cụ dòng lệnh \code{iptables} rất phổ biến, bản thân nó chỉ là một giao diện người dùng cấu hình (\textit{Control Plane}). Cỗ máy thực thi chính (\textit{Data Plane}) nằm sâu trong nhân Linux mang tên \term{Netfilter}.
 
@@ -722,6 +863,217 @@ Trước khi mã được phép biên dịch, ta bắt buộc phải phân tích
 
 ---
 
+\section{An Ninh Phần Cứng, Tấn Công Đối Kháng \& Quyền Riêng Tư Vi Phân (Hardware Enclaves, Adversarial Attacks \& Differential Privacy)}
+\label{sec:ch12-hardware-dp-adversarial}
+
+Khi bảo mật hệ thống AI đạt tới quy mô hạ tầng lớn của doanh nghiệp, chúng ta không thể chỉ dừng lại ở việc bảo vệ phần mềm hay rào chắn prompt ở tầng ứng dụng. Các rủi ro an ninh nghiêm trọng nhất thường bắt nguồn từ phần cứng vật lý chia sẻ (Hardware Side-Channels), sự thiếu tin cậy đối với nhà cung cấp đám mây (Untrusted Cloud Providers), các cuộc tấn công đối kháng tối ưu hóa theo gradient toán học, và nguy cơ rò rỉ dữ liệu cá nhân (PII) qua trọng số mô hình đã được huấn luyện.
+
+\subsection{Tấn Công Kênh Kề Phần Cứng \& Đánh Cắp Bí Mật Trong Cụm GPU}
+\label{subsec:hardware-side-channels}
+Trong môi trường điện toán đám mây công cộng (\textit{Public Cloud}), các máy chủ AI thường vận hành dưới dạng chia sẻ tài nguyên (\textit{Multi-Tenancy}): Nhiều máy ảo (VM) hoặc container của các khách hàng khác nhau cùng chạy trên một socket CPU vật lý hoặc chia sẻ chung cụm GPU thông qua cơ chế vLLM dynamic batching hay NVIDIA Multi-Process Service (MPS). Hiện tượng này mở ra các bề mặt tấn công kênh kề (\textit{Side-Channel Attacks}):
+
+\subsubsection{1. Kênh Kề Bộ Nhớ Đệm CPU (Spectre, Meltdown \& Flush+Reload)}
+Các bộ vi xử lý hiện đại áp dụng hai kỹ thuật cốt lõi để tối ưu hóa hiệu năng: \textbf{Thực thi phỏng đoán (Speculative Execution)} và \textbf{Dự đoán nhánh (Branch Prediction)}. CPU dự đoán nhánh rẽ của lệnh \code{if} và nạp trước dữ liệu từ bộ nhớ vào bộ nhớ đệm Cache (L1/L2/L3) trước khi biểu thức điều kiện được thẩm định xong.
+\begin{itemize}
+  \item Nếu dự đoán sai, CPU hủy bỏ trạng thái thanh ghi, nhưng \textbf{dữ liệu đã nạp vào Cache không bị xóa đi}!
+  \item Kẻ tấn công lợi dụng lỗ hổng này qua kỹ thuật \code{Flush+Reload}: Kẻ tấn công xóa sạch một dòng bộ nhớ đệm (\code{clflush}), kích hoạt đoạn mã phỏng đoán truy cập vào dữ liệu bí mật (ví dụ: khóa giải mã mô hình AI của tiến trình lân cận), sau đó đo thời gian đọc lại vùng nhớ đó.
+  \item Nếu thời gian truy cập cực nhanh ($\le 50\text{ CPU cycles}$), dữ liệu đã nằm trong Cache $\implies$ Kẻ tấn công xác định được chính xác giá trị của bit bí mật!
+\end{itemize}
+
+\subsubsection{2. Kênh Kề Trong Cụm GPU \& Tranh Chấp Bộ Nhớ Chia Sẻ}
+Trên GPU, các luồng (\textit{warps}) đồng thời truy cập vào \term{Shared Memory}. Khi nhiều luồng cùng đọc vào một ngân hàng bộ nhớ (\textit{Memory Bank}), hiện tượng xung đột ngân hàng (\textit{Bank Conflict}) xảy ra, làm gia tăng độ trễ tính toán.
+\begin{itemize}
+  \item Trong các hệ thống suy luận phục vụ đồng thời nhiều người dùng, độ dài câu prompt và các token đặc thù kích hoạt các mô hình tính toán ma trận với độ trễ khác nhau.
+  \item Bằng cách đo đạc độ trễ giữa các token sinh ra (\textit{Inter-token latency}) hoặc phân tích tần số dao động xung nhịp GPU thông qua các truy vấn API bình thường, kẻ tấn công có thể tái tạo lại độ dài văn bản truy vấn, cấu trúc tài liệu RAG nhạy cảm, thậm chí trích xuất một phần nội dung văn bản của khách hàng khác!
+\end{itemize}
+
+\subsection{Điện Toán Bảo Mật Trên GPU (Confidential Computing \& Hardware Enclaves)}
+\label{subsec:confidential-computing-gpu}
+Đối với các doanh nghiệp hoạt động trong lĩnh vực tài chính, y tế hoặc an ninh quốc phòng, câu hỏi lớn nhất khi đưa AI lên đám mây là: \textit{``Làm thế nào để huấn luyện hoặc suy luận mô hình trên máy chủ của bên thứ ba mà ngay cả quản trị viên có quyền root (\code{sudo}) của nhà cung cấp đám mây cũng không thể trích xuất trọng số mô hình hoặc đọc trộm dữ liệu nhạy cảm?''}
+
+Giải pháp tối thượng của ngành công nghiệp bán dẫn là \term{Điện Toán Bảo Mật (Confidential Computing)} dựa trên kiến trúc \term{TEE (Trusted Execution Environment)}:
+\begin{itemize}
+  \item \textbf{Môi Trường Enclave Cách Ly Hoàn Toàn}: Công nghệ AMD SEV-SNP hoặc Intel TDX tạo ra các máy ảo bảo mật (\textit{Confidential VMs}) mà ngay cả hệ điều hành máy chủ (\textit{Host OS}) hay phần mềm ảo hóa (\textit{Hypervisor}) cũng bị phần cứng CPU chặn đứng quyền đọc RAM.
+  \item \textbf{NVIDIA Hopper H100 \& Blackwell Confidential Computing Mode}:
+  Trước thế hệ Hopper H100, đường truyền PCIe giữa CPU và GPU hoàn toàn không được mã hóa. Kẻ tấn công có quyền vật lý hoặc quyền root trên máy chủ có thể gắn thiết bị phân tích logic vào khe PCIe để chụp toàn bộ tensor truyền qua bus.
+  Kể từ kiến trúc NVIDIA H100, chế độ Confidential Computing kích hoạt bộ mã hóa phần cứng trên bus PCIe: Toàn bộ dữ liệu di chuyển giữa CPU RAM và GPU HBM đều được mã hóa bằng thuật toán \textbf{AES-256-GCM} tốc độ phần cứng, triệt tiêu mọi khả năng nghe lén vật lý.
+  \item \textbf{Chứng Thực Từ Xa Dựa Trên Gốc Tin Cậy Phần Cứng (Hardware Root of Trust \& Remote Attestation)}:
+  Mỗi con chip H100 xuất xưởng được tích hợp một cặp khóa mật mã học độc nhất vô nhị do NVIDIA ký số tại nhà máy. Khi ứng dụng AI khởi động trong Enclave, nó gửi một bản báo cáo mật mã (\textit{Attestation Quote}) về cho máy chủ của doanh nghiệp. Sau khi xác minh chữ ký số phần cứng này chứng minh rằng môi trường phần cứng hoàn toàn nguyên bản và không bị nạp mã độc vào firmware, doanh nghiệp mới truyền khóa giải mã trọng số mô hình vào GPU!
+\end{itemize}
+
+\subsection{Tấn Công Đối Kháng Gradient Tầng Sâu (FGSM \& PGD)}
+\label{subsec:adversarial-gradient-attacks}
+Bên cạnh thuật toán GCG tối ưu hóa trên không gian token rời rạc của LLM (đã trình bày ở Mục~\ref{sec:ch12-owasp-top10}), trong các mô hình AI thị giác và đa phương thức (Multimodal Vision-Language Models), kẻ tấn công khai thác trực tiếp không gian véc-tơ liên tục bằng các kỹ thuật tối ưu hóa đạo hàm:
+
+\subsubsection{1. Fast Gradient Sign Method (FGSM, Goodfellow et al.)}
+Cho một mô hình mạng nơ-ron với bộ trọng số $\theta$, đầu vào $x$ và nhãn mục tiêu $y$. Hàm mất mát là $\mathcal{L}(\theta, x, y)$.
+Mục tiêu của kẻ tấn công là tìm một nhiễu nhân tạo $\eta$ có độ lớn giới hạn $\|\eta\|_\infty \le \epsilon$ sao cho hàm mất mát tăng mạnh nhất.
+Bằng khai triển Taylor bậc nhất, hàm mất mát được xấp xỉ tuyến tính:
+\begin{equation}
+\mathcal{L}(\theta, x + \eta, y) \approx \mathcal{L}(\theta, x, y) + \nabla_x \mathcal{L}(\theta, x, y)^T \eta
+\end{equation}
+Để cực đại hóa tích vô hướng dưới ràng buộc chuẩn vô cùng, vector nhiễu tối ưu chính là dấu của gradient:
+\begin{equation}
+x_{\text{adv}} = x + \epsilon \cdot \text{sign}\Big(\nabla_x \mathcal{L}(\theta, x, y)\Big)
+\label{eq:fgsm-formula}
+\end{equation}
+Chỉ với một bước tính đạo hàm duy nhất, FGSM tạo ra bức ảnh có vẻ ngoài hoàn toàn bình thường với mắt người (do $\epsilon$ rất nhỏ, ví dụ: $0.007$), nhưng lại đánh lừa mô hình phân loại nhầm với độ tin cậy cực cao.
+
+\subsubsection{2. Projected Gradient Descent (PGD, Madry et al.)}
+PGD là phiên bản nâng cấp lặp lại nhiều bước (\textit{Multi-step}) của FGSM, được coi là cuộc tấn công bậc nhất mạnh nhất theo chuẩn $L_\infty$:
+\begin{equation}
+x^{(t+1)} = \Pi_{x + \mathcal{S}} \Bigg( x^{(t)} + \alpha \cdot \text{sign}\Big(\nabla_x \mathcal{L}(\theta, x^{(t)}, y)\Big) \Bigg)
+\label{eq:pgd-formula}
+\end{equation}
+trong đó $\alpha$ là kích thước bước lặp, và $\Pi_{x + \mathcal{S}}$ là phép chiếu toán học đưa điểm mới quay trở lại lân cận $\epsilon$-ball $\mathcal{S} = \{z \mid \|z - x\|_\infty \le \epsilon\}$.
+Trong các hệ thống VLM như GPT-4V hay LLaVA, kẻ tấn công áp dụng PGD để cấy nhiễu đối kháng vào hình ảnh. Khi người dùng yêu cầu mô hình phân tích hình ảnh, nhiễu đối kháng sẽ vô hiệu hóa hoàn toàn bộ lọc an toàn của mô hình, khiến AI chấp thuận thực thi các lệnh nguy hiểm.
+
+\subsection{Quyền Riêng Tư Vi Phân \& Thuật Toán DP-SGD (Differential Privacy)}
+\label{subsec:differential-privacy-dpsgd}
+Khi huấn luyện hoặc fine-tuning mô hình LLM trên dữ liệu nội bộ (ví dụ: hồ sơ bệnh án y tế, giao dịch ngân hàng), mô hình nơ-ron có xu hướng ghi nhớ vẹt (\textit{Memorization}) các chuỗi dữ liệu cá nhân nhạy cảm. Kẻ tấn công có thể sử dụng kỹ thuật \term{Membership Inference Attack} hoặc gửi các câu prompt mồi để trích xuất nguyên vẹn số CMND/CCCD, tên bệnh nhân hay số thẻ tín dụng từ trọng số mô hình.
+
+Giải pháp toán học duy nhất cung cấp sự bảo đảm tuyệt đối có thể chứng minh được là \term{Quyền Riêng Tư Vi Phân (Differential Privacy -- DP)}.
+
+\begin{definition}[Quyền Riêng Tư Vi Phân $(\epsilon, \delta)$-Differential Privacy (Dwork et al., 2006)]
+Một thuật toán ngẫu nhiên $\mathcal{M}$ thỏa mãn $(\epsilon, \delta)$-Quyền Riêng Tư Vi Phân nếu với mọi cặp tập dữ liệu lân cận $D, D'$ (chỉ khác nhau đúng một bản ghi cá nhân duy nhất, ký hiệu $\|D \oplus D'\| = 1$) và với mọi tập kết quả đầu ra khả dĩ $\mathcal{S} \subseteq \text{Range}(\mathcal{M})$:
+\begin{equation}
+\mathbb{P}\big(\mathcal{M}(D) \in \mathcal{S}\big) \le e^\epsilon \cdot \mathbb{P}\big(\mathcal{M}(D') \in \mathcal{S}\big) + \delta
+\label{eq:differential-privacy-def}
+\end{equation}
+Ý nghĩa bản chất của các tham số:
+\begin{itemize}
+  \item $\epsilon$ (\textit{Privacy Loss Budget} -- Ngân sách mất mát riêng tư): Đại lượng đo lường lượng thông tin tối đa mà một kẻ tấn công sở hữu năng lực tính toán vô hạn có thể suy diễn về một cá nhân cụ thể. Giá trị $\epsilon$ càng nhỏ ($0.5 \le \epsilon \le 3$), độ bảo vệ càng nghiêm ngặt, nhưng độ chính xác của mô hình càng giảm.
+  \item $\delta$ (\textit{Failure Probability}): Xác suất thuật toán vi phạm hoàn toàn cam kết bảo vệ riêng tư. Trong kỹ nghệ thực tế, bắt buộc phải chọn $\delta \ll \frac{1}{|D|}$ (ví dụ: tập dữ liệu $100.000$ mẫu thì $\delta \le 10^{-5}$). Nếu đặt $\delta \ge \frac{1}{|D|}$, thuật toán có thể tiết lộ trắng trợn dữ liệu của một số cá nhân mà vẫn thỏa mãn định nghĩa toán học!
+\end{itemize}
+\end{definition}
+
+\subsubsection{Thuật Toán DP-SGD (Differentially Private SGD, Abadi et al., 2016)}
+Để áp dụng Quyền Riêng Tư Vi Phân vào quá trình huấn luyện mạng nơ-ron sâu, Abadi et al. giới thiệu thuật toán \term{DP-SGD}. Thay vì tính gradient trung bình thông thường, DP-SGD can thiệp trực tiếp vào gradient qua hai bước toán học nghiêm ngặt:
+\begin{enumerate}
+  \item \textbf{Kẹp Chuẩn Gradient Từng Mẫu (Per-Sample Gradient Clipping)}:
+  Với mỗi mẫu dữ liệu $x_i$ trong mini-batch $B$, tính toán gradient riêng biệt $g_i = \nabla_\theta \mathcal{L}(\theta; x_i)$. Để chặn cận trên mức độ ảnh hưởng của một mẫu dữ liệu cá nhân duy nhất lên bước cập nhật trọng số, ta kẹp chuẩn $L_2$ của vector gradient theo ngưỡng cắt $C > 0$:
+  \begin{equation}
+  \bar{g}_i = \frac{g_i}{\max\left(1, \frac{\|g_i\|_2}{C}\right)} \implies \|\bar{g}_i\|_2 \le C, \quad \forall i \in \{1, \dots, |B|\}
+  \label{eq:per-sample-clipping}
+  \end{equation}
+  \item \textbf{Bơm Nhiễu Gauss Hiệu Chuẩn (Gaussian Noise Injection)}:
+  Tính tổng các vector gradient đã kẹp chuẩn và cộng thêm nhiễu Gauss độc lập được hiệu chuẩn theo ngân sách $\epsilon$ và $\delta$:
+  \begin{equation}
+  \tilde{g} = \frac{1}{|B|} \left( \sum_{i=1}^{|B|} \bar{g}_i + \mathcal{N}\left(0, \sigma^2 C^2 \mathbf{I}\right) \right)
+  \label{eq:dpsgd-noise-injection}
+  \end{equation}
+  với độ lệch chuẩn của cơ chế Gauss thỏa mãn:
+  \begin{equation}
+  \sigma = \frac{\sqrt{2 \ln(1.25 / \delta)}}{\epsilon}
+  \label{eq:gaussian-mechanism-sigma}
+  \end{equation}
+  \item \textbf{Cập nhật trọng số}: $\theta_{t+1} \leftarrow \theta_t - \eta \tilde{g}$.
+\end{enumerate}
+
+Nhờ có nhiễu Gauss $\mathcal{N}(0, \sigma^2 C^2 \mathbf{I})$, gradient của bất kỳ cá nhân nào cũng bị che mờ trong không gian đa chiều, bảo đảm kẻ tấn công không thể giải mã ngược để tái tạo lại thông tin bệnh án từ trọng số mô hình!
+
+\begin{simulationbox}[Mô Phỏng Thuật Toán DP-SGD \& AI Simulation Prompt Hoạt Họa 60 FPS]
+Dưới đây là mã nguồn Python mô phỏng chính xác thuật toán DP-SGD, thực hiện kẹp chuẩn gradient từng mẫu, bơm nhiễu Gauss và tính toán tỷ số tín hiệu trên nhiễu (SNR):
+\begin{lstlisting}[language=Python]
+import math
+from typing import List, Tuple, Dict, Any, Optional
+
+class DPSGDNoiseSimulator:
+    """
+    Mo phong co che bao ve quyen rieng tu vi phan DP-SGD:
+    Per-sample gradient clipping + Calibrated Gaussian noise addition.
+    """
+    def __init__(self, clip_norm: float = 1.0, epsilon: float = 1.0, delta: float = 1e-5):
+        self.clip_norm = clip_norm
+        self.epsilon = epsilon
+        self.delta = delta
+        # Tinh toan do lech chuan sigma chuan hoa cho co che Gauss
+        self.sigma = math.sqrt(2.0 * math.log(1.25 / delta)) / epsilon
+        self.noise_std = self.sigma * self.clip_norm
+
+    def clip_per_sample_gradients(self, gradients: List[List[float]]) -> Tuple[List[List[float]], int]:
+        clipped = []
+        clipped_count = 0
+        for grad in gradients:
+            l2_norm = math.sqrt(sum(g * g for g in grad))
+            if l2_norm > self.clip_norm and l2_norm > 0:
+                scale = self.clip_norm / l2_norm
+                clipped.append([g * scale for g in grad])
+                clipped_count += 1
+            else:
+                clipped.append(list(grad))
+        return clipped, clipped_count
+
+    def compute_private_batch_gradient(
+        self,
+        gradients: List[List[float]],
+        random_seed: Optional[int] = None
+    ) -> Dict[str, Any]:
+        if not gradients:
+            return {"private_gradient": [], "batch_size": 0, "snr_db": 0.0}
+
+        import random
+        rng = random.Random(random_seed) if random_seed is not None else random
+
+        batch_size = len(gradients)
+        dim = len(gradients[0])
+        
+        # 1. Kep chuan tung mau (Per-sample clipping)
+        clipped_grads, num_clipped = self.clip_per_sample_gradients(gradients)
+        
+        # 2. Tinh tong cac gradient da kep
+        summed = [0.0] * dim
+        for g in clipped_grads:
+            for d in range(dim):
+                summed[d] += g[d]
+                
+        # 3. Bom nhieu Gauss N(0, (sigma * C)^2)
+        noise_vector = [rng.gauss(0.0, self.noise_std) for _ in range(dim)]
+        noised_sum = [summed[d] + noise_vector[d] for d in range(dim)]
+            
+        # 4. Chia trung binh cho batch size B
+        private_grad = [val / batch_size for val in noised_sum]
+        true_mean_grad = [val / batch_size for val in summed]
+        
+        # Tinh ty so Tin hieu tren Nhieu (SNR theo dB)
+        signal_power = sum(v * v for v in true_mean_grad)
+        effective_noise = [nv / batch_size for nv in noise_vector]
+        noise_power = sum(nv * nv for nv in effective_noise)
+        snr = signal_power / noise_power if noise_power > 1e-12 else float("inf")
+        snr_db = 10.0 * math.log10(snr) if snr > 0 else -100.0
+
+        return {
+            "private_gradient": private_grad,
+            "true_mean_gradient": true_mean_grad,
+            "batch_size": batch_size,
+            "dimension": dim,
+            "num_clipped": num_clipped,
+            "clipping_ratio": num_clipped / batch_size,
+            "sigma": round(self.sigma, 4),
+            "snr_db": round(snr_db, 2),
+            "epsilon": self.epsilon,
+            "delta": self.delta
+        }
+\end{lstlisting}
+
+\paragraph{Prompt AI Mô Phỏng Hoạt Họa 60 FPS: Manim CE Trực Quan Hóa Thuật Toán DP-SGD}:
+\begin{quote}
+\small\itshape
+``Hãy đóng vai một chuyên gia Manim CE (Community Edition) và Nhà nghiên cứu AI Bảo mật. \\
+Hãy viết một script Python hoàn chỉnh sử dụng thư viện \code{manim} để tạo video hoạt họa 1080p 60fps trực quan hóa cơ chế bảo vệ quyền riêng tư DP-SGD trong không gian 2D:
+\begin{enumerate}
+  \item Vẽ hệ trục tọa độ 2D đại diện cho không gian gradient của 2 tham số mô hình.
+  \item Vẽ một vòng tròn nét đứt bán kính $C$ đại diện cho ngưỡng kẹp chuẩn $L_2$ (Clipping Threshold).
+  \item Thể hiện 10 mũi tên gradient tương ứng 10 mẫu trong mini-batch. 3 mẫu có độ dài vượt quá $C$ sẽ bị co ngắn lại chạm vào mép vòng tròn $C$ (Per-sample Clipping).
+  \item Thể hiện vector gradient trung bình màu xanh lá. Sau đó, hiển thị một đám mây điểm xác suất Gauss (Gaussian Noise Sphere) bao quanh đầu mũi tên với bán kính tỷ lệ với $\frac{\sigma \cdot C}{\sqrt{B}}$.
+  \item Vector gradient thực tế cập nhật sẽ dao động ngẫu nhiên bên trong đám mây nhiễu, chứng minh rằng sự có mặt hay vắng mặt của một mẫu cá nhân không thể bị phát hiện.
+  \item Sử dụng font chữ Serif, phối màu Navy/Teal/Rose chuẩn mực và có thể render trực tiếp bằng lệnh: \code{manim -pql scene.py DPSGDVisualizationScene}.''
+\end{enumerate}
+\end{quote}
+\end{simulationbox}
+
+---
+
 \section{Hệ Thống Bài Tập Toàn Diện (Comprehensive Challenge Labs)}
 \label{sec:ch12-exercises}
 
@@ -744,6 +1096,13 @@ Trước khi mã được phép biên dịch, ta bắt buộc phải phân tích
 
   \item \textbf{Bài A.6 (Ánh Xạ STRIDE Vào Kiến Trúc Multi-Agent LangGraph)}: \\
   Xét một hệ thống Multi-Agent gồm Trợ lý Quản lý Lịch (Calendar Agent) và Trợ lý Kế toán (Billing Agent). Hãy phân tích hiểm họa \textbf{Elevation of Privilege} và \textbf{Repudiation} khi Calendar Agent bị tiêm lệnh và tìm cách gọi công cụ của Billing Agent.
+
+  \item \textbf{Bài A.7 (Cơ Chế Bảo Vệ Của Stack Canary \& Điểm Mù Khi Bị Format String)}: \\
+  Phân tích tại sao kỹ thuật Stack Canary (Stack Smashing Protector) có thể ngăn chặn hiệu quả các vụ tấn công Buffer Overflow cổ điển nhằm ghi đè địa chỉ trở về (\code{Saved RIP}), nhưng lại hoàn toàn bất lực nếu ứng dụng đồng thời tồn tại lỗ hổng rò rỉ bộ nhớ (Memory Leakage thông qua lỗi Format String \code{printf(user_input)}). Kẻ tấn công khai thác chuỗi lỗ hổng này như thế nào?
+
+  \item \textbf{Bài A.8 (Ý Nghĩa Toán Học Của $(\epsilon, \delta)$-Differential Privacy)}: \\
+  Xét một tập dữ liệu y tế gồm $|D| = 100.000$ hồ sơ bệnh án được sử dụng để fine-tuning một LLM y khoa.
+  Giải thích tại sao một kỹ sư cấu hình tham số $\delta = 10^{-2}$ lại bị coi là phá vỡ hoàn toàn cam kết an toàn riêng tư, dù tham số $\epsilon = 0.5$ rất nhỏ? Tại sao trong kỹ nghệ bắt buộc phải thỏa mãn điều kiện $\delta \ll \frac{1}{|D|}$?
 \end{enumerate}
 
 \subsection{Nhóm B: Tính Toán Giải Tích \& Số Học Bằng Tay (Analytical Calculus)}
@@ -774,6 +1133,13 @@ Trước khi mã được phép biên dịch, ta bắt buộc phải phân tích
     \item Kẻ tấn công chỉ cần bơm gói tin SYN với tốc độ tối thiểu bao nhiêu gói/giây ($R_{\min}$) để duy trì tình trạng tràn hoàn toàn hàng đợi $Q_{\max}$?
     \item Nếu quản trị viên tăng kích thước $Q_{\max}$ lên $1.000.000$ kết nối để cố gắng chống đỡ, máy chủ sẽ tiêu tốn bao nhiêu Megabytes bộ nhớ RAM cho riêng hàng đợi SYN Queue?
   \end{enumerate}
+
+  \item \textbf{Bài B.4 (Tính Toán Độ Lệch Chuẩn Nhiễu Gauss \& Tỷ Số SNR Trong DP-SGD)}: \\
+  Một kỹ sư huấn luyện LLM với thuật toán DP-SGD có các thông số: Ngân sách riêng tư $\epsilon = 1.0$, $\delta = 10^{-5}$, và ngưỡng kẹp chuẩn gradient $C = 1.5$.
+  \begin{enumerate}
+    \item Tính giá trị độ lệch chuẩn chuẩn hóa $\sigma = \frac{\sqrt{2 \ln(1.25/\delta)}}{\epsilon}$ và độ lệch chuẩn của nhiễu thực tế $\sigma_{\text{noise}} = \sigma \cdot C$.
+    \item Xét một mini-batch gồm $B = 64$ mẫu, gradient trung bình sau khi kẹp có độ dài $\|\bar{g}\|_2 = 0.6$ trên không gian 2 chiều. Giả sử nhiễu Gauss trung bình trên batch có công suất $\frac{d \cdot \sigma_{\text{noise}}^2}{B}$, hãy tính tỷ số tín hiệu trên nhiễu $\text{SNR}$ (tính theo dB).
+  \end{enumerate}
 \end{enumerate}
 
 \subsection{Nhóm C: Thực Hành Kỹ Nghệ \& Lập Trình (Implementation Labs)}
@@ -793,6 +1159,12 @@ Trước khi mã được phép biên dịch, ta bắt buộc phải phân tích
 
   \item \textbf{Bài C.4 (Tự Động Hóa Tường Lửa \& Hoàn Tác An Toàn)}: \\
   Thiết kế lớp \code{AutomatedFirewallOrchestrator} tự động sinh lệnh chặn \code{iptables -I INPUT ... -j DROP}. Đảm bảo nguyên tắc bảo mật tối thượng: Không bao giờ chặn nhầm các địa chỉ IP quản trị trong danh sách trắng (\code{127.0.0.1}, \code{10.0.0.1}), và luôn sinh kèm lệnh rollback tương ứng (\code{iptables -D INPUT ...}).
+
+  \item \textbf{Bài C.5 (Bộ Mô Phỏng Khung Ngăn Xếp \& Kiểm Soát Stack Canary)}: \\
+  Xây dựng lớp \code{StackFrameCanarySimulator} mô phỏng cấu trúc bộ nhớ Stack 64-bit (16 bytes buffer, 8 bytes canary, 8 bytes saved RBP, 8 bytes return address). Triển khai phương thức \code{write_buffer()} và \code{verify_and_return()} ném ngoại lệ \code{StackSmashingDetectedError} khi phát hiện giá trị canary bị biến đổi.
+
+  \item \textbf{Bài C.6 (Mô Phỏng Thuật Toán DP-SGD \& Đo Lường SNR)}: \\
+  Xây dựng lớp \code{DPSGDNoiseSimulator} mô phỏng thuật toán DP-SGD. Triển khai phương thức kẹp chuẩn gradient từng mẫu theo ngưỡng $C$, bơm nhiễu Gauss $\mathcal{N}(0, \sigma^2 C^2 \mathbf{I})$ với $\sigma = \frac{\sqrt{2\ln(1.25/\delta)}}{\epsilon}$, và đo lường tỷ số SNR của gradient cập nhật.
 \end{enumerate}
 
 \subsection{Nhóm D: Phân Tích Thất Bại \& Debugging Thực Tế (Post-Mortem Analysis)}
@@ -842,6 +1214,24 @@ Trước khi mã được phép biên dịch, ta bắt buộc phải phân tích
   \item \textbf{Lời giải Câu A.6}:
   - \textbf{Elevation of Privilege}: Calendar Agent vốn chỉ có quyền đọc/ghi lịch làm việc. Nhưng nếu Calendar Agent có thể gọi trực tiếp hàm của Billing Agent mà không qua kiểm tra quyền (Access Control Token), kẻ tấn công qua Calendar Prompt có thể yêu cầu thanh toán tiền.
   - \textbf{Repudiation}: Nếu hệ thống không ghi log định danh tác nhân gốc (\textit{Originating Principal}), khi tiền bị chuyển đi, audit log chỉ ghi nhận ``Billing Agent thực hiện chuyển tiền'' mà không thể truy cứu rằng lệnh đó bắt nguồn từ Calendar Agent bị xâm nhập.
+
+  \item \textbf{Lời giải Câu A.7}:
+  - \textbf{Cơ chế bảo vệ của Stack Canary}: Nằm ở vị trí chiến lược ngay giữa mảng đệm cục bộ và các giá trị điều khiển (\code{Saved RBP} và \code{Saved RIP}). Mọi cuộc tấn công ghi tràn tuần tự (Sequential Buffer Overflow) muốn chạm tới và ghi đè địa chỉ trở về bắt buộc phải đi xuyên qua và làm biến đổi giá trị của Stack Canary. Trước khi thực thi lệnh \code{RET}, CPU so sánh giá trị này với bản sao an toàn lưu trong vùng lưu trữ cục bộ của luồng (\code{\%fs:0x28}). Nếu phát hiện sai khác, hệ thống kích hoạt ngắt hủy tiến trình \code{__stack_chk_fail()}, ngăn chặn việc chuyển hướng con trỏ lệnh.
+  - \textbf{Điểm mù khi kết hợp lỗ hổng Format String}: Khi ứng dụng sử dụng lệnh in không an toàn (ví dụ: \code{printf(user_input)}), kẻ tấn công có thể cung cấp chuỗi đặc tả định dạng (như \code{\%11\$p} hoặc \code{\%016lx}) để đọc trực tiếp các giá trị trên Stack mà không hề ghi đè hay làm hỏng cấu trúc bộ nhớ (\textit{Non-destructive Memory Leak}). Kẻ tấn công đọc được chính xác giá trị 64-bit của Stack Canary hiện tại.
+  - Sau đó, trong payload tấn công Buffer Overflow, kẻ tấn công tính toán offset và đặt lại đúng giá trị Canary đã rò rỉ vào vị trí tương ứng. Khi hàm kết thúc, phép kiểm tra Canary hoàn toàn khớp, khiến cơ chế Stack Canary bị vô hiệu hóa và CPU nhảy thẳng tới địa chỉ shellcode của kẻ tấn công!
+
+  \item \textbf{Lời giải Câu A.8}:
+  - Trong định nghĩa $(\epsilon, \delta)$-Differential Privacy:
+  \begin{equation*}
+  \mathbb{P}\big(\mathcal{M}(D) \in \mathcal{S}\big) \le e^\epsilon \cdot \mathbb{P}\big(\mathcal{M}(D') \in \mathcal{S}\big) + \delta
+  \end{equation*}
+  Tham số $\delta$ đóng vai trò là \textbf{xác suất vi phạm hoàn toàn cam kết an toàn riêng tư}.
+  - Với tập dữ liệu $|D| = 100.000$ bệnh nhân, nếu chọn $\delta = 10^{-2} = 0.01$ (tương đương $1\%$), thuật toán được phép tiết lộ toàn bộ thông tin nhạy cảm của tới:
+  \begin{equation*}
+  N_{\text{leaked}} = 100.000 \times 0.01 = \mathbf{1.000 \text{ bệnh nhân}}
+  \end{equation*}
+  một cách công khai mà về mặt toán học vẫn được coi là thỏa mãn điều kiện $(\epsilon, \delta)$-DP!
+  - Do đó, trong kỹ nghệ chuẩn mực, điều kiện bắt buộc là $\delta \ll \frac{1}{|D|}$ (thông thường chọn $\delta \le 10^{-5}$ hoặc $10^{-6}$ đối với tập $100.000$ mẫu). Khi $\delta \ll \frac{1}{|D|}$, xác suất rò rỉ dữ liệu của một cá nhân bất kỳ trở nên vô cùng nhỏ bé và không còn ý nghĩa thống kê đối với kẻ tấn công.
 \end{itemize}
 
 \subsection{Lời Giải Nhóm B: Tính Toán Giải Tích \& Số Học Bằng Tay}
@@ -894,6 +1284,38 @@ Trước khi mã được phép biên dịch, ta bắt buộc phải phân tích
     M = 1.000.000 \times 280 \text{ bytes} = 280.000.000 \text{ bytes} \approx \mathbf{267 \text{ MB}}
     \end{equation*}
     Mặc dù 267 MB RAM là con số máy chủ chịu được, nhưng việc tìm kiếm trong danh sách liên kết một triệu phần tử sẽ làm CPU ngốn $100\%$ tài nguyên nhân Kernel (\textit{SoftIRQ storm}). Do đó, giải pháp đúng đắn duy nhất là kích hoạt SYN Cookies!
+  \end{enumerate}
+
+  \item \textbf{Lời giải Bài B.4}:
+  \begin{enumerate}
+    \item Với $\delta = 10^{-5} \implies \frac{1.25}{\delta} = \frac{1.25}{10^{-5}} = 125.000$.
+    Ta có $\ln(125.000) \approx 11.736069$.
+    Độ lệch chuẩn chuẩn hóa $\sigma$ của cơ chế Gauss:
+    \begin{equation*}
+    \sigma = \frac{\sqrt{2 \ln(1.25 / \delta)}}{\epsilon} = \frac{\sqrt{2 \times 11.736069}}{1.0} = \sqrt{23.472138} \approx \mathbf{4.8448}
+    \end{equation*}
+    Độ lệch chuẩn của nhiễu thực tế đưa vào vector gradient với ngưỡng kẹp $C = 1.5$:
+    \begin{equation*}
+    \sigma_{\text{noise}} = \sigma \cdot C = 4.8448 \times 1.5 = \mathbf{7.2672}
+    \end{equation*}
+    \item Với mini-batch kích thước $B = 64$ mẫu trên không gian $d = 2$ chiều:
+    - Công suất tín hiệu của vector gradient trung bình:
+      \begin{equation*}
+      P_{\text{signal}} = \|\bar{g}\|_2^2 = (0.6)^2 = \mathbf{0.36}
+      \end{equation*}
+    - Phương sai nhiễu trung bình trên toàn batch (nhiễu Gauss được chia trung bình cho $B$ nên phương sai giảm đi $B$ lần):
+      \begin{equation*}
+      P_{\text{noise}} = \frac{d \cdot \sigma_{\text{noise}}^2}{B} = \frac{2 \times (7.2672)^2}{64} = \frac{2 \times 52.8122}{64} = \frac{105.6244}{64} \approx \mathbf{1.6504}
+      \end{equation*}
+    - Tỷ số tín hiệu trên nhiễu $\text{SNR}$:
+      \begin{equation*}
+      \text{SNR} = \frac{P_{\text{signal}}}{P_{\text{noise}}} = \frac{0.36}{1.6504} \approx \mathbf{0.2181}
+      \end{equation*}
+    - Chuyển đổi sang thang đo Decibel (dB):
+      \begin{equation*}
+      \text{SNR}_{\text{dB}} = 10 \log_{10}(\text{SNR}) = 10 \log_{10}(0.2181) \approx 10 \times (-0.6613) \approx \mathbf{-6.61 \text{ dB}}
+      \end{equation*}
+    Tỷ số $\text{SNR} < 0\text{ dB}$ cho thấy mức độ nhiễu vượt qua cường độ tín hiệu của một batch đơn lẻ, bảo đảm tính riêng tư vi phân nghiêm ngặt. Nhờ tính chất kỳ vọng bằng 0 của phân phối Gauss, qua hàng ngàn bước cập nhật SGD, nhiễu sẽ triệt tiêu và mô hình vẫn hội tụ tối ưu.
   \end{enumerate}
 \end{itemize}
 
@@ -1095,6 +1517,139 @@ class AutomatedFirewallOrchestrator:
         
         self.active_blocks[ip_address] = time.time() + duration_sec
         return True, apply_cmd, rollback_cmd
+\end{lstlisting}
+
+\subsubsection{C.5: Bộ Mô Phỏng Khung Ngăn Xếp \& Kiểm Soát Stack Canary}
+\begin{lstlisting}[language=Python]
+class StackSmashingDetectedError(Exception):
+    pass
+
+class StackFrameCanarySimulator:
+    """
+    Mo phong cau truc bo nho Stack Frame 64-bit:
+    [ Local Buffer (16B) ] [ Canary (8B) ] [ Saved RBP (8B) ] [ Return Addr (8B) ]
+    """
+    CANARY_DEFAULT = 0xDEADBEEFCAFE0001
+    DEFAULT_RET_ADDR = 0x0000000000401150
+    DEFAULT_SAVED_RBP = 0x00007FFFFFFFE000
+
+    def __init__(self, buffer_size: int = 16, canary: int = CANARY_DEFAULT, return_addr: int = DEFAULT_RET_ADDR):
+        self.buffer_size = buffer_size
+        self.canary = canary
+        self.saved_rbp = self.DEFAULT_SAVED_RBP
+        self.return_addr = return_addr
+        
+        self.total_size = buffer_size + 24
+        self.memory = bytearray(self.total_size)
+        self._init_frame()
+
+    def _init_frame(self):
+        self.memory[self.buffer_size : self.buffer_size + 8] = self.canary.to_bytes(8, byteorder="little")
+        self.memory[self.buffer_size + 8 : self.buffer_size + 16] = self.saved_rbp.to_bytes(8, byteorder="little")
+        self.memory[self.buffer_size + 16 : self.buffer_size + 24] = self.return_addr.to_bytes(8, byteorder="little")
+
+    def write_buffer(self, data: bytes) -> dict:
+        bytes_to_write = min(len(data), self.total_size)
+        for i in range(bytes_to_write):
+            self.memory[i] = data[i]
+            
+        current_canary = int.from_bytes(self.memory[self.buffer_size : self.buffer_size + 8], byteorder="little")
+        current_ret = int.from_bytes(self.memory[self.buffer_size + 16 : self.buffer_size + 24], byteorder="little")
+        
+        return {
+            "bytes_written": bytes_to_write,
+            "overflowed": len(data) > self.buffer_size,
+            "canary_corrupted": current_canary != self.canary,
+            "ret_corrupted": current_ret != self.return_addr,
+            "current_canary_hex": hex(current_canary),
+            "current_ret_hex": hex(current_ret),
+        }
+
+    def verify_and_return(self) -> int:
+        current_canary = int.from_bytes(self.memory[self.buffer_size : self.buffer_size + 8], byteorder="little")
+        if current_canary != self.canary:
+            raise StackSmashingDetectedError(
+                f"*** stack smashing detected ***: Canary bi sua doi! "
+                f"Ky vong {hex(self.canary)}, tim thay {hex(current_canary)}. Huy tien trinh."
+            )
+        return int.from_bytes(self.memory[self.buffer_size + 16 : self.buffer_size + 24], byteorder="little")
+\end{lstlisting}
+
+\subsubsection{C.6: Mô Phỏng Thuật Toán DP-SGD \& Đo Lường SNR}
+\begin{lstlisting}[language=Python]
+import math
+from typing import List, Tuple, Dict, Any, Optional
+
+class DPSGDNoiseSimulator:
+    """
+    Mo phong thuat toan bao ve quyen rieng tu DP-SGD:
+    Kep chuan L2 tung mau + Them nhieu Gauss hieu chuan.
+    """
+    def __init__(self, clip_norm: float = 1.0, epsilon: float = 1.0, delta: float = 1e-5):
+        self.clip_norm = clip_norm
+        self.epsilon = epsilon
+        self.delta = delta
+        self.sigma = math.sqrt(2.0 * math.log(1.25 / delta)) / epsilon
+        self.noise_std = self.sigma * self.clip_norm
+
+    def clip_per_sample_gradients(self, gradients: List[List[float]]) -> Tuple[List[List[float]], int]:
+        clipped = []
+        clipped_count = 0
+        for grad in gradients:
+            l2_norm = math.sqrt(sum(g * g for g in grad))
+            if l2_norm > self.clip_norm and l2_norm > 0:
+                scale = self.clip_norm / l2_norm
+                clipped.append([g * scale for g in grad])
+                clipped_count += 1
+            else:
+                clipped.append(list(grad))
+        return clipped, clipped_count
+
+    def compute_private_batch_gradient(
+        self,
+        gradients: List[List[float]],
+        random_seed: Optional[int] = None
+    ) -> Dict[str, Any]:
+        if not gradients:
+            return {"private_gradient": [], "batch_size": 0, "snr_db": 0.0}
+
+        import random
+        rng = random.Random(random_seed) if random_seed is not None else random
+
+        batch_size = len(gradients)
+        dim = len(gradients[0])
+        
+        clipped_grads, num_clipped = self.clip_per_sample_gradients(gradients)
+        
+        summed = [0.0] * dim
+        for g in clipped_grads:
+            for d in range(dim):
+                summed[d] += g[d]
+                
+        noise_vector = [rng.gauss(0.0, self.noise_std) for _ in range(dim)]
+        noised_sum = [summed[d] + noise_vector[d] for d in range(dim)]
+            
+        private_grad = [val / batch_size for val in noised_sum]
+        true_mean_grad = [val / batch_size for val in summed]
+        
+        signal_power = sum(v * v for v in true_mean_grad)
+        effective_noise = [nv / batch_size for nv in noise_vector]
+        noise_power = sum(nv * nv for nv in effective_noise)
+        snr = signal_power / noise_power if noise_power > 1e-12 else float("inf")
+        snr_db = 10.0 * math.log10(snr) if snr > 0 else -100.0
+
+        return {
+            "private_gradient": private_grad,
+            "true_mean_gradient": true_mean_grad,
+            "batch_size": batch_size,
+            "dimension": dim,
+            "num_clipped": num_clipped,
+            "clipping_ratio": num_clipped / batch_size,
+            "sigma": round(self.sigma, 4),
+            "snr_db": round(snr_db, 2),
+            "epsilon": self.epsilon,
+            "delta": self.delta
+        }
 \end{lstlisting}
 
 \subsection{Lời Giải Nhóm D: Phân Tích Thất Bại Thực Tế (Post-Mortem Analysis)}

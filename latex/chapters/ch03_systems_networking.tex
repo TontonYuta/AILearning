@@ -219,6 +219,20 @@ Bốn chỉ số vật lý quyết định chất lượng của mọi đường
   \item \textbf{Tỷ lệ mất gói (Packet Loss Rate)}: Tỷ lệ phần trăm các gói tin bị đánh rơi trên đường truyền do nghẽn hàng đợi switch hoặc suy hao vật lý.
 \end{enumerate}
 
+\subsubsection{Cơ Chế Điều Chế Xung Nhịp \& Mã Hóa Tín Hiệu (NRZ vs. Manchester)}
+Làm thế nào đầu thu biết được một dãy số \code{00000000} liên tục là tám bit 0 độc lập hay chỉ là một xung điện kéo dài? 
+\begin{itemize}
+  \item \textbf{Mã hóa NRZ (Non-Return-to-Zero)}: Mức điện thế cao đại diện cho bit 1, mức điện thế thấp đại diện cho bit 0. Nhược điểm chí mạng là khi xuất hiện chuỗi dài các bit giống nhau, tín hiệu không đổi mức khiến mạch đếm xung nhịp (\textit{Clock}) của bên nhận bị trôi dạt (\textit{Clock Drift}), dẫn tới đọc sai số lượng bit!
+  \item \textbf{Mã hóa Manchester (Ethernet 10BASE-T)}: Mỗi chu kỳ bit luôn có một bước nhảy điện thế ở chính giữa: Chuyển từ thấp lên cao đại diện cho bit 1, chuyển từ cao xuống thấp đại diện cho bit 0. Bước nhảy ở giữa chu kỳ đóng vai trò như một nhịp đập đồng hồ tự thân, giúp bên nhận luôn khóa chặt tần số đồng bộ với bên phát!
+\end{itemize}
+
+\subsubsection{Cơ Chế Đa Truy Nhập Cảm Ứng Sóng Mang (CSMA/CD vs. CSMA/CA)}
+Khi nhiều máy tính cùng cắm chung vào một đường dây mạng hoặc cùng phát sóng vô tuyến, làm thế nào để chúng không ``nói đè'' lên nhau?
+\begin{itemize}
+  \item \textbf{CSMA/CD (Carrier Sense Multiple Access with Collision Detection -- Cáp Đồng)}: Lắng nghe đường truyền trước khi phát (\textit{Carrier Sense}). Nếu rảnh thì phát dữ liệu. Trong lúc phát, vừa phát vừa đo điện thế dây mạng. Nếu phát hiện biên độ điện áp tăng vọt bất thường (xảy ra xung đột -- \textit{Collision}), card mạng lập tức ngừng phát, phát tín hiệu nhiễu (\textit{Jamming Signal}) báo cho toàn mạng, và lùi lại một khoảng thời gian ngẫu nhiên theo giải thuật \term{Exponential Backoff} trước khi thử lại.
+  \item \textbf{CSMA/CA (Collision Avoidance -- Sóng Vô Tuyến WiFi)}: Do card WiFi không thể vừa phát sóng công suất lớn vừa nghe tín hiệu yếu của máy khác, nó không thể phát hiện xung đột. Thay vào đó, nó tránh xung đột bằng cách gửi bản tin ngắn \term{RTS (Request to Send)}. Bộ phát Access Point phản hồi \term{CTS (Clear to Send)} cấp quyền phát độc quyền, sau đó máy trạm mới chính thức truyền gói dữ liệu lớn.
+\end{itemize}
+
 \subsection{Tầng Liên Kết Dữ Liệu: Địa Chỉ MAC, Khung Ethernet \& Giao Thức ARP}
 \label{subsec:datalink-mac-arp}
 Khi các electron đã tạo thành chuỗi bit, tầng liên kết dữ liệu (Data Link - Layer 2) có nhiệm vụ gom các bit này thành cấu trúc có nghĩa gọi là \term{Khung Ethernet (Ethernet Frame)} và vận chuyển giữa các thiết bị cắm chung một mạng cục bộ (LAN).
@@ -273,6 +287,58 @@ Khác với thiết bị Hub thô sơ gửi gói tin mù quáng ra tất cả c�
   \item \textbf{Miền Xung Đột (Collision Domain) vs Miền Quảng Bá (Broadcast Domain)}: Mỗi cổng của Switch tạo thành một Miền xung đột riêng biệt (cho phép truyền nhận song công toàn phần -- Full Duplex). Tuy nhiên, toàn bộ Switch vẫn là một Miền quảng bá duy nhất. Nếu có bão broadcast ARP hoặc DHCP, toàn bộ các máy trạm sẽ bị nghẽn.
   \item \textbf{Mạng LAN Ảo (VLAN -- IEEE 802.1Q)}: Trong các trung tâm dữ liệu hạ tầng AI, các kỹ sư sử dụng VLAN để chèn thêm một thẻ định danh 4-byte (chứa VLAN ID từ 1 đến 4094) vào khung Ethernet. Điều này cho phép phân tách logic hoàn toàn giữa mạng cụm huấn luyện GPU, mạng lưu trữ cơ sở dữ liệu và mạng công cộng bên ngoài trên cùng một thiết bị switch vật lý.
 \end{itemize}
+
+\subsubsection{Giao Thức Cấp Phát IP Động DHCP (Tiến Trình 4 Bước DORA)}
+Khi một máy chủ worker mới được khởi động trong cụm mạng, làm thế nào để nó tự động nhận địa chỉ IP, Subnet Mask, Default Gateway và DNS Server mà không cần kỹ sư cấu hình thủ công từng dòng?
+
+Giao thức \term{DHCP (Dynamic Host Configuration Protocol -- RFC 2131)} vận hành trên tầng ứng dụng qua cổng UDP 67 (Server) và UDP 68 (Client) qua tiến trình 4 bước chuẩn mực \textbf{DORA}:
+\begin{enumerate}
+  \item \textbf{D -- DHCP DISCOVER (Broadcast)}: Máy khách chưa có IP phát thanh ra toàn mạng: Địa chỉ nguồn \code{0.0.0.0:68}, địa chỉ đích \code{255.255.255.255:67}, kèm địa chỉ MAC của mình: ``\textit{Có máy chủ DHCP nào ở đây không? Tôi cần xin một địa chỉ IP!}''.
+  \item \textbf{O -- DHCP OFFER (Unicast/Broadcast)}: Máy chủ DHCP kiểm tra quỹ địa chỉ (\textit{IP Pool}), chọn một IP trống và gửi lời mời: ``\textit{Tôi đề xuất bạn dùng IP 192.168.1.105, Subnet /24, Gateway 192.168.1.1, thời hạn thuê 24 giờ}''.
+  \item \textbf{R -- DHCP REQUEST (Broadcast)}: Máy khách phát thanh xác nhận chọn lời mời: ``\textit{Tôi chính thức chấp nhận thuê IP 192.168.1.105 từ máy chủ DHCP X!}''. Gói tin gửi broadcast để các máy chủ DHCP khác (nếu có) biết lời mời của họ bị từ chối và thu hồi lại IP vào pool.
+  \item \textbf{A -- DHCP ACK (Unicast)}: Máy chủ DHCP ghi nhận hợp đồng thuê (\textit{Lease}) vào cơ sở dữ liệu và gửi gói tin xác nhận cuối cùng. Card mạng của máy khách chính thức kích hoạt cấu hình IP!
+\end{enumerate}
+
+\begin{simulationbox}[Mô Phỏng Tiến Trình Cấp Phát IP DHCP DORA \& AI Terminal Simulator]
+Dưới đây là mã nguồn Python mô phỏng chính xác logic phân phối và thu hồi IP của máy chủ DHCP Server:
+\begin{lstlisting}[language=Python]
+class DHCPPoolManager:
+    def __init__(self, subnet_prefix: str, start_host: int, end_host: int, lease_seconds: int = 86400):
+        self.subnet_prefix = subnet_prefix
+        self.available_pool = [f"{subnet_prefix}.{i}" for i in range(start_host, end_host + 1)]
+        self.active_leases = {}  # mac_address -> {"ip": ip, "expire_at": timestamp}
+        self.lease_seconds = lease_seconds
+
+    def handle_discover(self, client_mac: str) -> Optional[str]:
+        """Buoc Offer: Chon mot IP trong trong pool de de xuat cho client."""
+        if client_mac in self.active_leases:
+            return self.active_leases[client_mac]["ip"]
+        return self.available_pool[0] if self.available_pool else None
+
+    def handle_request(self, client_mac: str, requested_ip: str, current_time: float) -> bool:
+        """Buoc Acknowledge: Xac nhan cap hop dong thue neu IP hop le va con trong."""
+        if requested_ip in self.available_pool:
+            self.available_pool.remove(requested_ip)
+            self.active_leases[client_mac] = {
+                "ip": requested_ip,
+                "expire_at": current_time + self.lease_seconds
+            }
+            return True
+        return False
+\end{lstlisting}
+
+\paragraph{Prompt AI Mô Phỏng Tương Tác 1: Interactive Wireshark Packet Dissector}:
+\begin{quote}
+\small\itshape
+``Hãy đóng vai một công cụ giả lập Linux Kernel Network Stack và Wireshark Packet Dissector chuyên nghiệp. 
+Nhiệm vụ của bạn là mô phỏng từng byte của tiến trình DHCP DORA khi một máy tính có MAC \code{52:54:00:12:34:56} cắm vào mạng LAN \code{192.168.1.0/24}:
+\begin{enumerate}
+  \item Xuất ra 4 khung gói tin chi tiết chuẩn định dạng Wireshark Text Log (Frame, Ethernet II Header, IPv4 Header, UDP Header, và Bootstrap/DHCP Protocol Body).
+  \item Giải thích rõ tại sao ở bước DISCOVER, trường Source IP bắt buộc là \code{0.0.0.0} và Dest IP là \code{255.255.255.255}.
+  \item Sau khi in xong log, hãy dừng lại và đặt cho tôi 2 câu hỏi kỹ thuật về tình huống xung đột IP (IP Conflict) để tôi trả lời.''
+\end{enumerate}
+\end{quote}
+\end{simulationbox}
 
 \subsection{Địa Chỉ IP, Mặt Nạ Mạng (Subnet Mask) \& Ký Hiệu CIDR}
 \begin{definition}[Địa Chỉ IPv4 \& Ký Hiệu CIDR]
@@ -655,11 +721,111 @@ Cơ chế này hoạt động thông qua trường \textbf{Window Size} trong TC
   \text{Bytes In Flight} \le \min(cwnd, rwnd)
   \end{equation}
   \item Khi bộ đệm máy nhận đầy ($rwnd = 0$), máy nhận phát thông báo \term{Zero Window}. Máy gửi lập tức ngừng phát dữ liệu và kích hoạt bộ định thời gửi gói \textit{Zero Window Probe} định kỳ để thăm dò khi nào bộ đệm được giải phóng.
-  \item \textbf{Tắt Thuật Toán Nagle Cho Streaming AI Token}: Mặc định, giải thuật Nagle cố gắng gom nhiều gói tin nhỏ thành một gói lớn bằng MSS mới gửi đi. Nhưng trong bài toán LLM Token Streaming, mỗi token sinh ra chỉ gồm 1--4 byte. Nếu không tắt Nagle, hệ điều hành sẽ trì hoãn gửi token khiến người dùng cảm thấy chữ xuất hiện giật cục. Các kỹ sư AI bắt buộc phải thiết lập cờ socket:
-  \begin{lstlisting}[language=Python]
-  sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
-  \end{lstlisting}
 \end{itemize}
+
+\subsection{Toán Học Về Tùy Chọn Mở Rộng Cửa Sổ (TCP Window Scale Option -- RFC 7323)}
+\label{subsec:tcp-window-scale-math}
+Thuở sơ khai của mạng Internet (thập niên 1980), các nhà thiết kế giao thức TCP dành 16-bit trong header cho trường \textbf{Window Size}. Điều này đồng nghĩa với việc kích thước cửa sổ nhận tối đa chỉ có thể là:
+\begin{equation}
+W_{\max}^{\text{raw}} = 2^{16} - 1 = \mathbf{65.535 \text{ bytes}} \approx 64 \text{ KiB}
+\end{equation}
+
+Với các mạng dial-up tốc độ thấp vài chục Kbps thời đó, $64\text{ KiB}$ là một con số khổng lồ. Tuy nhiên, trong kỷ nguyên điện toán đám mây và cụm GPU hiện đại, con số 16-bit này đã trở thành một chiếc còng số 8 bóp nghẹt hiệu năng hệ thống:
+
+\begin{example}[Thảm Họa Băng Thông Khi Không Bật TCP Window Scaling]
+Xét đường truyền cáp quang $10\text{ Gbps}$ nối giữa trung tâm dữ liệu GPU tại Tokyo và máy chủ API tại Hà Nội với $\text{RTT} = 80\text{ ms} = 0.08\text{ s}$.
+Tích số Băng thông -- Độ trễ (BDP) của kênh truyền là:
+\begin{equation}
+\text{BDP} = \text{Bandwidth} \times \text{RTT} = \frac{10 \times 10^9 \text{ bits/s}}{8} \times 0.08 \text{ s} = \mathbf{100.000.000 \text{ bytes}} = 100 \text{ MB}
+\end{equation}
+Để khai thác $100\%$ tốc độ $10\text{ Gbps}$, máy phát phải liên tục duy trì $100\text{ MB}$ dữ liệu bay trên đường truyền.
+Tuy nhiên, nếu hệ điều hành không bật tùy chọn Window Scaling, máy nhận chỉ có thể thông báo cửa sổ tối đa là $65.535\text{ bytes}$.
+Thông lượng tối đa mà kênh truyền có thể đạt được bị chặn đứng ở mức:
+\begin{equation}
+\text{Throughput}_{\max} = \frac{W_{\max}^{\text{raw}} \times 8}{\text{RTT}} = \frac{65.535 \times 8}{0.08} = \mathbf{6.553.500 \text{ bps}} \approx \mathbf{6.55 \text{ Mbps}}!
+\end{equation}
+Doanh nghiệp chi trả hàng ngàn USD mỗi tháng cho đường truyền cáp quang $10\text{ Gbps}$, nhưng tốc độ tải thực tế chỉ vỏn vẹn **$6.55\text{ Mbps}$**, lãng phí hơn **$99.93\%$** năng lực mạng chỉ vì thiếu một cờ cấu hình 16-bit!
+\end{example}
+
+Để khắc phục, chuẩn RFC 7323 giới thiệu tùy chọn \term{TCP Window Scale Option}:
+\begin{itemize}
+  \item Trong quá trình bắt tay \code{SYN}, hai máy tính đàm phán một hệ số dịch bit nhị phân (\textit{Shift Count}) $S \in [0, 14]$.
+  \item Giá trị cửa sổ thực tế được nhân lên theo cấp số nhân:
+  \begin{equation}
+  \text{True Window Size} = \text{Window Size Field} \times 2^S
+  \end{equation}
+  \item Khi $S = 14$, kích thước cửa sổ nhận tối đa được mở rộng lên tới:
+  \begin{equation}
+  W_{\max}^{\text{scaled}} = (2^{16} - 1) \times 2^{14} = 65.535 \times 16.384 = \mathbf{1.073.725.440 \text{ bytes}} \approx \mathbf{1 \text{ GiB}}!
+  \end{equation}
+  Nhờ đó, TCP có thể dễ dàng lấp đầy các đường truyền siêu cao tốc $100\text{ Gbps}$ và $400\text{ Gbps}$ xuyên lục địa.
+\end{itemize}
+
+\subsection{Tiến Hóa Của Giao Thức Web: HTTP/1.1 vs. HTTP/2 vs. HTTP/3 QUIC}
+\label{subsec:http-evolution}
+\begin{table}[htbp]
+\centering
+\small
+\caption{So Sánh Toàn Diện Các Thế Hệ Giao Thức Web Trong Hạ Tầng AI}
+\label{tab:http-evolution}
+\begin{tabular}{p{2.8cm}p{3.2cm}p{3.2cm}p{3.5cm}}
+\toprule
+\textbf{Đặc Tính} & \textbf{HTTP/1.1 (1997)} & \textbf{HTTP/2 (2015)} & \textbf{HTTP/3 QUIC (2022)} \\
+\midrule
+\textbf{Tầng Giao Vận} & TCP thuần túy & TCP thuần túy & \textbf{UDP} (giao thức QUIC) \\
+\textbf{Định Dạng Dữ Liệu} & Plaintext (Dạng văn bản) & Binary Framing (Khung nhị phân) & Binary Framing trên QUIC \\
+\textbf{Đa Luồng (Multiplexing)} & Không (Bị Head-of-Line blocking) & Có (Đa luồng trên 1 kết nối TCP) & \textbf{Có (Đa luồng độc lập hoàn toàn)} \\
+\textbf{Nén Tiêu Đề} & Không nén & Chuẩn HPACK & Chuẩn QPACK \\
+\textbf{TCP HoL Blocking} & Có (Nghiêm trọng) & Có (Mất 1 gói TCP treo mọi luồng) & \textbf{Không (Triệt tiêu 100\%)} \\
+\textbf{Bắt Tay Kết Nối} & $1 \text{ RTT TCP} + 1\text{--}2 \text{ RTT TLS}$ & $1 \text{ RTT TCP} + 1 \text{ RTT TLS 1.3}$ & \textbf{0-RTT / 1-RTT Handshake} \\
+\textbf{Chuyển Vùng Mạng} & Đứt kết nối khi đổi IP & Đứt kết nối khi đổi IP & \textbf{Connection Migration (Không đứt)} \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\begin{simulationbox}[Mô Phỏng Tính Toán Bóp Nghẹt BDP \& Luồng Ghép Kênh HTTP/2]
+Dưới đây là đoạn mã Python mô phỏng sự suy giảm thông lượng mạng khi thiếu Window Scaling:
+\begin{lstlisting}[language=Python]
+class TCPWindowScaleSimulator:
+    @staticmethod
+    def calculate_actual_throughput(bandwidth_gbps: float, rtt_ms: float, enable_window_scale: bool, scale_shift: int = 7) -> Dict[str, Any]:
+        rtt_sec = rtt_ms / 1000.0
+        line_rate_bps = bandwidth_gbps * 1e9
+        bdp_bytes = (line_rate_bps / 8.0) * rtt_sec
+        
+        # Cua so toi da
+        raw_max_window = 65535
+        actual_window = (raw_max_window << scale_shift) if enable_window_scale else raw_max_window
+        
+        # Thong luong toi da bi gioi han boi cua so nhan
+        max_throughput_bps = (actual_window * 8.0) / rtt_sec
+        achieved_bps = min(line_rate_bps, max_throughput_bps)
+        utilization_pct = (achieved_bps / line_rate_bps) * 100.0
+        
+        return {
+            "bandwidth_gbps": bandwidth_gbps,
+            "rtt_ms": rtt_ms,
+            "bdp_mb": round(bdp_bytes / 1e6, 2),
+            "window_size_bytes": actual_window,
+            "achieved_mbps": round(achieved_bps / 1e6, 2),
+            "link_utilization_pct": round(utilization_pct, 2),
+            "bottlenecked": achieved_bps < line_rate_bps
+        }
+\end{lstlisting}
+
+\paragraph{Prompt AI Mô Phỏng Trực Quan 2: Sinh Mã Hoạt Họa Manim CE Bắt Tay TCP 60 FPS}:
+\begin{quote}
+\small\itshape
+``Hãy đóng vai một chuyên gia Manim CE (Community Edition) và Kỹ sư Mạng máy tính. 
+Hãy viết một script Python hoàn chỉnh sử dụng thư viện \code{manim} để tạo video hoạt họa độ phân giải 1080p, 60fps trực quan hóa cơ chế bắt tay 3 bước TCP (Three-way Handshake) và cửa sổ trượt Sliding Window:
+\begin{enumerate}
+  \item Vẽ 2 hình hộp máy tính đại diện cho Client (Hà Nội) và Server (Tokyo) cách nhau qua trục thời gian.
+  \item Thể hiện mũi tên phát gói SYN (\code{seq=100}) bay từ Client sang Server, sau đó Server phản hồi SYN-ACK (\code{seq=500, ack=101}), và Client gửi ACK (\code{ack=501}).
+  \item Hiển thị động một thanh bộ đệm Sliding Window kích thước 4 ô. Khi gói tin ACK quay về, thanh cửa sổ trượt sang phải mượt mà.
+  \item Đảm bảo mã nguồn tuân thủ font chữ Serif chuẩn mực, chú thích thuật ngữ rõ ràng và có thể chạy trực tiếp bằng lệnh: \code{manim -pql scene.py TCPHandshakeScene}.''
+\end{enumerate}
+\end{quote}
+\end{simulationbox}
 
 ---
 

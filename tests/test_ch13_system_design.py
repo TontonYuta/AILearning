@@ -324,3 +324,291 @@ def test_prefix_aware_tflops_savings_math():
     total_hours_saved = total_seconds_saved / 3600.0
     assert math.isclose(total_hours_saved, 9.16666, rel_tol=1e-3)
 
+
+
+# ==============================================================================
+# 4. DISTRIBUTED TOKEN BUCKET RATE LIMITER
+# ==============================================================================
+
+class DistributedTokenBucketRateLimiter:
+    """
+    Distributed Token Bucket Rate Limiter supporting burst capacity,
+    multi-tenant tiers, and atomic token refill logic (simulating Redis Lua).
+    """
+    def __init__(self, default_rate: float = 10.0, default_capacity: float = 20.0):
+        self.default_rate = default_rate
+        self.default_capacity = default_capacity
+        self.tenants: Dict[str, Dict[str, Any]] = {}
+
+    def register_tenant(self, tenant_id: str, rate: float, capacity: float):
+        self.tenants[tenant_id] = {
+            "rate": float(rate),
+            "capacity": float(capacity),
+            "tokens": float(capacity),
+            "last_refill": None,
+        }
+
+    def _get_tenant(self, tenant_id: str) -> Dict[str, Any]:
+        if tenant_id not in self.tenants:
+            self.register_tenant(tenant_id, self.default_rate, self.default_capacity)
+        return self.tenants[tenant_id]
+
+    def acquire(
+        self,
+        tenant_id: str,
+        tokens_requested: int = 1,
+        current_time: float = 0.0
+    ) -> Tuple[bool, float, Dict[str, Any]]:
+        tenant = self._get_tenant(tenant_id)
+        rate = tenant["rate"]
+        capacity = tenant["capacity"]
+        last_refill = tenant["last_refill"]
+        tokens = tenant["tokens"]
+
+        # 1. Refill tokens based on elapsed time
+        if last_refill is not None and current_time > last_refill:
+            elapsed = current_time - last_refill
+            tokens = min(capacity, tokens + elapsed * rate)
+
+        tenant["last_refill"] = current_time
+
+        # 2. Check if sufficient tokens are available
+        if tokens >= tokens_requested:
+            tokens -= tokens_requested
+            tenant["tokens"] = tokens
+            return True, 0.0, {
+                "tenant_id": tenant_id,
+                "allowed": True,
+                "remaining_tokens": round(tokens, 2),
+                "retry_after_sec": 0.0,
+            }
+        else:
+            needed = tokens_requested - tokens
+            retry_after = needed / rate if rate > 0 else float("inf")
+            tenant["tokens"] = tokens
+            return False, round(retry_after, 3), {
+                "tenant_id": tenant_id,
+                "allowed": False,
+                "remaining_tokens": round(tokens, 2),
+                "retry_after_sec": round(retry_after, 3),
+            }
+
+
+# ==============================================================================
+# 5. MULTI-REGION GEO-DISTRIBUTED GPU ROUTER WITH CIRCUIT BREAKER
+# ==============================================================================
+
+class MultiRegionGPURouter:
+    """
+    Multi-Region Geo-Distributed GPU Router with dynamic latency weighting,
+    load-aware penalty, circuit breaker (Closed/Open/Half-Open), and graceful cloud fallback.
+    """
+    def __init__(self, failure_threshold: int = 3, recovery_threshold: int = 2):
+        self.failure_threshold = failure_threshold
+        self.recovery_threshold = recovery_threshold
+        self.regions: Dict[str, Dict[str, Any]] = {}
+
+    def add_region(self, name: str, base_latency_ms: float, capacity: int):
+        self.regions[name] = {
+            "name": name,
+            "base_latency_ms": base_latency_ms,
+            "capacity": capacity,
+            "active_load": 0,
+            "consecutive_failures": 0,
+            "consecutive_successes": 0,
+            "circuit_state": "CLOSED",  # CLOSED, OPEN, HALF_OPEN
+        }
+
+    def record_result(self, region_name: str, success: bool):
+        if region_name not in self.regions:
+            return
+        reg = self.regions[region_name]
+        if success:
+            reg["consecutive_failures"] = 0
+            reg["consecutive_successes"] += 1
+            if reg["circuit_state"] == "HALF_OPEN" and reg["consecutive_successes"] >= self.recovery_threshold:
+                reg["circuit_state"] = "CLOSED"
+        else:
+            reg["consecutive_successes"] = 0
+            reg["consecutive_failures"] += 1
+            if reg["consecutive_failures"] >= self.failure_threshold:
+                reg["circuit_state"] = "OPEN"
+
+    def route(
+        self,
+        tenant_id: str = "default",
+        max_acceptable_latency_ms: float = 300.0
+    ) -> Tuple[str, str, Dict[str, Any]]:
+        # Filter regions that are not OPEN
+        candidates = []
+        for reg in self.regions.values():
+            if reg["circuit_state"] in ("CLOSED", "HALF_OPEN"):
+                load_factor = reg["active_load"] / max(1, reg["capacity"])
+                effective_latency = reg["base_latency_ms"] * (1.0 + load_factor)
+                candidates.append((effective_latency, reg))
+
+        if not candidates:
+            return "CLOUD_PROVIDER_FALLBACK", "CIRCUIT_BREAKER_ALL_OPEN", {
+                "reason": "All on-premise GPU clusters unreachable or tripped",
+                "effective_latency_ms": 250.0,
+            }
+
+        candidates.sort(key=lambda x: x[0])
+        best_eff_latency, best_reg = candidates[0]
+
+        if best_eff_latency > max_acceptable_latency_ms:
+            return "CLOUD_PROVIDER_FALLBACK", "LATENCY_SLA_VIOLATION", {
+                "reason": f"Lowest internal latency {best_eff_latency:.1f}ms exceeds SLA {max_acceptable_latency_ms}ms",
+                "effective_latency_ms": best_eff_latency,
+            }
+
+        best_reg["active_load"] += 1
+        return best_reg["name"], "ROUTED_OPTIMAL_CLUSTER", {
+            "effective_latency_ms": round(best_eff_latency, 2),
+            "circuit_state": best_reg["circuit_state"],
+            "active_load": best_reg["active_load"],
+        }
+
+
+# ==============================================================================
+# 6. SLO ERROR BUDGET & TAIL LATENCY CALCULATOR
+# ==============================================================================
+
+class SLOErrorBudgetCalculator:
+    """
+    Mathematical modeling for SLO/SLA error budgets, burn rate alerts,
+    and tail latency percentiles (P50, P90, P99, P99.9).
+    """
+    def __init__(self, sla_target: float = 0.999):
+        self.sla_target = sla_target
+        self.allowed_error_fraction = 1.0 - sla_target
+
+    def calculate_budget(self, total_requests: int, failed_requests: int) -> Dict[str, Any]:
+        allowed_failures = math.floor(total_requests * self.allowed_error_fraction)
+        remaining_failures = allowed_failures - failed_requests
+        budget_used_pct = (failed_requests / allowed_failures * 100.0) if allowed_failures > 0 else 0.0
+        return {
+            "total_requests": total_requests,
+            "failed_requests": failed_requests,
+            "allowed_failures": allowed_failures,
+            "remaining_allowed_failures": max(0, remaining_failures),
+            "budget_used_percentage": round(budget_used_pct, 2),
+            "budget_exhausted": failed_requests > allowed_failures,
+        }
+
+    def compute_burn_rate(self, observed_error_rate: float) -> float:
+        """
+        Burn rate = observed error rate / target error rate.
+        A burn rate of 1.0 means exactly 100% of the budget will be consumed in the period.
+        Burn rate of 14.4x consumes 2% of a 30-day budget in 1 hour (Google SRE alert rule).
+        """
+        if self.allowed_error_fraction <= 0.0:
+            return float("inf")
+        return round(observed_error_rate / self.allowed_error_fraction, 2)
+
+    @staticmethod
+    def calculate_percentiles(latencies_ms: List[float]) -> Dict[str, float]:
+        if not latencies_ms:
+            return {"p50": 0.0, "p90": 0.0, "p99": 0.0, "p99_9": 0.0}
+        sorted_vals = sorted(latencies_ms)
+        n = len(sorted_vals)
+
+        def get_p(p: float) -> float:
+            k = (n - 1) * p
+            f = math.floor(k)
+            c = math.ceil(k)
+            if f == c:
+                return sorted_vals[int(k)]
+            d0 = sorted_vals[int(f)] * (c - k)
+            d1 = sorted_vals[int(c)] * (k - f)
+            return d0 + d1
+
+        return {
+            "p50": round(get_p(0.50), 2),
+            "p90": round(get_p(0.90), 2),
+            "p99": round(get_p(0.99), 2),
+            "p99_9": round(get_p(0.999), 2),
+        }
+
+
+# ==============================================================================
+# TESTS FOR ADVANCED SYSTEM DESIGN MODULES
+# ==============================================================================
+
+def test_distributed_token_bucket_acquire_and_burst():
+    limiter = DistributedTokenBucketRateLimiter()
+    # Register enterprise tenant: 10 QPS, capacity 20 (burst 20)
+    limiter.register_tenant("tenant-corp", rate=10.0, capacity=20.0)
+
+    # 1. Burst 15 tokens at t=0
+    allowed, retry_after, meta = limiter.acquire("tenant-corp", tokens_requested=15, current_time=0.0)
+    assert allowed is True
+    assert retry_after == 0.0
+    assert meta["remaining_tokens"] == 5.0
+
+    # 2. Request 10 more at t=0 (only 5 left) -> Rejected
+    allowed2, retry_after2, meta2 = limiter.acquire("tenant-corp", tokens_requested=10, current_time=0.0)
+    assert allowed2 is False
+    # Needs 5 more tokens at 10 tokens/sec -> retry_after = 5 / 10 = 0.5s
+    assert retry_after2 == 0.5
+
+    # 3. Advance time to t=1.0s (refills 1.0 * 10 = 10 tokens -> total 5 + 10 = 15)
+    allowed3, retry_after3, meta3 = limiter.acquire("tenant-corp", tokens_requested=10, current_time=1.0)
+    assert allowed3 is True
+    assert meta3["remaining_tokens"] == 5.0
+
+
+def test_multi_region_gpu_router_optimal_and_failover():
+    router = MultiRegionGPURouter(failure_threshold=3, recovery_threshold=2)
+    router.add_region("ap-southeast-singapore", base_latency_ms=25.0, capacity=100)
+    router.add_region("eu-west-frankfurt", base_latency_ms=160.0, capacity=100)
+    router.add_region("us-east-virginia", base_latency_ms=220.0, capacity=200)
+
+    # 1. Normal routing selects lowest latency (Singapore: 25ms)
+    target, status, meta = router.route("tenant-vn")
+    assert target == "ap-southeast-singapore"
+    assert status == "ROUTED_OPTIMAL_CLUSTER"
+
+    # 2. Simulate 3 consecutive failures in Singapore -> trips circuit breaker to OPEN
+    router.record_result("ap-southeast-singapore", success=False)
+    router.record_result("ap-southeast-singapore", success=False)
+    router.record_result("ap-southeast-singapore", success=False)
+    assert router.regions["ap-southeast-singapore"]["circuit_state"] == "OPEN"
+
+    # 3. Next request automatically fails over to Frankfurt (160ms)
+    target2, status2, meta2 = router.route("tenant-vn")
+    assert target2 == "eu-west-frankfurt"
+    assert status2 == "ROUTED_OPTIMAL_CLUSTER"
+
+    # 4. If strict SLA is 100ms, Frankfurt (160ms) is too slow -> falls back to Cloud API
+    target3, status3, meta3 = router.route("tenant-vn", max_acceptable_latency_ms=100.0)
+    assert target3 == "CLOUD_PROVIDER_FALLBACK"
+    assert status3 == "LATENCY_SLA_VIOLATION"
+
+
+def test_slo_error_budget_and_burn_rate():
+    calc = SLOErrorBudgetCalculator(sla_target=0.999)  # 99.9% SLA
+
+    # 1M requests, 500 failures (allowed = 1000)
+    budget = calc.calculate_budget(total_requests=1_000_000, failed_requests=500)
+    assert budget["allowed_failures"] == 1000
+    assert budget["remaining_allowed_failures"] == 500
+    assert budget["budget_used_percentage"] == 50.0
+    assert budget["budget_exhausted"] is False
+
+    # 1M requests, 1500 failures -> budget exhausted
+    budget_exhausted = calc.calculate_budget(total_requests=1_000_000, failed_requests=1500)
+    assert budget_exhausted["budget_exhausted"] is True
+
+    # Burn rate: target allowed error is 0.001 (0.1%). If observed error is 1% (0.01), burn rate is 10.0x
+    burn_rate = calc.compute_burn_rate(observed_error_rate=0.01)
+    assert burn_rate == 10.0
+
+
+def test_ttft_percentile_calculation():
+    # 100 samples from 10ms to 1000ms
+    samples = [float(i * 10) for i in range(1, 101)]
+    res = SLOErrorBudgetCalculator.calculate_percentiles(samples)
+    assert res["p50"] == pytest.approx(505.0, abs=10.0)
+    assert res["p90"] == pytest.approx(901.0, abs=10.0)
+    assert res["p99"] == pytest.approx(990.1, abs=10.0)

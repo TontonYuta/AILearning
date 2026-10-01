@@ -593,6 +593,138 @@ class KEDAAutoscalingCalculator:
 
 ---
 
+\section{Hạ Tầng Mạng Siêu Tốc Cho Cụm AI: RDMA, RoCEv2, InfiniBand \& Thuật Toán NCCL}
+\label{sec:ai-high-performance-networking}
+
+Khi huấn luyện hoặc phục vụ các mô hình ngôn ngữ lớn quy mô hàng chục tỷ tham số, việc tính toán không thể gói gọn trong một máy chủ GPU đơn lẻ. Các kỹ sư bắt buộc phải phân bổ mô hình qua hàng chục, thậm chí hàng ngàn bộ vi xử lý đồ họa thông qua chiến lược song song hóa (\textit{Tensor Parallelism, Pipeline Parallelism, Data Parallelism}).
+Lúc này, một thách thức vật lý mang tính sống còn xuất hiện: \textbf{Mạng truyền thông liên máy chủ (Inter-Node Interconnect) trở thành điểm nghẽn cổ chai khốc liệt nhất của toàn bộ hệ thống}.
+
+\subsection{Khởi Điểm Từ Con Số 0: Tại Sao Mạng TCP/IP Truyền Thống Là Điểm Nghẽn Của GPU?}
+Để thấu hiểu tại sao các kỹ sư hạ tầng AI không bao giờ sử dụng giao thức mạng TCP/IP thông thường cho giao tiếp giữa các GPU, hãy xem xét hành trình của một gói tin qua ngăn xếp giao vận truyền thống:
+
+\paragraph{Hành trình 5 bước đầy tắc nghẽn của TCP/IP}:
+\begin{enumerate}
+  \item \textbf{Sao chép từ bộ nhớ GPU sang RAM chủ}: Dữ liệu tensor từ bộ nhớ VRAM của GPU phải được truyền qua bus PCIe để nạp vào bộ nhớ RAM của CPU (Host Memory).
+  \item \textbf{Chuyển đổi ngữ cảnh nhân hệ điều hành (Kernel Context Switch)}: Tiến trình người dùng gọi hàm hệ thống (\textit{Syscall} như \code{send()} hoặc \code{write()}), buộc CPU phải chuyển từ User Space sang Kernel Space.
+  \item \textbf{Cấp phát bộ nhớ đệm Socket Buffer}: Nhân Linux cấp phát cấu trúc bộ nhớ \code{sk_buff}, sao chép dữ liệu từ bộ đệm người dùng vào bộ đệm của nhân, tính toán mã kiểm tra chẵn lẻ (Checksum), và đóng gói các tiêu đề TCP/IP.
+  \item \textbf{Đẩy dữ liệu sang Card Mạng (NIC DMA)}: Trình điều khiển card mạng sử dụng cơ chế Direct Memory Access (DMA) để kéo dữ liệu từ RAM chủ sang bộ nhớ của card mạng và bắn ra cáp quang.
+  \item \textbf{Xử lý ngắt phần cứng tại đích}: Máy chủ nhận phải phát sinh hàng loạt ngắt phần cứng (\textit{Hardware Interrupts}) để đánh thức CPU xử lý gói tin và lặp lại toàn bộ quy trình sao chép ngược lên GPU đích.
+\end{enumerate}
+
+\paragraph{Nghịch lý độ trễ microsecond vs nanosecond}:
+Toàn bộ hành trình trên tạo ra độ trễ mạng một chiều tối thiểu từ $15\mu\text{s}$ đến $40\mu\text{s}$ (microsecond) cùng với việc chiếm dụng $100\%$ công suất của nhiều nhân CPU chỉ để sao chép dữ liệu. Trong khi đó, các lõi Tensor Cores trên card NVIDIA H100 thực hiện một phép nhân ma trận FP8 khổng lồ chỉ trong vòng vài trăm nanoseconds ($0.3\mu\text{s}$). Nếu sử dụng TCP/IP, các GPU đắt giá sẽ phải ngồi rảnh rỗi chờ đợi dữ liệu mạng tới hơn $98\%$ thời gian!
+
+\subsection{Kiến Trúc RDMA (Remote Direct Memory Access) \& Mạng Lossless Ethernet (RoCEv2)}
+Để giải phóng hoàn toàn CPU và triệt tiêu độ trễ ngăn xếp mạng, công nghệ đột phá tối cao của hạ tầng AI hiện đại là \term{RDMA (Remote Direct Memory Access)} kết hợp \term{GPUDirect RDMA}.
+
+\begin{figure}[htbp]
+\centering
+\begin{tikzpicture}[node distance=1.2cm, auto,
+    host/.style={rectangle, draw=primarycolor, thick, fill=boxbg, text centered, rounded corners=3pt, minimum height=3.8cm, minimum width=6.0cm},
+    comp/.style={rectangle, draw=secondarycolor, thick, fill=accentcolor!15, text centered, rounded corners=2pt, minimum height=0.7cm, minimum width=2.4cm, font=\scriptsize\bfseries}
+]
+    % Node A
+    \node[host] (hostA) {};
+    \node[above=0.1cm of hostA.north, font=\small\bfseries\color{primarycolor}] {Máy Chủ GPU A (Sender)};
+    \node[comp, at={(hostA.north west)}, xshift=1.5cm, yshift=-0.8cm] (gpuA) {GPU VRAM A};
+    \node[comp, at={(hostA.west)}, xshift=1.5cm] (pcieA) {PCIe Switch};
+    \node[comp, at={(hostA.south west)}, xshift=1.5cm, yshift=0.8cm] (nicA) {SmartNIC / HCA};
+    
+    % Node B
+    \node[host, right=3.5cm of hostA] (hostB) {};
+    \node[above=0.1cm of hostB.north, font=\small\bfseries\color{primarycolor}] {Máy Chủ GPU B (Receiver)};
+    \node[comp, at={(hostB.north east)}, xshift=-1.5cm, yshift=-0.8cm] (gpuB) {GPU VRAM B};
+    \node[comp, at={(hostB.east)}, xshift=-1.5cm] (pcieB) {PCIe Switch};
+    \node[comp, at={(hostB.south east)}, xshift=-1.5cm, yshift=0.8cm] (nicB) {SmartNIC / HCA};
+
+    % Links Node A
+    \draw[draw=primarycolor, ultra thick, Stealth-Stealth] (gpuA) -- (pcieA);
+    \draw[draw=primarycolor, ultra thick, Stealth-Stealth] (pcieA) -- (nicA);
+    % Links Node B
+    \draw[draw=primarycolor, ultra thick, Stealth-Stealth] (gpuB) -- (pcieB);
+    \draw[draw=primarycolor, ultra thick, Stealth-Stealth] (pcieB) -- (nicB);
+
+    % Direct RDMA network link
+    \draw[draw=dangercolor, line width=2.5pt, Stealth-Stealth] (nicA) -- node[below, font=\scriptsize\bfseries\color{dangercolor}] {Cáp Quang 400/800 Gbps (InfiniBand / RoCEv2)} (nicB);
+    
+    % Bypass indicator
+    \node[draw=dangercolor, dashed, thick, fill=white, rounded corners=2pt, font=\tiny\bfseries\color{dangercolor}, above=0.6cm of nicA, xshift=4.2cm] {Zero-Copy \& Kernel Bypass: CPU và RAM hoàn toàn không tham gia!};
+\end{tikzpicture}
+\caption{Kiến trúc GPUDirect RDMA: Truyền dữ liệu thẳng từ VRAM máy chủ này sang VRAM máy chủ khác}
+\label{fig:gpudirect-rdma}
+\end{figure}
+
+\paragraph{Hai nguyên lý nền tảng của RDMA}:
+\begin{enumerate}
+  \item \textbf{Kernel Bypass (Bỏ qua nhân hệ điều hành)}: Thư viện ứng dụng người dùng (như NCCL hoặc UCX) tương tác trực tiếp với bộ điều khiển card mạng (Hardware Queue Pairs) mà không hề gọi System Call.
+  \item \textbf{Zero-Copy qua GPUDirect RDMA}: Nhờ sự hỗ trợ của chuẩn PCIe P2P (Peer-to-Peer), card mạng thông minh (SmartNIC như Mellanox ConnectX-7) đọc trực tiếp dữ liệu từ VRAM của GPU qua bus PCIe nội bộ và bắn trực tiếp sang VRAM của GPU từ xa qua mạng cáp quang. CPU chủ và bộ nhớ RAM hoàn toàn được giải phóng.
+  Độ trễ truyền mạng giảm từ $30\mu\text{s}$ xuống dưới \textbf{$1.2\mu\text{s}$}, với băng thông chạm ngưỡng phần cứng ($400\text{ Gbps}$ đến $800\text{ Gbps}$).
+\end{enumerate}
+
+\paragraph{Mạng không mất gói (Lossless Ethernet qua RoCEv2)}:
+Trong khi mạng InfiniBand sử dụng cơ chế điều khiển luồng dựa trên tín dụng cấp phần cứng (\textit{Credit-based Flow Control}) vốn dĩ không bao giờ làm rơi gói tin, thì giao thức mạng phổ thông \term{RoCEv2 (RDMA over Converged Ethernet)} phải chạy trên hạ tầng mạng cáp Ethernet truyền thống.
+Giao thức vận chuyển của RDMA không sử dụng cơ chế truyền lại thông minh của TCP (khi mất một gói tin, nó phải truyền lại toàn bộ từ đầu qua cơ chế Go-Back-N, làm suy sụp băng thông tới $99\%$). Do đó, mạng Ethernet dành cho cụm AI bắt buộc phải được cấu hình thành \term{Lossless Ethernet} thông qua hai cơ chế phần cứng:
+\begin{itemize}
+  \item \textbf{PFC (Priority Flow Control -- IEEE 802.1Qbb)}: Chia băng thông cáp vật lý thành 8 hàng đợi ưu tiên độc lập (Traffic Classes). Lưu lượng RDMA của AI được gán riêng vào hàng đợi có mức ưu tiên cao (thường là Hàng đợi số 3). Khi bộ đệm hàng đợi này trên Switch đạt tới ngưỡng cảnh báo (\textit{PFC Threshold}), Switch lập tức gửi khung tín hiệu \code{PAUSE Frame} ngược về card mạng phát để tạm dừng phát gói trong vài microsecond, tuyệt đối không để tràn bộ đệm làm rơi gói tin!
+  \item \textbf{ECN (Explicit Congestion Notification) \& DCQCN}: Switch chủ động đánh dấu 2 bit cờ ECN trong tiêu đề gói tin IP khi hàng đợi bắt đầu tích lũy. Card mạng bên nhận phát hiện cờ ECN sẽ gửi bản tin \code{CNP (Congestion Notification Packet)} yêu cầu bên phát tự động giảm nhẹ tốc độ truyền trước khi hiện tượng nghẽn mạng xảy ra, ngăn chặn hiện tượng bão hòa khung PAUSE (\textit{PFC Deadlock}).
+\end{itemize}
+
+\subsection{Giải Tích Thuật Toán All-Reduce Trong NCCL: Ring vs Tree Topology}
+Thư viện truyền thông tập thể của NVIDIA (\term{NCCL - NVIDIA Collective Communications Library}) là trái tim kết nối các GPU trong quá trình suy luận và huấn luyện phân tán. Trong số các phép toán truyền thông (All-Gather, Reduce-Scatter, Broadcast), phép toán \term{All-Reduce} là phép toán quan trọng và tốn nhiều băng thông nhất: $P$ GPU, mỗi GPU nắm giữ một tensor có kích thước $S$ byte, cần cộng dồn các tensor này lại và phân phát kết quả tổng đến toàn bộ $P$ GPU.
+
+\paragraph{1. Thuật toán Ring-AllReduce}:
+Trong thuật toán Ring-AllReduce, $P$ GPU được sắp xếp thành một vòng tròn logic kín: $\text{GPU}_0 \to \text{GPU}_1 \to \dots \to \text{GPU}_{P-1} \to \text{GPU}_0$.
+Tensor kích thước $S$ được chia đều thành $P$ phần bằng nhau, mỗi phần có kích thước $\frac{S}{P}$ byte.
+
+Thuật toán gồm hai pha nối tiếp:
+\begin{itemize}
+  \item \textbf{Pha 1: Scatter-Reduce ($P - 1$ bước)}:
+  Ở mỗi bước, mỗi GPU gửi một khối dữ liệu $\frac{S}{P}$ cho nút kế tiếp và nhận một khối từ nút liền trước, sau đó cộng dồn vào tensor cục bộ. Sau đúng $P - 1$ bước, mỗi GPU nắm giữ kết quả tổng cuối cùng của đúng một khối dữ liệu $\frac{S}{P}$.
+  Lượng dữ liệu gửi đi của mỗi GPU trong pha này là:
+  \begin{equation}
+  \text{Bytes}_{\text{scatter}} = (P - 1) \times \frac{S}{P}
+  \end{equation}
+
+  \item \textbf{Pha 2: All-Gather ($P - 1$ bước)}:
+  Mỗi GPU gửi khối dữ liệu đã được tính tổng cho nút kế tiếp để phân phát ra toàn bộ vòng. Sau đúng $P - 1$ bước nữa, toàn bộ $P$ GPU đều sở hữu bản sao hoàn chỉnh của tensor tổng.
+  Lượng dữ liệu gửi đi của mỗi GPU trong pha này là:
+  \begin{equation}
+  \text{Bytes}_{\text{gather}} = (P - 1) \times \frac{S}{P}
+  \end{equation}
+\end{itemize}
+
+Tổng lượng dữ liệu truyền qua card mạng của mỗi GPU trong toàn bộ quá trình:
+\begin{equation}
+S_{\text{ring}} = \text{Bytes}_{\text{scatter}} + \text{Bytes}_{\text{gather}} = 2 \times \left(\frac{P - 1}{P}\right) S
+\end{equation}
+
+\begin{theorem}[Tính Độc Lập Băng Thông Của Ring-AllReduce]
+Khi số lượng GPU $P$ tăng lên rất lớn ($P \to \infty$):
+\begin{equation}
+\lim_{P \to \infty} 2 \left(\frac{P - 1}{P}\right) S = 2S
+\end{equation}
+Tổng lượng dữ liệu mà mỗi card mạng GPU phải truyền chỉ xấp xỉ gấp đôi kích thước tensor $2S$, \textbf{hoàn toàn không tăng theo số lượng GPU trong cụm}!
+\end{theorem}
+
+Thời gian thực thi của Ring-AllReduce trên mạng có độ trễ $\alpha$ và băng thông $\beta$:
+\begin{equation}
+T_{\text{ring}} = 2(P - 1)\alpha + 2 \left(\frac{P - 1}{P}\right) \frac{S}{\beta}
+\end{equation}
+
+\paragraph{2. Thuật toán Tree-AllReduce (Cây Nhị Phân Kép - Double Binary Tree)}:
+Từ công thức trên, ta nhận thấy một điểm yếu chí mạng của Ring-AllReduce: Số bước truyền dữ liệu tỷ lệ thuận tuyến tính với số lượng GPU: $2(P - 1)$.
+Khi cụm máy chủ mở rộng lên quy mô lớn (ví dụ $P = 1.024$ GPU), số bước nhảy là $2.046$ bước!
+Đối với các tensor kích thước nhỏ hoặc trong pha Decode của Tensor Parallelism (nơi kích thước tensor chỉ vài chục Kilobytes), thời gian truyền bị chi phối hoàn toàn bởi độ trễ $\alpha$ (\textit{Latency-Bound}) chứ không phải băng thông $\beta$.
+
+Để khắc phục, NCCL áp dụng thuật toán \term{Tree-AllReduce}: Dữ liệu được thu gom theo cấu trúc cây nhị phân (Reduce) lên nút gốc, sau đó phát tán ngược lại (Broadcast) xuống các nhánh lá.
+Thời gian thực thi của Tree-AllReduce:
+\begin{equation}
+T_{\text{tree}} = 2 \log_2(P) \alpha + 2 \frac{S}{\beta_{\text{tree}}}
+\end{equation}
+Số bước nhảy giảm ngoạn mục từ $2(P - 1)$ xuống chỉ còn $2 \log_2(P)$! Với $P = 1.024$ GPU, số bước nhảy giảm từ $2.046$ bước xuống chỉ còn $2 \times 10 = 20$ bước, giúp tăng tốc độ trao đổi tensor nhỏ lên hàng chục lần.
+
+---
+
 \section{Hệ Thống Bài Tập \& Câu Hỏi Tư Duy Đa Tầng}
 \label{sec:ch10-exercises}
 
@@ -603,6 +735,8 @@ class KEDAAutoscalingCalculator:
   \item \textbf{Câu A.3}: Tại sao trong một image Docker phục vụ sản xuất, chúng ta tuyệt đối không nên cài đặt bộ công cụ đầy đủ \code{cuda-toolkit} (chứa trình biên dịch \code{nvcc}), mà chỉ nên cài đặt gói \code{cuda-runtime}?
   \item \textbf{Câu A.4}: Giải thích tại sao cơ chế Horizontal Pod Autoscaler (HPA) chuẩn của Kubernetes dựa trên mức sử dụng CPU/Memory lại hoàn toàn thất bại khi áp dụng cho các cụm phục vụ vLLM.
   \item \textbf{Câu A.5}: Phân biệt sự khác nhau giữa Continuous Batching trong vLLM và Dynamic Batching trong Triton Inference Server. Khi nào một hệ thống nên ưu tiên chọn Triton thay vì vLLM?
+  \item \textbf{Câu A.6}: Tại sao mạng InfiniBand và RoCEv2 lại bắt buộc cơ chế điều khiển luồng không mất gói (Lossless Flow Control), trong khi các dịch vụ Web API Internet vẫn hoạt động hoàn hảo trên mạng TCP có tỷ lệ mất gói $0.1\%-1\%$?
+  \item \textbf{Câu A.7}: Trong thuật toán Ring-AllReduce, tại sao tổng lượng dữ liệu truyền qua mỗi card mạng lại độc lập với số lượng GPU $P$ khi $P \to \infty$? Khi nào thì thuật toán Tree-AllReduce vượt trội hơn Ring-AllReduce?
 \end{enumerate}
 
 \subsection{Nhóm B: Bài Toán Tính Toán Giải Tích Bằng Tay (Analytical Problems)}
@@ -629,6 +763,19 @@ class KEDAAutoscalingCalculator:
   Mỗi GPU Pod phục vụ mô hình phân tích có dung lượng xử lý tối ưu là $C_{\text{pod}} = 40$ requests đồng thời.
   Cấu hình KEDA có giới hạn $R_{\min} = 2$ và $R_{\max} = 50$.
   Tính số lượng Pod mà KEDA sẽ kích hoạt. Nếu chi phí thuê một máy chủ GPU là $2.5\text{ USD/giờ}$, tính chi phí phần cứng trong 4 giờ cao điểm.
+
+  \item \textbf{Bài B.4 (So Sánh Định Lượng Ring-AllReduce vs Tree-AllReduce Trên Cụm 64 GPU)}: \\
+  Xét một cụm gồm $P = 64$ máy chủ GPU H100 kết nối qua mạng InfiniBand $400\text{ Gbps}$ ($\beta = 50\text{ GB/s}$), độ trễ mỗi chặng mạng $\alpha = 1.5\mu\text{s}$.
+  So sánh thời gian truyền thông giữa Ring-AllReduce và Tree-AllReduce trong hai trường hợp:
+  \begin{itemize}
+    \item[a)] Tensor nhỏ: $S = 64\text{ KB}$ (trong pha Decode của Tensor Parallelism).
+    \item[b)] Tensor lớn: $S = 1\text{ GB}$ (đồng bộ gradient trong Data Parallelism). Rút ra kết luận về chiến lược chuyển mạch cấu trúc của thư viện NCCL.
+  \end{itemize}
+
+  \item \textbf{Bài B.5 (Tính Định Cỡ Bộ Đệm Switch Headroom Ngăn Chặn Mất Gói PFC)}: \\
+  Một cổng Switch Ethernet $400\text{ Gbps}$ nối tới card mạng H100 qua cáp quang dài $L = 50\text{ mét}$ (tốc độ truyền tín hiệu trong sợi quang $v = 2 \times 10^8\text{ m/s}$).
+  Thời gian phát hiện nghẽn và phản hồi khung PAUSE của phần cứng Switch và NIC là $t_{\text{proc}} = 400\text{ ns}$.
+  Tính dung lượng bộ đệm tối thiểu (Headroom Buffer) cần dự trữ trên cổng switch để đảm bảo không một bit dữ liệu nào bị tràn rơi khi kích hoạt cơ chế PFC.
 \end{enumerate}
 
 \subsection{Nhóm C: Thực Hành Kỹ Nghệ \& Lập Trình (Implementation Labs)}
@@ -680,6 +827,13 @@ class KEDAAutoscalingCalculator:
 
   \item \textbf{Lời giải Câu A.5}:
   Continuous Batching của vLLM hoạt động ở cấp độ bước sinh token (Iteration-level): mỗi khi một request sinh xong token kết thúc, nó lập tức được đưa ra khỏi lô và một request mới từ hàng đợi được chèn vào ngay tại bước tiếp theo mà không cần chờ toàn bộ lô hoàn thành. Dynamic Batching của Triton gom các request độc lập theo cửa sổ thời gian timeout. Triton được ưu tiên khi hệ thống cần xây dựng pipeline đa mô hình phức tạp (ví dụ: Speech-to-Text $\to$ LLM $\to$ Rerank) hoặc khi cần phục vụ song song các mô hình học máy truyền thống và thị giác máy tính.
+
+  \item \textbf{Lời giải Câu A.6}:
+  Trong mạng TCP thông thường, cơ chế SACK hoặc Fast Retransmit cho phép gửi lại các gói tin thất lạc; độ trễ vài chục mili-giây không ảnh hưởng nghiêm trọng đến người dùng web. Tuy nhiên trong cụm AI sử dụng RDMA (RoCEv2), card mạng không có bộ đệm lớn và phần cứng áp dụng thuật toán Go-Back-N. Khi rơi một gói tin duy nhất, toàn bộ khối truyền hàng trăm Megabyte bị hủy bỏ và phải truyền lại từ đầu. Hơn nữa, vì các GPU phải đồng bộ kết quả tại mỗi bước tính toán qua rào chắn (Barrier), việc một GPU bị chậm do mất gói tin sẽ khiến toàn bộ hàng ngàn GPU trong cụm phải dừng lại chờ đợi, làm sụp đổ thông lượng hệ thống. Do đó, mạng AI bắt buộc phải là Lossless Ethernet với cơ chế PFC và ECN.
+
+  \item \textbf{Lời giải Câu A.7}:
+  Trong thuật toán Ring-AllReduce, lượng dữ liệu mỗi GPU truyền đi qua hai pha là $2 \frac{P-1}{P} S$. Khi số lượng GPU $P \to \infty$, tỷ số $\frac{P-1}{P} \to 1$, do đó lượng dữ liệu truyền tiệm cận hằng số $2S$, hoàn toàn không phụ thuộc vào kích thước cụm.
+  Tuy nhiên, số bước truyền là $2(P-1)$. Khi kích thước tensor $S$ nhỏ (ví dụ vài chục Kilobytes trong pha Decode), thời gian truyền bị chi phối bởi độ trễ $\alpha$ qua $2(P-1)$ bước nhảy. Tree-AllReduce tổ chức phân tán theo cây nhị phân kép chỉ mất $2\log_2(P)$ bước, giúp giảm độ trễ trao đổi tensor nhỏ lên hàng chục lần so với Ring-AllReduce.
 \end{itemize}
 
 \subsection{Lời Giải Nhóm B: Bài Toán Tính Toán Giải Tích Bằng Tay}
@@ -738,6 +892,52 @@ class KEDAAutoscalingCalculator:
   \text{Cost} = 30\text{ Pods} \times 2.5\text{ USD/Pod/giờ} \times 4\text{ giờ} = 300\text{ USD}
   \end{equation*}
 \end{itemize}
+
+\paragraph{Lời giải Bài B.4}:
+\begin{itemize}
+  \item[a)] Với tensor nhỏ $S = 64\text{ KB} = 6.4 \times 10^{-5}\text{ GB}$:
+  \begin{itemize}
+    \item Ring-AllReduce: Số bước truyền là $2(64 - 1) = 126$ bước.
+    Thời gian độ trễ: $126 \times 1.5\mu\text{s} = 189\mu\text{s}$.
+    Thời gian băng thông: $2 \times \frac{63}{64} \times \frac{6.4 \times 10^{-5}\text{ GB}}{50\text{ GB/s}} \approx 2.52\mu\text{s}$.
+    Tổng thời gian Ring: $T_{\text{ring}} = 189 + 2.52 \approx \mathbf{191.52\mu\text{s}}$.
+    \item Tree-AllReduce: Số bước truyền là $2 \log_2(64) = 2 \times 6 = 12$ bước.
+    Thời gian độ trễ: $12 \times 1.5\mu\text{s} = 18\mu\text{s}$.
+    Thời gian băng thông (băng thông hiệu dụng cây $\beta/2 = 25\text{ GB/s}$): $2 \times \frac{6.4 \times 10^{-5}}{25} \approx 5.12\mu\text{s}$.
+    Tổng thời gian Tree: $T_{\text{tree}} = 18 + 5.12 \approx \mathbf{23.12\mu\text{s}}$.
+    $\implies$ \textbf{Tree-AllReduce nhanh hơn hơn 8 lần!}
+  \end{itemize}
+
+  \item[b)] Với tensor lớn $S = 1\text{ GB}$:
+  \begin{itemize}
+    \item Ring-AllReduce: Thời gian băng thông: $2 \times \frac{63}{64} \times \frac{1\text{ GB}}{50\text{ GB/s}} \approx 0.03938\text{s} = 39.38\text{ms}$.
+    Tổng thời gian Ring: $T_{\text{ring}} = 0.189\text{ms} + 39.38\text{ms} \approx \mathbf{39.57\text{ms}}$.
+    \item Tree-AllReduce: Thời gian băng thông: $2 \times \frac{1\text{ GB}}{25\text{ GB/s}} = 0.08\text{s} = 80\text{ms}$.
+    Tổng thời gian Tree: $T_{\text{tree}} = 0.018\text{ms} + 80\text{ms} \approx \mathbf{80.02\text{ms}}$.
+    $\implies$ \textbf{Ring-AllReduce nhanh gấp đôi Tree-AllReduce!}
+  \end{itemize}
+  \textbf{Kết luận}: NCCL tự động áp dụng Tree-AllReduce cho tensor nhỏ (pha Decode) và chuyển sang Ring-AllReduce cho tensor lớn (pha Prefill và All-Reduce gradient).
+\end{itemize}
+
+\paragraph{Lời giải Bài B.5}:
+Tổng thời gian kể từ khi switch gửi khung PAUSE đến khi dòng gói tin trên cổng switch dừng hẳn:
+\begin{enumerate}
+  \item Thời gian khung PAUSE truyền trên cáp quang tới card mạng:
+  \begin{equation*}
+  t_{\text{prop}} = \frac{L}{v} = \frac{50\text{ m}}{2 \times 10^8\text{ m/s}} = 2.5 \times 10^{-7}\text{s} = 250\text{ ns}
+  \end{equation*}
+  \item Thời gian card mạng phân tích khung PAUSE và dừng bộ điều khiển MAC: $t_{\text{proc}} = 400\text{ ns}$.
+  \item Các gói tin đã rời card mạng trước khi dừng tiếp tục bay tới switch: $t_{\text{prop}} = 250\text{ ns}$.
+\end{enumerate}
+Tổng thời gian xả dữ liệu tiếp diễn:
+\begin{equation*}
+T_{\text{drain}} = 2 \times t_{\text{prop}} + t_{\text{proc}} = 2(250\text{ ns}) + 400\text{ ns} = 900\text{ ns} = 0.9\mu\text{s}
+\end{equation*}
+Băng thông đường truyền là $400\text{ Gbps} = 50\text{ GB/s} = 50 \times 10^9\text{ Bytes/giây}$.
+Dung lượng bộ đệm tối thiểu cần thiết để không rơi gói tin:
+\begin{equation*}
+\text{Headroom} = T_{\text{drain}} \times \text{Bandwidth} = 900 \times 10^{-9}\text{s} \times 50 \times 10^9\text{ Bytes/s} = \mathbf{45.000\text{ Bytes}} \approx \mathbf{43.95\text{ KiB}}
+\end{equation*}
 
 \subsection{Lời Giải Nhóm C: Thực Hành Kỹ Nghệ \& Lập Trình}
 Cấu hình `docker-compose.yml` chuẩn mực và mã nguồn Python đã được trình bày chi tiết trong Mục~\ref{sec:production-docker-keda} và Mục~\ref{sec:python-serving-modules}.

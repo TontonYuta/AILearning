@@ -194,3 +194,50 @@ def test_keda_autoscaling_calculator():
 
     # Small load clamped to min_replicas
     assert calc.compute_replicas(waiting_requests=5, active_requests=10) == 2
+
+
+def test_ring_vs_tree_allreduce_math():
+    """Verify analytical execution times of Ring-AllReduce and Tree-AllReduce."""
+    P = 64
+    alpha = 1.5e-6   # 1.5 microseconds latency per hop
+    beta = 50e9      # 50 GB/s (400 Gbps)
+    beta_tree = 25e9 # Effective tree root bandwidth (25 GB/s)
+
+    # 1. Small tensor: 64 KB (Decode phase)
+    S_small = 64 * 1024  # 65536 bytes
+    t_ring_small = 2 * (P - 1) * alpha + 2 * ((P - 1) / P) * (S_small / beta)
+    t_tree_small = 2 * math.log2(P) * alpha + 2 * (S_small / beta_tree)
+    
+    # Tree must be over 5x faster than Ring for small tensors
+    assert t_tree_small < t_ring_small / 5.0
+    assert math.isclose(t_tree_small * 1e6, 23.24, rel_tol=0.05)
+
+    # 2. Large tensor: 1 GB (Gradient sync)
+    S_large = 1 * (1024**3)
+    t_ring_large = 2 * (P - 1) * alpha + 2 * ((P - 1) / P) * (S_large / beta)
+    t_tree_large = 2 * math.log2(P) * alpha + 2 * (S_large / beta_tree)
+    
+    # Ring must be nearly 2x faster than Tree for large tensors
+    assert t_ring_large < t_tree_large * 0.60
+
+
+def test_pfc_headroom_buffer_sizing():
+    """Verify RoCEv2 switch headroom buffer sizing to prevent packet drop."""
+    L = 50.0            # 50 meters
+    v = 2.0e8           # 200,000 km/s in fiber
+    t_proc = 400.0e-9   # 400 ns processing & pause generation delay
+    bandwidth_Bps = 50.0e9  # 400 Gbps = 50 GB/s
+
+    # Propagation time one-way
+    t_prop = L / v
+    assert t_prop == 250.0e-9
+
+    # Total drain time
+    t_drain = 2 * t_prop + t_proc
+    assert math.isclose(t_drain, 900.0e-9)
+
+    # Required headroom buffer
+    headroom_bytes = t_drain * bandwidth_Bps
+    assert math.isclose(headroom_bytes, 45000.0)
+    assert headroom_bytes / 1024 < 45.0  # ~43.95 KiB
+

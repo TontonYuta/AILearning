@@ -257,3 +257,70 @@ def test_load_balancer_overload_circuit_breaker():
 
     chosen = lb.route_request("ANY_HASH")
     assert chosen is None
+
+
+def test_consistent_hash_ring_key_movement():
+    """Verify that Consistent Hashing moves only ~ 1/N keys when scaling nodes."""
+    import bisect
+
+    class ConsistentHashRing:
+        def __init__(self, vnodes: int = 50):
+            self.vnodes = vnodes
+            self.ring: List[int] = []
+            self.ring_map: Dict[int, str] = {}
+
+        def add_node(self, node_id: str):
+            for i in range(self.vnodes):
+                h = int(hashlib.md5(f"{node_id}#vn_{i}".encode()).hexdigest(), 16) % (2**32)
+                self.ring.append(h)
+                self.ring_map[h] = node_id
+            self.ring.sort()
+
+        def get_node(self, key: str) -> str:
+            if not self.ring:
+                return ""
+            h = int(hashlib.md5(key.encode()).hexdigest(), 16) % (2**32)
+            idx = bisect.bisect_right(self.ring, h)
+            if idx == len(self.ring):
+                idx = 0
+            return self.ring_map[self.ring[idx]]
+
+    ring = ConsistentHashRing(vnodes=50)
+    for i in range(10):
+        ring.add_node(f"server_{i}")
+
+    keys = [f"tenant_prefix_{k}" for k in range(1000)]
+    initial_mapping = {k: ring.get_node(k) for k in keys}
+
+    # Add 2 new nodes (from 10 to 12)
+    ring.add_node("server_10")
+    ring.add_node("server_11")
+    new_mapping = {k: ring.get_node(k) for k in keys}
+
+    moved_keys = sum(1 for k in keys if initial_mapping[k] != new_mapping[k])
+    move_ratio = moved_keys / len(keys)
+    
+    # Expected move ratio is ~ 2/12 = 16.7%
+    assert 0.10 <= move_ratio <= 0.25, f"Move ratio {move_ratio} outside expected range"
+
+
+def test_prefix_aware_tflops_savings_math():
+    """Verify analytical TFLOPs and latency savings from Prefix-Aware Routing."""
+    total_queries = 100_000
+    hit_rate_rr = 0.125
+    hit_rate_pa = 0.95
+
+    miss_rr = total_queries * (1 - hit_rate_rr)
+    miss_pa = total_queries * (1 - hit_rate_pa)
+    saved_prefills = miss_rr - miss_pa
+    assert saved_prefills == 82_500
+
+    tflops_per_prefill = 560.0
+    total_tflops_saved = saved_prefills * tflops_per_prefill
+    assert total_tflops_saved == 46_200_000.0  # 46.2 ExaFLOPs
+
+    prefill_latency_sec = 0.400
+    total_seconds_saved = saved_prefills * prefill_latency_sec
+    total_hours_saved = total_seconds_saved / 3600.0
+    assert math.isclose(total_hours_saved, 9.16666, rel_tol=1e-3)
+

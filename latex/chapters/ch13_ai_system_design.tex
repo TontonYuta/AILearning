@@ -394,6 +394,114 @@ class ProductionSemanticCacheGateway:
 
 ---
 
+\section{Thiết Kế Hệ Thống: Cân Bằng Tải Nhận Biết Tiền Tố (Prefix-Aware Routing) \& Hạ Tầng Anycast Toàn Cầu}
+\label{sec:ch13-prefix-aware-routing}
+
+Trong các kiến trúc microservices truyền thống, thuật toán cân bằng tải (Load Balancer) thường hoạt động theo nguyên lý Round-Robin, Least-Connections, hoặc ngẫu nhiên có trọng số. Tuy nhiên, khi áp dụng các giải thuật này trực tiếp vào cụm phục vụ mô hình ngôn ngữ lớn (vLLM / Triton clusters), toàn bộ hệ thống sẽ rơi vào một cuộc khủng hoảng hiệu năng và lãng phí phần cứng nghiêm trọng.
+
+\subsection{Khởi Điểm Từ Con Số 0: Thảm Họa Prefill Của Cân Bằng Tải Ngây Thơ}
+Để hiểu tại sao bộ cân bằng tải cho AI bắt buộc phải nhận biết nội dung tiền tố, ta cần phân tích bản chất hoạt động của bộ đệm \term{PagedAttention} và cấu trúc cây tiền tố \term{RadixAttention} trong vLLM:
+\begin{enumerate}
+  \item \textbf{Cấu trúc lặp lại của Prompt doanh nghiệp}:
+  Trong hầu hết các ứng dụng thực tế (như trợ lý pháp lý, hỗ trợ kỹ thuật khách hàng, hoặc lập trình viên AI), mọi truy vấn đều chứa một phần mở đầu cố định (\textit{System Prompt \& Few-Shot Examples \& Context RAG}) có độ dài rất lớn, thường từ $2.000$ đến $8.000$ tokens. Phần câu hỏi thực tế của người dùng ở cuối câu chỉ chiếm khoảng $50$ tokens.
+  \item \textbf{Chi phí tính toán pha Prefill}:
+  Khi một máy chủ GPU tiếp nhận một prompt dài $4.000$ tokens mà nó chưa từng nhìn thấy trước đó, GPU bắt buộc phải thực hiện pha \term{Prefill}: Tính toán ma trận Attention toàn phần $\mathcal{O}(L^2)$ trên toàn bộ $4.000$ tokens. Quá trình này tiêu tốn hàng triệu phép tính dấu phẩy động và làm mất từ $300\text{ms}$ đến $500\text{ms}$ thời gian xử lý của GPU.
+  \item \textbf{Sức mạnh của Prefix Caching}:
+  Nếu máy chủ GPU đó \textbf{đã từng xử lý} đoạn System Prompt $4.000$ tokens này trong các yêu cầu trước, toàn bộ các véc-tơ Key và Value (KV Cache) của $4.000$ tokens đó vẫn đang nằm sẵn trong VRAM của GPU dưới dạng một nhánh cây Radix Tree.
+  Khi request mới tới, GPU chỉ cần tái sử dụng lại các block bộ nhớ đã có sẵn: Thời gian Prefill giảm ngoạn mục từ $350\text{ms}$ xuống chỉ còn \textbf{$8\text{ms}$} (giảm hơn $97\%$), và GPU gần như không tiêu tốn thêm một chu kỳ tính toán nào!
+\end{enumerate}
+
+\paragraph{Nghịch lý của bộ cân bằng tải ngây thơ (Naive Round-Robin)}:
+Nếu bộ cân bằng tải ở Gateway không có tri thức về ngữ cảnh và chia đều các request theo vòng tròn:
+\begin{itemize}
+  \item Request 1 của Doanh nghiệp X gửi sang GPU Node 1 $\implies$ GPU 1 tốn $350\text{ms}$ tính toán Prefill và lưu cache $4.000$ tokens.
+  \item Request 2 của Doanh nghiệp X gửi sang GPU Node 2 $\implies$ GPU 2 lại tốn $350\text{ms}$ tính toán lại từ đầu và nhân bản thêm $4.000$ tokens KV Cache vào VRAM của mình.
+  \item Request 3 của Doanh nghiệp X gửi sang GPU Node 3 $\implies$ GPU 3 lại lặp lại chu trình lãng phí tương tự.
+\end{itemize}
+\textbf{Hậu quả tai hại}: Toàn bộ bộ nhớ VRAM đắt giá của cả cụm GPU bị lấp đầy bởi các bản sao KV Cache trùng lặp giống hệt nhau! Tỷ lệ Cache Hit của toàn cụm tụt dốc về gần $0\%$, thời gian chờ đợi phản hồi TTFT của người dùng tăng vọt gấp hàng chục lần, và doanh nghiệp buộc phải bỏ ra số tiền gấp 5 lần để thuê thêm máy chủ GPU!
+
+\subsection{Mô Hình Toán Học: Consistent Hashing Với Virtual Nodes \& Cân Bằng Knapsack Hai Chiều}
+Để giải quyết bài toán này, kiến trúc chuẩn mực của một \term{AI Gateway} hiện đại phải tích hợp thuật toán \term{Prefix-Aware Load Balancer}.
+
+\begin{figure}[htbp]
+\centering
+\resizebox{0.95\linewidth}{!}{%
+\begin{tikzpicture}[node distance=1.2cm, auto,
+    client/.style={rectangle, draw=primarycolor, thick, fill=boxbg, align=center, rounded corners=2pt, minimum height=0.7cm, minimum width=2.5cm, font=\scriptsize\bfseries},
+    gateway/.style={rectangle, draw=dangercolor, ultra thick, fill=accentcolor!20, align=center, rounded corners=3pt, minimum height=1.0cm, minimum width=11cm, font=\small\bfseries},
+    gpu/.style={rectangle, draw=secondarycolor, thick, fill=boxbg, align=center, rounded corners=2pt, minimum height=1.2cm, minimum width=2.4cm, font=\scriptsize\bfseries}
+]
+    \node[client] (c1) {Client Tenant A};
+    \node[client, right=1.5cm of c1] (c2) {Client Tenant A};
+    \node[client, right=1.5cm of c2] (c3) {Client Tenant B};
+    \node[client, right=1.5cm of c3] (c4) {Client Tenant C};
+
+    \node[gateway, below=0.8cm of c2, xshift=1.2cm] (gw) {AI Gateway: Prefix-Aware Router (Consistent Hashing + Radix Tracker)};
+
+    \node[gpu, below=1.0cm of gw, xshift=-4.0cm] (gpu1) {GPU Node 1\\ \tiny \textbf{Cache: Tenant A}\\ \tiny (Hit Rate: 98\%)};
+    \node[gpu, below=1.0cm of gw, xshift=-1.3cm] (gpu2) {GPU Node 2\\ \tiny \textbf{Cache: Tenant A}\\ \tiny (Replica / Failover)};
+    \node[gpu, below=1.0cm of gw, xshift=1.4cm] (gpu3) {GPU Node 3\\ \tiny \textbf{Cache: Tenant B}\\ \tiny (Hit Rate: 95\%)};
+    \node[gpu, below=1.0cm of gw, xshift=4.1cm] (gpu4) {GPU Node 4\\ \tiny \textbf{Cache: Tenant C}\\ \tiny (Hit Rate: 92\%)};
+
+    \draw[draw=primarycolor, thick, -Stealth] (c1) -- (gw.150);
+    \draw[draw=primarycolor, thick, -Stealth] (c2) -- (gw.110);
+    \draw[draw=primarycolor, thick, -Stealth] (c3) -- (gw.70);
+    \draw[draw=primarycolor, thick, -Stealth] (c4) -- (gw.30);
+
+    \draw[draw=secondarycolor, line width=1.5pt, -Stealth] (gw.210) -- node[left, font=\tiny\bfseries] {Route to Hot Cache} (gpu1);
+    \draw[draw=secondarycolor, line width=1.5pt, -Stealth] (gw.330) -- node[right, font=\tiny\bfseries] {Route to Hot Cache} (gpu3);
+    \draw[draw=secondarycolor, line width=1.5pt, -Stealth] (gw.350) -- (gpu4);
+\end{tikzpicture}%
+}
+\caption{Kiến trúc Prefix-Aware Load Balancer: Gom các truy vấn cùng tiền tố về đúng máy chủ GPU lưu trữ sẵn KV Cache}
+\label{fig:prefix-aware-load-balancer}
+\end{figure}
+
+\paragraph{1. Vòng băm Nhất quán (Consistent Hash Ring) cho System Prompt}:
+Gateway phân tích nội dung mở đầu của truy vấn và tạo một khóa băm định danh tiền tố:
+\begin{equation}
+K_{\text{prefix}} = \text{MurmurHash3}\left(\text{tenant\_id} + "\#::\#" + \text{system\_prompt}\right) \pmod{2^{32}}
+\end{equation}
+Không gian khóa được biểu diễn trên một vòng tròn liên tục từ $0$ đến $2^{32} - 1$.
+Mỗi máy chủ GPU $i$ được gán $V = 128$ nút ảo (\textit{Virtual Nodes}) phân bổ đều trên vòng băm để đảm bảo tính phân tán ngẫu nhiên đồng đều:
+\begin{equation}
+\text{vnode}_{i, j} = \text{MD5}\left(\text{"Server\_"} + i + "\#vn\_" + j\right) \pmod{2^{32}}
+\end{equation}
+Khi một truy vấn đi vào, Gateway tìm kiếm nút ảo đầu tiên có vị trí lớn hơn hoặc bằng $K_{\text{prefix}}$ theo chiều kim đồng hồ.
+\begin{theorem}[Bảo Toàn Bộ Đệm Khi Mở Rộng Cụm]
+Khi thêm một máy chủ GPU mới vào cụm gồm $N$ máy chủ hoặc khi một máy chủ gặp sự cố, tỷ lệ khóa tiền tố bị dịch chuyển sang máy chủ khác chỉ bằng đúng:
+\begin{equation}
+\Delta_{\text{keys}} = \frac{1}{N}
+\end{equation}
+Toàn bộ $\frac{N-1}{N}$ ($> 90\%$) các khóa tiền tố còn lại vẫn giữ nguyên vị trí, bảo toàn tuyệt đối tỷ lệ Cache Hit của toàn bộ hệ thống!
+\end{theorem}
+
+\paragraph{2. Giải thuật điều hướng cân bằng hai chiều (Dual-Constraint Routing Score)}:
+Nếu chỉ dựa hoàn toàn vào Consistent Hashing, hệ thống sẽ đối mặt với rủi ro \term{Hotspot Node}: Một khách hàng doanh nghiệp lớn với hàng ngàn nhân viên gửi truy vấn dồn dập có thể làm nghẽn hoàn toàn máy chủ GPU phụ trách tiền tố đó, trong khi các máy chủ khác vẫn rảnh rỗi.
+
+Để giải quyết, Gateway áp dụng hàm chấm điểm đa mục tiêu hai chiều:
+\begin{equation}
+\text{Score}(i) = \alpha \cdot \left(\frac{\text{SharedPrefixTokens}(P, \mathcal{T}_i)}{L_{\text{prompt}}}\right) - (1 - \alpha) \cdot \left(\frac{Q_i}{C_i}\right)
+\end{equation}
+Trong đó:
+\begin{itemize}
+  \item $\text{SharedPrefixTokens}(P, \mathcal{T}_i)$: Số lượng tokens tiền tố đang có sẵn trong VRAM của GPU $i$.
+  \item $Q_i$: Số lượng request đang nằm trong hàng đợi chờ xử lý của GPU $i$.
+  \item $C_i$: Ngưỡng dung lượng hàng đợi tối đa cho phép của GPU $i$.
+  \item $\alpha \in [0, 1]$: Trọng số đánh đổi (thực nghiệm chọn $\alpha = 0.75$).
+\end{itemize}
+Khi hàng đợi của GPU nắm giữ cache vượt quá ngưỡng an toàn ($Q_i \ge 0.85 C_i$), số hạng phạt thứ hai sẽ áp đảo số hạng thứ nhất, buộc Gateway phải chuyển hướng yêu cầu sang máy chủ GPU dự phòng ít tải hơn, bảo đảm cân bằng giữa tối đa hóa Cache Hit và triệt tiêu hàng đợi tắc nghẽn.
+
+\subsection{Kiến Trúc Mạng Anycast BGP Toàn Cầu \& Cụm Suy Luận Đa Vùng}
+Để phục vụ người dùng trên toàn cầu với độ trễ mạng thấp nhất, hệ thống kết hợp kiến trúc định tuyến \term{BGP Anycast}:
+\begin{enumerate}
+  \item \textbf{Một địa chỉ IP duy nhất cho toàn thế giới}: Tất cả các trung tâm dữ liệu tại Bắc Mỹ (us-east), Châu Âu (eu-west) và Châu Á (ap-southeast) đều cùng công bố một dải địa chỉ IP công khai duy nhất (\textit{Anycast IP}) tới các nhà mạng viễn thông toàn cầu qua giao thức BGP.
+  \item \textbf{Định tuyến chặng ngắn nhất (Shortest AS-Path)}: Bộ định tuyến Internet tự động dẫn luồng gói tin của người dùng tại Việt Nam vào cụm máy chủ tại Singapore (độ trễ mạng $< 30\text{ms}$), thay vì bay nửa vòng trái đất sang Mỹ ($250\text{ms}$).
+  \item \textbf{Tự động khôi phục sự cố tuyến cáp}: Nếu trung tâm dữ liệu tại Singapore gặp sự cố mất điện, bộ định tuyến BGP tự động thu hồi tuyến Anycast trong vài giây, các gói tin của người dùng lập tức được chuyển hướng thông suốt sang trung tâm dữ liệu tại Nhật Bản hoặc Châu Âu mà người dùng không hề nhận thấy sự gián đoạn.
+\end{enumerate}
+
+---
+
 \section{Hệ Thống Bài Tập Kỹ Nghệ \& Đánh Giá Năng Lực}
 \label{sec:ch13-exercises}
 
@@ -404,6 +512,8 @@ class ProductionSemanticCacheGateway:
   \item \textbf{Đánh đổi kích thước mô hình Embedding}: Phân tích sự đánh đổi khi lựa chọn kích thước mô hình embedding cho Semantic Cache: Nếu ta dùng một mô hình embedding lớn ($1.536$ chiều, độ trễ $40\text{ms}$) so với một mô hình nhỏ ($384$ chiều, độ trễ $4\text{ms}$), tổng độ trễ của hệ thống trong trường hợp Cache Miss bị ảnh hưởng ra sao?
   \item \textbf{Chỉ số đánh giá trải nghiệm người dùng}: Tại sao trong cụm máy chủ LLM phục vụ đa người dùng, ta lại ưu tiên chỉ số TPOT (Time Per Output Token) hơn là chỉ số tổng thời gian phản hồi (Total Latency) khi đánh giá trải nghiệm người dùng cuối?
   \item \textbf{Nguy cơ Cascading Storm}: Trong kiến trúc định tuyến phân cấp (SLM kết hợp LLM), hiện tượng gì sẽ xảy ra nếu mô hình nhỏ 8B đồng loạt gặp dữ liệu lạ (\textit{Out-of-Distribution}) khiến tỷ lệ Fallback lên mô hình 70B tăng đột biến từ $10\%$ lên $90\%$? Giải pháp bảo vệ cụm máy chủ là gì?
+  \item \textbf{Bảo toàn Cache của Consistent Hashing}: Tại sao thuật toán Consistent Hashing với Virtual Nodes lại bảo toàn tỷ lệ Cache Hit của cụm vLLM khi xảy ra sự cố sập một GPU node, trong khi hàm băm chia dư ngây thơ $H(k) \pmod N$ lại làm xóa sạch $100\%$ bộ nhớ đệm KV Cache?
+  \item \textbf{Ổn định kết nối Anycast BGP}: Trong kiến trúc định tuyến toàn cầu Anycast BGP cho các cụm AI phục vụ suy luận, hiện tượng Route Flapping ảnh hưởng như thế nào đến kết nối HTTP/2 Streaming SSE của người dùng? Nêu giải pháp khắc phục ở tầng Transport.
 \end{enumerate}
 
 \subsection{Nhóm B: Tính Toán Giải Tích \& Số Học Bằng Tay}
@@ -432,6 +542,27 @@ class ProductionSemanticCacheGateway:
 
   \item \textbf{Đánh đổi ngưỡng $\tau$ và tỷ lệ dương tính giả (False Positive Rate)}:
   Xét một hệ thống Semantic Cache có phân phối độ tương đồng giữa các câu hỏi cùng ý nghĩa $\mathcal{N}(\mu_1 = 0.93, \sigma_1 = 0.03)$ và giữa các câu hỏi khác ý nghĩa $\mathcal{N}(\mu_0 = 0.82, \sigma_0 = 0.04)$. Nếu đặt ngưỡng $\tau = 0.88$, hãy tính xác suất câu hỏi khác ý nghĩa bị nhận nhầm là trùng khớp (False Positive Hit Rate).
+
+  \item \textbf{Định lượng tiết kiệm TFLOPS và TTFT nhờ Prefix-Aware Load Balancer}:
+  Một cụm vLLM gồm 8 GPU H100 phục vụ ứng dụng lập trình viên Copilot.
+  System prompt chứa tài liệu dự án dài $4.000$ tokens. Mỗi ngày có $100.000$ truy vấn chứa tiền tố này.
+  Nếu dùng cân bằng tải Round-Robin ngây thơ: Tỷ lệ Cache Hit chỉ đạt $12.5\%$ (do phân bổ ngẫu nhiên đều cho 8 máy chủ).
+  Nếu dùng Prefix-Aware Load Balancer: Tỷ lệ Cache Hit đạt $95\%$.
+  Biết rằng pha Prefill cho $4.000$ tokens trên mô hình 70B tiêu tốn $560\text{ TFLOPs}$ và mất $400\text{ms}$.
+  Hãy tính:
+  \begin{itemize}
+    \item[a)] Số lượng phép tính TFLOPs phần cứng GPU tiết kiệm được mỗi ngày.
+    \item[b)] Tổng số giờ chờ đợi độ trễ TTFT được giải phóng cho người dùng mỗi ngày.
+  \end{itemize}
+
+  \item \textbf{Xác suất dịch chuyển khóa tiền tố trong Consistent Hashing}:
+  Cụm vLLM đang hoạt động với $N = 10$ máy chủ GPU, quản lý $10.000$ mẫu tiền tố của các khách hàng doanh nghiệp.
+  Do nhu cầu tăng trưởng, đội ngũ kỹ sư bổ sung thêm $2$ máy chủ GPU mới vào cụm ($N_{\text{new}} = 12$).
+  Hãy tính:
+  \begin{itemize}
+    \item[a)] Số lượng mẫu tiền tố dự kiến bị dịch chuyển sang máy chủ mới theo nguyên lý Consistent Hashing.
+    \item[b)] Số lượng mẫu tiền tố bị đảo lộn vị trí nếu sử dụng hàm băm chia dư truyền thống $\text{Hash}(K) \pmod N$.
+  \end{itemize}
 \end{enumerate}
 
 \subsection{Nhóm C: Thực Hành Kỹ Nghệ \& Lập Trình (Implementation Labs)}
@@ -492,6 +623,18 @@ Khi $90\%$ lưu lượng bị đẩy dồn sang mô hình 70B, cụm máy chủ 
 \begin{enumerate}
   \item Triển khai Circuit Breaker: Giới hạn lưu lượng fallback tối đa không vượt quá $30\%$ dung lượng cụm 70B.
   \item Shedding Load (Hạ tải có kiểm soát): Khi cụm 70B chạm ngưỡng $85\%$ VRAM hoặc hàng đợi $> 100$, hệ thống từ chối fallback và trả về câu trả lời của mô hình nhỏ kèm cảnh báo, hoặc gọi Cloud API dự phòng.
+\end{enumerate}
+
+\paragraph{Lời giải Câu A5 (Bảo toàn Cache của Consistent Hashing)}:
+Với thuật toán băm chia dư ngây thơ $\text{Server} = \text{Hash}(K) \pmod N$: Khi một máy chủ GPU gặp sự cố sập ($N \to N-1$), mẫu số chia dư thay đổi khiến vị trí của hầu như toàn bộ $100\%$ các khóa tiền tố bị dịch chuyển sang máy chủ khác. Các GPU mới hoàn toàn chưa có KV Cache của các tiền tố này trong VRAM, dẫn đến $100\%$ Cache Miss và gây ra cơn bão Prefill Storm đánh sập toàn bộ các máy chủ còn lại trong cụm.
+Ngược lại, với Consistent Hashing trên vòng $2^{32}$: Khi một máy chủ bị sập, chỉ có các dải khóa nằm trên cung tròn của máy chủ đó bị bàn giao cho máy chủ kế tiếp theo chiều kim đồng hồ (tỷ lệ $\frac{1}{N}$). Toàn bộ $\frac{N-1}{N}$ dải khóa còn lại trên vòng tròn vẫn giữ nguyên máy chủ phụ trách, bảo toàn nguyên vẹn bộ nhớ đệm KV Cache.
+
+\paragraph{Lời giải Câu A6 (Ổn định kết nối Anycast BGP)}:
+Anycast BGP hoạt động ở tầng Mạng (IP Layer). Do các biến động định tuyến trên Internet (Route Flapping), các gói tin tiếp theo của cùng một kết nối TCP có thể bị chuyển hướng sang một trung tâm dữ liệu khác. Vì máy chủ tại trung tâm dữ liệu mới không nắm giữ trạng thái kết nối TCP (TCP TCB), nó sẽ gửi cờ RST làm đứt gãy luồng Server-Sent Events (SSE) của người dùng.
+\textbf{Giải pháp}:
+\begin{enumerate}
+  \item Chuyển sang sử dụng giao thức HTTP/3 trên nền QUIC: Giao thức QUIC sử dụng Connection ID độc lập với 4-tuple IP/Port, cho phép tiếp tục phiên truyền dữ liệu mà không bị ngắt quãng khi tuyến đường Anycast thay đổi.
+  \item Triển khai tầng cân bằng tải nhất quán (Consistent Packet Forwarding như Maglev/Katran): Khi nhận gói tin của phiên đang mở tại PoP khác, Gateway tự động chuyển tiếp gói tin qua mạng cáp quang nội bộ về đúng PoP gốc.
 \end{enumerate}
 
 \paragraph{Lời giải Bài B1 (Tính toán ROI Semantic Cache)}:
@@ -563,6 +706,54 @@ Z = \frac{\tau - \mu_0}{\sigma_0} = \frac{0.88 - 0.82}{0.04} = 1.5
 \end{equation*}
 Tra bảng phân phối chuẩn tắc $P(Z \ge 1.5) \approx 0.0668 = 6.68\%$.
 Con số này cho thấy nếu chỉ dựa vào Cosine similarity với ngưỡng $0.88$, cứ 100 câu hỏi khác ý nghĩa sẽ có gần 7 câu bị trả lời sai! Do đó, việc kết hợp kiểm định thực thể (Entity Extractor) là bắt buộc.
+
+\paragraph{Lời giải Bài B4 (Định lượng tiết kiệm TFLOPS và TTFT)}:
+\begin{itemize}
+  \item[a)] Số lượng truy vấn được hưởng Prefix Cache Hit mỗi ngày:
+  \begin{itemize}
+    \item Khi dùng Round-Robin: $100.000 \times 12.5\% = 12.500$ lượt $\implies 87.500$ lượt Cache Miss.
+    \item Khi dùng Prefix-Aware: $100.000 \times 95\% = 95.000$ lượt $\implies 5.000$ lượt Cache Miss.
+  \end{itemize}
+  Số lượt tính toán Prefill được cắt giảm mỗi ngày:
+  \begin{equation*}
+  \Delta N = 87.500 - 5.000 = 82.500 \text{ requests}
+  \end{equation*}
+  Tổng số TFLOPs tiết kiệm được mỗi ngày:
+  \begin{equation*}
+  \text{TFLOPs Saved} = 82.500 \times 560\text{ TFLOPs} = \mathbf{46.200.000\text{ TFLOPs}} = \mathbf{46.2\text{ ExaFLOPs/ngày}}
+  \end{equation*}
+
+  \item[b)] Tổng số giờ chờ đợi TTFT được giải phóng cho người dùng:
+  \begin{equation*}
+  \text{Latency Hours Saved} = \frac{82.500 \times 0.400\text{ giây}}{3.600\text{ giây/giờ}} = \frac{33.000}{3.600} \approx \mathbf{9.17\text{ giờ/ngày}}
+  \end{equation*}
+  Người dùng tiết kiệm được hơn 9 giờ đồng hồ chờ đợi phản hồi mỗi ngày!
+\end{itemize}
+
+\paragraph{Lời giải Bài B5 (Xác suất dịch chuyển khóa trong Consistent Hashing)}:
+\begin{itemize}
+  \item[a)] Với thuật toán Consistent Hashing:
+  Khi tăng số máy chủ từ $N_{\text{old}} = 10$ lên $N_{\text{new}} = 12$, tỷ lệ khóa tiền tố bị dịch chuyển sang hai máy chủ mới là:
+  \begin{equation*}
+  \text{Tỷ lệ dịch chuyển} = \frac{N_{\text{new}} - N_{\text{old}}}{N_{\text{new}}} = \frac{12 - 10}{12} = \frac{2}{12} \approx 16.67\%
+  \end{equation*}
+  Số lượng mẫu tiền tố bị di dời:
+  \begin{equation*}
+  N_{\text{moved, consistent}} = 10.000 \times 16.67\% \approx \mathbf{1.667\text{ mẫu}}
+  \end{equation*}
+  Hơn $83.33\%$ ($8.333$ mẫu) vẫn giữ nguyên vị trí trên các GPU cũ, duy trì tỷ lệ Cache Hit ổn định.
+
+  \item[b)] Với thuật toán băm chia dư $\text{Hash}(K) \pmod N$:
+  Tỷ lệ các khóa giữ nguyên vị trí là tỷ lệ thỏa mãn $\text{Hash}(K) \pmod{10} = \text{Hash}(K) \pmod{12}$, tức $\text{Hash}(K) \pmod{\text{gcd}(10, 12)} = \text{Hash}(K) \pmod 2$.
+  Tỷ lệ giữ nguyên vị trí chỉ là:
+  \begin{equation*}
+  \frac{\text{gcd}(10, 12)}{\text{lcm}(10, 12)} = \frac{2}{60} \approx 3.33\%
+  \end{equation*}
+  Số lượng mẫu tiền tố bị đảo lộn vị trí:
+  \begin{equation*}
+  N_{\text{moved, modulo}} = 10.000 \times (1 - 0.0333) = \mathbf{9.667\text{ mẫu}} \quad (\text{Mất trắng hơn } 96.67\% \text{ cache!})
+  \end{equation*}
+\end{itemize}
 
 \paragraph{Lời giải Bài C1 (Context-Aware Load Balancer)}:
 Mã nguồn cài đặt được cung cấp đầy đủ và kiểm thử tự động trong tệp \code{tests/test_ch13_system_design.py}.

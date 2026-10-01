@@ -638,3 +638,262 @@ def test_bitnet_ternary_quantization_and_forward():
     y_float_approx = y_pure_add.astype(np.float32) * (scale_x * gamma)
     assert y_float_approx.shape == (4, d_out)
 
+
+# ==============================================================================
+# AWQ, DORA & QLORA DOUBLE QUANTIZATION IMPLEMENTATIONS
+# ==============================================================================
+
+class AWQScaleOptimizer:
+    """
+    Activation-aware Weight Quantization (AWQ) Scale Optimizer (Lin et al., 2023).
+    Finds per-channel protection scales s = s_X^alpha that minimize reconstruction error:
+    min_{alpha} || W @ X - Q(W * diag(s)^-1) @ diag(s) @ X ||_F^2
+    """
+    def __init__(self, bits: int = 4, n_grid: int = 20):
+        self.bits = bits
+        self.n_grid = n_grid
+        self.q_max = (1 << (bits - 1)) - 1  # 7 for 4-bit signed symmetric
+
+    def quantize_symmetric(self, w: np.ndarray) -> np.ndarray:
+        """Per-channel symmetric quantization along axis 1 (per row)."""
+        scales = np.max(np.abs(w), axis=1, keepdims=True) / self.q_max
+        scales = np.maximum(scales, 1e-8)
+        q = np.clip(np.round(w / scales), -self.q_max, self.q_max)
+        return q * scales
+
+    def optimize_scale(
+        self,
+        w: np.ndarray,
+        x: np.ndarray
+    ) -> Tuple[np.ndarray, float, float]:
+        """
+        w: (d_out, d_in)
+        x: (d_in, N) calibration activations
+        Returns: (best_scale_s, best_alpha, best_loss)
+        """
+        act_mean = np.mean(np.abs(x), axis=1)
+        act_mean = np.maximum(act_mean, 1e-6)
+
+        # Baseline loss without AWQ (s = 1.0)
+        y_true = np.matmul(w, x)
+        w_q_base = self.quantize_symmetric(w)
+        y_base = np.matmul(w_q_base, x)
+        baseline_loss = float(np.mean((y_true - y_base) ** 2))
+
+        best_loss = baseline_loss
+        best_alpha = 0.0
+        best_s = np.ones_like(act_mean)
+
+        for alpha in np.linspace(0.0, 1.0, self.n_grid):
+            s_cand = act_mean ** alpha
+            geom_mean = np.exp(np.mean(np.log(s_cand)))
+            s_cand = s_cand / max(geom_mean, 1e-6)
+
+            # Transformed weights: W' = W * diag(s) (salient channels scaled UP to reduce relative rounding error)
+            w_scaled = w * s_cand[np.newaxis, :]
+            w_scaled_q = self.quantize_symmetric(w_scaled)
+            # Reconstruct effective weight: W_recon = W_scaled_q * diag(s)^-1
+            w_recon = w_scaled_q / s_cand[np.newaxis, :]
+
+            y_pred = np.matmul(w_recon, x)
+            loss = float(np.mean((y_true - y_pred) ** 2))
+
+            if loss < best_loss:
+                best_loss = loss
+                best_alpha = float(alpha)
+                best_s = s_cand.copy()
+
+        return best_s, best_alpha, best_loss
+
+    @staticmethod
+    def fold_scale_into_layernorm(ln_weight: np.ndarray, s: np.ndarray) -> np.ndarray:
+        """
+        Folds the AWQ scale vector s into preceding LayerNorm weights:
+        W_LN_new = W_LN / s
+        Ensuring zero runtime latency overhead at inference time!
+        """
+        return ln_weight / s
+
+
+class DoRALinearLayer:
+    """
+    Weight-Decomposed Low-Rank Adaptation (DoRA, Liu et al., ICML 2024).
+    Decouples weight magnitude m and direction V:
+    W = m * (W_0 + (alpha / r) * A @ B) / ||W_0 + (alpha / r) * A @ B||_c
+    Where ||.||_c is the column-wise L2 norm over input dimensions.
+    """
+    def __init__(self, d_in: int, d_out: int, r: int = 8, alpha: float = 16.0):
+        self.d_in = d_in
+        self.d_out = d_out
+        self.r = r
+        self.alpha = alpha
+        self.scaling = alpha / r
+
+        # Base weights (frozen)
+        self.w0 = np.random.standard_normal((d_in, d_out)).astype(np.float32)
+
+        # Trainable magnitude vector m: initialized to column-wise L2 norm of W0
+        self.m = np.linalg.norm(self.w0, axis=0, keepdims=True)  # shape (1, d_out)
+
+        # Trainable low-rank direction matrices
+        self.a = np.random.standard_normal((d_in, r)).astype(np.float32) * 0.01
+        self.b = np.zeros((r, d_out), dtype=np.float32)
+
+    def get_decomposed_weight(self) -> np.ndarray:
+        delta_w = self.scaling * np.matmul(self.a, self.b)
+        v = self.w0 + delta_w
+        v_norm = np.linalg.norm(v, axis=0, keepdims=True)
+        v_norm = np.maximum(v_norm, 1e-8)
+        return self.m * (v / v_norm)
+
+    def forward(self, x: np.ndarray) -> np.ndarray:
+        w_dora = self.get_decomposed_weight()
+        return np.matmul(x, w_dora)
+
+    def merge_weights(self) -> np.ndarray:
+        """Merges DoRA direction and magnitude into static base weight."""
+        return self.get_decomposed_weight()
+
+
+class QLoRADoubleQuantCalculator:
+    """
+    Calculates exact memory footprint and savings of QLoRA Double Quantization (DQ).
+    Weights: 4-bit (NF4). Block size B1 (default 64).
+    First-level scales: FP32 (32 bits) without DQ -> 32 / B1 = 0.50 bits/param.
+    With Double Quantization (DQ):
+    First-level scales quantized to FP8 (8 bits) with block size B2 (default 256).
+    Second-level scales in FP32 (32 bits).
+    Memory per param for scales: 8 / B1 + 32 / (B1 * B2)
+    Total saving: 32 / B1 - (8 / B1 + 32 / (B1 * B2)) = 0.373 bits/param.
+    """
+    def __init__(self, block_size_b1: int = 64, block_size_b2: int = 256):
+        self.b1 = block_size_b1
+        self.b2 = block_size_b2
+
+    def calculate_bits_per_param(self) -> Dict[str, float]:
+        weight_bits = 4.0
+        single_quant_scale_bits = 32.0 / self.b1
+        single_quant_total = weight_bits + single_quant_scale_bits
+
+        dq_c1_scale_bits = 8.0 / self.b1
+        dq_c2_scale_bits = 32.0 / (self.b1 * self.b2)
+        dq_total_scale_bits = dq_c1_scale_bits + dq_c2_scale_bits
+        dq_total = weight_bits + dq_total_scale_bits
+
+        savings_per_param = single_quant_scale_bits - dq_total_scale_bits
+        return {
+            "weight_bits": weight_bits,
+            "single_quant_scale_bits": single_quant_scale_bits,
+            "single_quant_total_bits": single_quant_total,
+            "double_quant_scale_bits": dq_total_scale_bits,
+            "double_quant_total_bits": dq_total,
+            "savings_bits_per_param": savings_per_param,
+        }
+
+    def calculate_model_vram_gb(
+        self,
+        num_parameters: int,
+        include_lora: bool = True,
+        lora_params: int = 100_000_000
+    ) -> Dict[str, float]:
+        bits_info = self.calculate_bits_per_param()
+        bytes_per_gb = 1024 ** 3
+
+        fp16_bytes = num_parameters * 2.0
+        fp16_gb = fp16_bytes / bytes_per_gb
+
+        sq_bytes = num_parameters * (bits_info["single_quant_total_bits"] / 8.0)
+        sq_gb = sq_bytes / bytes_per_gb
+
+        dq_bytes = num_parameters * (bits_info["double_quant_total_bits"] / 8.0)
+        dq_gb = dq_bytes / bytes_per_gb
+
+        savings_bytes = num_parameters * (bits_info["savings_bits_per_param"] / 8.0)
+        savings_gb = savings_bytes / bytes_per_gb
+
+        lora_gb = 0.0
+        if include_lora:
+            # LoRA weights (BF16, 2B) + Gradients (BF16, 2B) + AdamW (FP32, 8B) = 12B/param
+            lora_bytes = lora_params * 12.0
+            lora_gb = lora_bytes / bytes_per_gb
+
+        return {
+            "fp16_gb": fp16_gb,
+            "single_quant_gb": sq_gb,
+            "double_quant_gb": dq_gb,
+            "vram_saved_gb": savings_gb,
+            "lora_overhead_gb": lora_gb,
+            "total_qlora_training_gb": dq_gb + lora_gb,
+        }
+
+
+def test_awq_scale_optimizer():
+    np.random.seed(42)
+    d_out, d_in, n_samples = 4, 8, 100
+    w = np.random.standard_normal((d_out, d_in)).astype(np.float64)
+    # Create prominent activation outliers in channel 0 and 1
+    x = np.random.standard_normal((d_in, n_samples)).astype(np.float64)
+    x[0, :] *= 50.0
+    x[1, :] *= 20.0
+
+    optimizer = AWQScaleOptimizer(bits=4, n_grid=20)
+    best_s, best_alpha, best_loss = optimizer.optimize_scale(w, x)
+
+    assert len(best_s) == d_in
+    assert 0.0 <= best_alpha <= 1.0
+    # Channel 0 has highest activation, so its scale s[0] should be larger than average
+    assert best_s[0] > np.mean(best_s[2:])
+
+    # Test folding scale into LayerNorm
+    ln_w = np.ones(d_in, dtype=np.float64)
+    folded = optimizer.fold_scale_into_layernorm(ln_w, best_s)
+    np.testing.assert_allclose(folded * best_s, ln_w)
+
+
+def test_dora_initialization_and_forward():
+    d_in = 32
+    d_out = 64
+    r = 4
+    alpha = 8.0
+    batch_size = 3
+
+    layer = DoRALinearLayer(d_in, d_out, r=r, alpha=alpha)
+    x = np.random.standard_normal((batch_size, d_in)).astype(np.float32)
+
+    # At initialization (B == 0), DoRA output must be identical to base model W0
+    y_init = layer.forward(x)
+    y_base = np.matmul(x, layer.w0)
+    np.testing.assert_allclose(y_init, y_base, rtol=1e-5, atol=1e-5)
+
+    # Simulate fine-tuning by updating B and magnitude m
+    layer.b += np.random.standard_normal(layer.b.shape).astype(np.float32) * 0.05
+    layer.m *= 1.1
+
+    y_adapted = layer.forward(x)
+    # Merged weight forward should match adapted forward
+    w_merged = layer.merge_weights()
+    y_merged = np.matmul(x, w_merged)
+    np.testing.assert_allclose(y_adapted, y_merged, rtol=1e-5, atol=1e-5)
+
+
+def test_qlora_double_quant_calculator():
+    calc = QLoRADoubleQuantCalculator(block_size_b1=64, block_size_b2=256)
+    bits_info = calc.calculate_bits_per_param()
+
+    assert bits_info["weight_bits"] == 4.0
+    assert pytest.approx(bits_info["single_quant_scale_bits"], 1e-4) == 0.50
+    assert pytest.approx(bits_info["double_quant_scale_bits"], 1e-4) == 0.126953125
+    assert pytest.approx(bits_info["savings_bits_per_param"], 1e-4) == 0.373046875
+
+    # 70B model test
+    res_70b = calc.calculate_model_vram_gb(num_parameters=70_000_000_000, include_lora=True)
+    # FP16 ~ 130.38 GiB
+    assert pytest.approx(res_70b["fp16_gb"], 0.1) == 130.38
+    # Double Quant ~ 33.6 GiB
+    assert 32.0 < res_70b["double_quant_gb"] < 35.0
+    # Savings should be ~ 3.04 GiB
+    assert pytest.approx(res_70b["vram_saved_gb"], 0.1) == 3.04
+    # Total QLoRA training VRAM ~ 33.6 + 1.12 ~ 34.7 GiB (< 48 GiB 2x RTX 3090/4090)
+    assert res_70b["total_qlora_training_gb"] < 40.0
+
+

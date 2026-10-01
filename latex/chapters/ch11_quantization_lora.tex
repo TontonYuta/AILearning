@@ -60,12 +60,38 @@ Trong những năm đầu của học sâu, việc huấn luyện bằng FP16 g�
 
 Định dạng \textbf{BF16} do Google Brain đề xuất giải quyết triệt để vấn đề này bằng cách giữ nguyên 8 bit số mũ giống hệt FP32 và chỉ cắt giảm trường định trị xuống 7 bits. Nhờ đó, BF16 có dải động tương đương FP32 ($10^{\pm 38}$), giúp quá trình lan truyền ngược hoàn toàn miễn nhiễm với lỗi Underflow mà không cần bất kỳ cơ chế Loss Scaling nào!
 
-\paragraph{Định dạng FP8 thế hệ mới (E4M3 và E5M2)}:
-Trên các kiến trúc GPU tiên tiến (NVIDIA Hopper H100, Blackwell B200), hai biến thể FP8 được chuẩn hóa cho hai mục đích chuyên biệt:
+\paragraph{Định dạng FP8 thế hệ mới (E4M3 và E5M2) \& Kiến trúc FP8 Serving}:
+Trên các kiến trúc GPU tiên tiến (NVIDIA Hopper H100, Blackwell B200), định dạng FP8 (8-bit Floating Point) được chuẩn hóa theo đặc tả OpenFP8 với hai biến thể chuyên biệt:
 \begin{itemize}
-  \item \textbf{FP8 E4M3}: Dành cho lượt lan truyền xuôi (Forward Pass), nơi giá trị kích hoạt và trọng số có dải biến thiên hẹp hơn nhưng đòi hỏi độ chính xác cao hơn để bảo toàn chất lượng biểu diễn.
-  \item \textbf{FP8 E5M2}: Dành cho lượt lan truyền ngược (Backward Pass), nơi gradients có biên độ biến động cực lớn qua các tầng nhưng có thể chịu đựng độ sai số làm tròn cao hơn.
+  \item \textbf{FP8 E4M3 (1 bit dấu, 4 bits số mũ, 3 bits định trị)}:
+  Sở hữu độ phân giải cao hơn với $\text{bias} = 7$. Giá trị thực dương lớn nhất có thể biểu diễn được là:
+  \begin{equation}
+  x_{\max}^{\text{E4M3}} = 2^{15 - 7} \times \left(1 + \frac{6}{8}\right) = 2^8 \times 1.75 = 448
+  \end{equation}
+  Đặc điểm kỹ thuật độc đáo của E4M3 là \textbf{không có mã biểu diễn vô cực ($\pm \infty$)}, và chỉ dành duy nhất một cấu hình bit cho giá trị bất định ($\text{NaN} = S.1111.111_2$). Việc loại bỏ vô cực giúp E4M3 tận dụng tối đa dải bit khả dụng để tăng gấp đôi độ phân giải số học, biến nó thành lựa chọn hoàn hảo cho trọng số và kích hoạt trong lượt suy luận xuôi (\term{Inference Forward Pass}) và serving thực tế.
+  \item \textbf{FP8 E5M2 (1 bit dấu, 5 bits số mũ, 2 bits định trị)}:
+  Sở hữu dải động khổng lồ tương đương FP16 với $\text{bias} = 15$. Giá trị lớn nhất đạt tới:
+  \begin{equation}
+  x_{\max}^{\text{E5M2}} = 2^{30 - 15} \times \left(1 + \frac{3}{4}\right) = 2^{15} \times 1.75 = 57344
+  \end{equation}
+  E5M2 tuân thủ cấu trúc IEEE 754 với các biểu diễn chuẩn cho cả $\pm \infty$ và $\text{NaN}$, đóng vai trò sống còn trong lượt lan truyền ngược (\term{Backward Pass}) để bảo vệ các gradients có biên độ biến thiên hàng nghìn lần không bị tràn số.
 \end{itemize}
+
+Trong các khung serving LLM hiện đại như vLLM, TensorRT-LLM và SGLang, việc triển khai \textbf{FP8 Serving} giúp tăng gấp đôi thông lượng giải mã (Tokens/sec) và giảm $50\%$ dung lượng KV Cache thông qua hai chiến lược điều chỉnh hệ số co giãn:
+\begin{enumerate}
+  \item \textbf{Co Giãn Động (Dynamic Scaling)}:
+  Hệ số co giãn được tính toán thời gian thực ngay khi tensor kích hoạt $\mathbf{X}$ vừa được sinh ra:
+  \begin{equation}
+  S_x = \frac{\max(|\mathbf{X}|)}{448.0}, \qquad \mathbf{X}_{\text{FP8}} = \text{clip}\left(\frac{\mathbf{X}}{S_x}, -448.0, 448.0\right)
+  \end{equation}
+  Phương pháp này bảo toàn $99.9\%$ độ chính xác của FP16, nhưng đòi hỏi một kernel thu nhỏ CUDA (\term{Reduction Kernel}) để tìm giá trị cực đại trước mỗi phép tính GEMM, tạo ra một rào cản đồng bộ hóa phần cứng nhẹ.
+  \item \textbf{Co Giãn Trễ / Tĩnh (Delayed / Static Scaling)}:
+  Để triệt tiêu hoàn toàn rào cản đồng bộ hóa thời gian chạy, hệ thống ghi nhận lịch sử giá trị cực đại của kích hoạt qua $H$ bước trước đó (hoặc đo đạc trước trên tập dữ liệu hiệu chuẩn offline) để xác định một hệ số $S_{\text{delayed}}$ cố định:
+  \begin{equation}
+  S_{\text{delayed}} = \frac{1}{448.0} \max_{k=1..H} \left( \max(|\mathbf{X}_{t-k}|) \right)
+  \end{equation}
+  Nhờ đó, phép chuyển đổi sang FP8 và phép nhân ma trận FP8 GEMM trên Tensor Cores được thực thi liên tục và chồng lấn hoàn toàn (\term{Kernel Fusion \& Overlapping}), đạt thông lượng phần cứng tối đa.
+\end{enumerate}
 
 ---
 
@@ -309,17 +335,77 @@ Như vậy:
 \textbf{Kết luận định lượng}: Cơ chế bù trừ bậc hai của OBS đã triệt tiêu hơn $53\%$ sai số tái tạo kích hoạt so với làm tròn độc lập RTN ngay từ bước đầu tiên! Khi tiếp tục lượng tử hóa $w_2$, OBS sẽ đảm bảo tổng sai số trên toàn mạng được triệt tiêu tối ưu nhất.
 \end{example}
 
-\subsection{AWQ: Bảo Vệ 1\% Trọng Số Quan Trọng Nhất}
-Được Lin et al. (MIT HAN Lab, 2023) đề xuất, \textbf{AWQ (Activation-aware Weight Quantization)} xuất phát từ nhận định thực nghiệm: \textit{Trọng số kết nối với các kênh kích hoạt có biên độ lớn đóng vai trò sống còn đến $90\%$ độ chính xác của mạng.}
+\subsection{AWQ: Activation-aware Weight Quantization \& Kỹ Thuật LayerNorm Folding}
+\label{sec:awq-math-optimization}
 
-AWQ thực hiện theo quy trình 4 bước:
-\begin{enumerate}
-  \item Đo đạc phân phối biên độ kích hoạt trên tập dữ liệu hiệu chỉnh để xác định top $1\%$ kênh có kích hoạt lớn nhất.
-  \item Nhân hệ số bảo vệ $s > 1$ vào các trọng số kết nối với các kênh này: $\mathbf{W}' = \mathbf{W} \cdot s$.
-  \item Chia véc-tơ kích hoạt đầu vào cho cùng hệ số $s$ để bảo toàn tính tương đương toán học: $\mathbf{y} = (\mathbf{x} / s) \cdot (\mathbf{W} \cdot s) = \mathbf{x} \mathbf{W}$.
-  \item Thực hiện lượng tử hóa INT4 trên ma trận $\mathbf{W}'$ đã được phóng đại. Vì biên độ trọng số đã được nâng cao, sai số làm tròn số nguyên tác động lên các trọng số này bị giảm đi đáng kể!
-\end{enumerate}
-AWQ không phụ thuộc quá mức vào hàm mất mát trên tập dữ liệu hiệu chỉnh như GPTQ, do đó giữ được khả năng suy luận logic và lập trình tổng quát tốt hơn khi chạy thực tế.
+Được Lin et al. (MIT HAN Lab, MLSys 2024) đề xuất, \textbf{AWQ (Activation-aware Weight Quantization)} giải quyết triệt để sự đánh đổi giữa hiệu năng và khả năng tổng quát hóa trong lượng tử hóa 4-bit mà không cần huấn luyện lại hay tính toán ma trận Hessian cồng kềnh như GPTQ.
+
+\paragraph{1. Quan Sát Thực Nghiệm Cốt Lõi: Trọng Số Không Bình Đẳng}:
+Bằng việc phân tích các mô hình ngôn ngữ lớn từ 7B đến 70B, Lin et al. nhận thấy:
+\begin{itemize}
+  \item Nếu ta lựa chọn ngẫu nhiên $1\%$ trọng số để giữ lại ở định dạng FP16 và lượng tử hóa $99\%$ còn lại sang INT4, mô hình vẫn sụp đổ về mặt chất lượng (Perplexity tăng vọt).
+  \item Nếu ta chọn $1\%$ trọng số có \textbf{biên độ tuyệt đối lớn nhất} của ma trận $\mathbf{W}$ để giữ FP16, chất lượng chỉ cải thiện khiêm tốn.
+  \item Tuy nhiên, nếu ta chọn $1\%$ trọng số kết nối trực tiếp với các kênh \textbf{kích hoạt có biên độ trung bình lớn nhất} ($\mathbf{s}_X = \frac{1}{N}\sum |\mathbf{X}|$), mô hình bảo toàn được hơn $95\%$ năng lực suy luận và lập trình!
+\end{itemize}
+Điều này dẫn đến chân lý nền tảng: \textit{Tầm quan trọng của một tham số không nằm ở độ lớn tĩnh của chính nó, mà được quyết định bởi độ lớn của tín hiệu kích hoạt chảy qua nó.}
+
+\paragraph{2. Thiết Lập Bài Toán Tối Ưu Hóa Tái Tạo Giải Tích}:
+Cho tầng tuyến tính $\mathbf{Y} = \mathbf{W} \mathbf{X}$ với $\mathbf{W} \in \mathbb{R}^{d_{\text{out}} \times d_{\text{in}}}$ và $\mathbf{X} \in \mathbb{R}^{d_{\text{in}} \times N}$.
+Nếu lưu riêng $1\%$ trọng số ở dạng FP16 (Mixed-Precision), phần cứng GPU sẽ bị phân mảnh bộ nhớ và không thể tận dụng các nhân ma trận SIMD/Tensor Core hiệu quả. AWQ đưa ra ý tưởng tinh tế: \textbf{Bảo vệ các trọng số quan trọng bằng cách co giãn biên độ của chúng trước khi lượng tử hóa!}
+
+Xét một vector co giãn trên từng kênh $\mathbf{s} \in \mathbb{R}^{d_{\text{in}}}$ với $s_j > 0$. Phép nhân ma trận được biến đổi đồng nhất:
+\begin{equation}
+\mathbf{Y} = \mathbf{W} \mathbf{X} = \left( \mathbf{W} \cdot \text{diag}(\mathbf{s}) \right) \cdot \left( \text{diag}(\mathbf{s})^{-1} \mathbf{X} \right) = \mathbf{W}' \mathbf{X}'
+\end{equation}
+Mục tiêu là tìm vector $\mathbf{s}^*$ sao cho sau khi lượng tử hóa ma trận đã co giãn $\mathbf{W}'$, sai số tái tạo kích hoạt đầu ra đạt cực tiểu:
+\begin{equation}
+\label{eq:awq-optimization-objective}
+\min_{\mathbf{s}} \mathcal{L}(\mathbf{s}) = \left\| \mathbf{W} \mathbf{X} - Q\left(\mathbf{W} \cdot \text{diag}(\mathbf{s})\right) \cdot \text{diag}(\mathbf{s})^{-1} \mathbf{X} \right\|_F^2
+\end{equation}
+trong đó $Q(\cdot)$ là toán tử lượng tử hóa số nguyên 4-bit (INT4).
+
+\paragraph{Tại sao việc nhân $\mathbf{s} > 1$ lại bảo vệ được trọng số?}
+Xét kênh đầu vào thứ $j$ có kích hoạt rất lớn. Khi ta chọn $s_j > 1$, các phần tử trên cột thứ $j$ của ma trận trọng số $\mathbf{w}_{:, j}' = \mathbf{w}_{:, j} \cdot s_j$ được phóng đại biên độ.
+Sai số làm tròn của toán tử lượng tử hóa đối xứng $Q(\cdot)$ luôn bị chặn trong khoảng nửa bước lượng tử: $|\epsilon| \le \frac{\Delta}{2}$.
+Khi tính toán đầu ra, giá trị đã lượng tử hóa được chia lại cho $s_j$:
+\begin{equation}
+\widehat{\mathbf{w}}_{:, j} = \frac{Q(\mathbf{w}_{:, j} \cdot s_j)}{s_j} = \frac{\mathbf{w}_{:, j} \cdot s_j + \boldsymbol{\epsilon}}{s_j} = \mathbf{w}_{:, j} + \frac{\boldsymbol{\epsilon}}{s_j}
+\end{equation}
+Sai số trọng số hiệu dụng tác động lên kênh kích hoạt lớn bị \textbf{triệt tiêu đi $s_j$ lần}! Bằng cách đó, thành phần sai số lớn nhất trong phép nhân $\sum_j \Delta \mathbf{w}_{:, j} \mathbf{x}_j$ bị khống chế hoàn toàn.
+
+\paragraph{3. Thuật Toán Tìm Kiếm Theo Lưới Tối Ưu (Grid Search)}:
+Việc giải trực tiếp bài toán (\ref{eq:awq-optimization-objective}) bằng hạ gradient (SGD) rất dễ rơi vào cực tiểu cục bộ và phụ thuộc vào bộ tối ưu. AWQ đơn giản hóa bài toán bằng cách tham số hóa vector $\mathbf{s}$ theo dạng lũy thừa của độ lớn kích hoạt:
+\begin{equation}
+\mathbf{s} = \mathbf{s}_X^\alpha, \qquad \text{với } s_{X, j} = \frac{1}{N} \sum_{i=1}^N |X_{i, j}|
+\end{equation}
+trong đó $\alpha \in [0, 1]$ là siêu tham số kiểm soát mức độ bảo vệ.
+Hệ thống tiến hành tìm kiếm lưới (Grid Search) trên đoạn $\alpha \in [0, 1]$ với bước nhảy $\Delta \alpha = 0.05$ (chỉ 20 điểm đánh giá) trên một tập dữ liệu hiệu chuẩn cực nhỏ (chỉ cần $32 - 128$ chuỗi câu, không cần nhãn). Giá trị $\alpha^*$ tối ưu thỏa mãn:
+\begin{equation}
+\alpha^* = \arg\min_{\alpha \in [0, 1]} \left\| \mathbf{W} \mathbf{X} - Q\left(\mathbf{W} \cdot \text{diag}(\mathbf{s}_X^\alpha)\right) \cdot \text{diag}(\mathbf{s}_X^\alpha)^{-1} \mathbf{X} \right\|_F^2
+\end{equation}
+Nhờ không tối ưu hóa tự do hàng triệu tham số như GPTQ, AWQ hoàn toàn miễn nhiễm với hiện tượng quá khớp (Overfitting) vào tập dữ liệu hiệu chuẩn, bảo toàn trọn vẹn năng lực suy luận toán học và lập trình trên các tập kiểm thử mở rộng.
+
+\paragraph{4. Kỹ Thuật Gập Hệ Số Scale Vào LayerNorm (Zero-Latency LayerNorm Folding)}:
+Một rào cản lớn khi áp dụng hệ số co giãn động là chi phí thời gian chạy: nếu mỗi token trước khi nhân ma trận $\mathbf{W}'$ phải trải qua một phép chia vector $\mathbf{x} \cdot \mathbf{s}^{-1}$, thông lượng suy luận sẽ bị suy giảm nghiêm trọng do nghẽn băng thông bộ nhớ.
+
+AWQ giải quyết vấn đề này một cách tuyệt mỹ thông qua cấu trúc mạng Transformer: Mọi tầng tuyến tính $\mathbf{W}_{\text{in}}$ (như ma trận chiếu $\mathbf{W}_q, \mathbf{W}_k, \mathbf{W}_v$ trong Attention hoặc ma trận $\mathbf{W}_{\text{gate}}, \mathbf{W}_{\text{up}}$ trong MLP) đều nhận đầu vào trực tiếp từ một tầng chuẩn hóa (LayerNorm hoặc RMSNorm).
+
+Xét công thức tính của RMSNorm:
+\begin{equation}
+\mathbf{x} = \text{RMSNorm}(\mathbf{z}) = \frac{\mathbf{z}}{\text{RMS}(\mathbf{z})} \odot \boldsymbol{\gamma}_{\text{LN}} + \boldsymbol{\beta}_{\text{LN}}
+\end{equation}
+trong đó $\boldsymbol{\gamma}_{\text{LN}}$ là trọng số co giãn học được của LayerNorm.
+Thay vì nhân $\mathbf{s}^{-1}$ vào $\mathbf{x}$ tại thời gian chạy, AWQ \textbf{gập trực tiếp hệ số này vào trọng số tĩnh của LayerNorm}:
+\begin{equation}
+\boldsymbol{\gamma}_{\text{LN}}' = \boldsymbol{\gamma}_{\text{LN}} \oslash \mathbf{s}, \qquad \boldsymbol{\beta}_{\text{LN}}' = \boldsymbol{\beta}_{\text{LN}} \oslash \mathbf{s}
+\end{equation}
+trong đó $\oslash$ là phép chia theo từng phần tử.
+Khi đó, đầu ra của tầng LayerNorm tự động là $\mathbf{x}' = \mathbf{x} \oslash \mathbf{s}$.
+Tầng tuyến tính tiếp theo chỉ cần thực hiện phép nhân ma trận thuần túy:
+\begin{equation}
+\mathbf{Y} = \mathbf{W}' \mathbf{x}' = Q(\mathbf{W} \cdot \text{diag}(\mathbf{s})) \cdot (\mathbf{x} \oslash \mathbf{s}) \approx \mathbf{W} \mathbf{x}
+\end{equation}
+\textbf{Kết luận}: Chi phí trễ suy luận bổ sung của AWQ là \textbf{chính xác bằng 0 ns (Zero Runtime Overhead)}! Toàn bộ quá trình bảo vệ được hoàn tất bằng các phép biến đổi trọng số tĩnh trước khi triển khai mô hình lên máy chủ.
 
 \subsection{Định Dạng GGUF \& Thư Viện llama.cpp}
 Được Georgi Gerganov phát triển, định dạng nhị phân \textbf{GGUF} (thay thế GGML) là chuẩn mực lưu trữ mô hình tối ưu cho CPU và thiết bị biên:
@@ -477,26 +563,163 @@ Sau khi quá trình huấn luyện hoàn tất, chúng ta có thể cộng trự
 \end{equation}
 Sau phép cộng ma trận tĩnh một lần duy nhất này, nhánh LoRA được giải phóng. Mô hình suy luận với cấu trúc mạng nguyên bản, đạt tốc độ suy luận đỉnh cao mà không tốn thêm bất kỳ phép tính rẽ nhánh nào!
 
-\subsection{Đột Phá QLoRA (Quantized LoRA)}
-Năm 2023, Tim Dettmers công bố công trình \textbf{QLoRA}, kết hợp lượng tử hóa 4-bit với tinh chỉnh LoRA qua ba cải tiến kỹ thuật đột phá:
-\begin{enumerate}
-  \item \textbf{Kiểu dữ liệu NF4 (NormalFloat-4)}: Thiết kế các mức lượng tử hóa 4-bit theo hàm phân phối tích lũy của phân phối chuẩn Gauss $\mathcal{N}(0, 1)$, đảm bảo mỗi mức lượng tử hóa chứa một lượng thông tin bằng nhau (Equal Quantile Information), vượt trội hơn hẳn phân phối đều của INT4.
-  \item \textbf{Lượng tử hóa kép (Double Quantization)}: Lượng tử hóa tiếp chính các hệ số Scale của quá trình quantization từ FP32 xuống FP8 với block size 256, tiết kiệm thêm $0.37\text{ bit/tham số}$.
-  \item \textbf{Paged Optimizers}: Tận dụng kỹ thuật phân trang bộ nhớ của CUDA Unified Memory để tự động hoán chuyển trạng thái Optimizer của AdamW sang bộ nhớ RAM máy chủ khi GPU VRAM chạm ngưỡng tới hạn, ngăn chặn hoàn toàn lỗi sập Out-Of-Memory (OOM).
-\end{enumerate}
+\subsection{Đột Phá QLoRA (Quantized LoRA) \& Dẫn Xuất Phân Vị NF4}
+\label{sec:qlora-nf4-math}
 
-\subsection{DoRA (Weight-Decomposed Low-Rank Adaptation)}
-Được Liu et al. (2024) đề xuất, \textbf{DoRA} phân tích sự khác biệt cốt lõi giữa Full Fine-Tuning và LoRA:
+Năm 2023, Tim Dettmers và cộng sự công bố công trình đột phá \textbf{QLoRA (Quantized Low-Rank Adaptation)}, mở ra kỷ nguyên cho phép một cá nhân có thể tinh chỉnh mô hình ngôn ngữ 70 tỷ tham số trên một máy tính cá nhân trang bị 2 GPU tiêu dùng (RTX 3090/4090 24GB). Thành tựu này được xây dựng trên ba trụ cột toán học và kỹ nghệ hệ thống:
+
+\paragraph{1. Dẫn Xuất Toán Học Của Kiểu Dữ Liệu Phân Vị NF4 (NormalFloat-4)}:
+Trong các thuật toán lượng tử hóa số nguyên truyền thống (INT4), các mốc lượng tử hóa được phân bố đều nhau trên đoạn $[-a, a]$. Tuy nhiên, theo các nghiên cứu lý thuyết thông tin, phân phối trọng số của mô hình ngôn ngữ sau tiền huấn luyện tuân theo phân phối chuẩn Gauss $\mathcal{N}(0, \sigma^2)$ với mật độ tập trung cực cao quanh điểm 0 và thưa dần về hai phía đuôi. Lượng tử hóa đều INT4 lãng phí rất nhiều mức rời rạc ở vùng đuôi thưa và thiếu hụt trầm trọng độ phân giải ở vùng đỉnh chuông có mật độ xác suất dày đặc.
+
+Để đạt \textbf{Entropi thông tin tối đa (Maximum Entropy Quantization)}, kiểu dữ liệu \textbf{NormalFloat-4 (NF4)} được xây dựng dựa trên nguyên lý \term{Equal-Quantile Information (Lượng thông tin phân vị đều)}: Chia miền giá trị của biến ngẫu nhiên Gauss chuẩn hóa $Z \sim \mathcal{N}(0, 1)$ thành $2^k = 16$ khoảng rời rạc sao cho xác suất tích lũy trong mỗi khoảng là hoàn toàn bằng nhau:
+\begin{equation}
+P(q_i \le Z \le q_{i+1}) = \frac{1}{16} = 0.0625, \qquad \forall i \in \{1, 2, \dots, 16\}
+\end{equation}
+
+Cho $\Phi(z) = \frac{1}{\sqrt{2\pi}} \int_{-\infty}^z e^{-t^2/2} dt$ là hàm phân phối tích lũy (CDF) của phân phối chuẩn tắc. Các điểm phân vị tối ưu được xác định tường minh qua hàm phân vị nghịch đảo (\term{Quantile / Probit Function}):
+\begin{equation}
+\label{eq:nf4-quantile-formula}
+q_i = \Phi^{-1}\left( \frac{i - 0.5}{16} \right), \qquad i \in \{1, 2, \dots, 16\}
+\end{equation}
+Để đảm bảo giá trị số thực $0.0$ được biểu diễn chính xác tuyệt đối mà không có sai số làm tròn (bảo toàn tính thưa và giá trị ngắt kích hoạt), bảng mã 16 mốc của NF4 được chuẩn hóa bất đối xứng thành hai nhánh âm và dương:
 \begin{itemize}
-  \item Trong Full Fine-Tuning, sự biến thiên về \textbf{Độ lớn (Magnitude)} và \textbf{Hướng (Direction)} của ma trận trọng số diễn ra độc lập và linh hoạt.
-  \item Trong LoRA truyền thống, do ràng buộc $\Delta \mathbf{W} = \frac{\alpha}{r} \mathbf{A}\mathbf{B}$, sự thay đổi độ lớn và hướng luôn tỷ lệ thuận và phụ thuộc chặt chẽ vào nhau, hạn chế năng lực học các biểu diễn phức tạp.
+  \item 7 mức phân vị cho nửa miền âm $[-1, 0)$ sao cho $\Phi(q_i) = \frac{i}{16}$.
+  \item 1 mức chính xác tại $0.0$.
+  \item 8 mức phân vị cho nửa miền dương $(0, 1]$ sao cho $\Phi(q_i) = \frac{i - 0.5}{16}$.
+\end{itemize}
+Sau đó, toàn bộ 16 điểm mốc được chia tỷ lệ để dải giá trị nằm trọn vẹn trong đoạn đối xứng $[-1, 1]$. Bảng mã NF4 chính thức trở thành kiểu dữ liệu nén tối ưu thông tin lý thuyết tuyệt đối cho trọng số mạng nơ-ron sâu!
+
+\paragraph{2. Lượng Tử Hóa Kép (Double Quantization -- DQ)}:
+Trong lượng tử hóa khối (Block-wise Quantization), để giảm thiểu sai số ngoại lai, ma trận trọng số được chia thành các khối nhỏ gồm $B_1 = 64$ phần tử. Mỗi khối đòi hỏi một hệ số co giãn riêng $c_1 \in \mathbb{R}$.
+Nếu lưu $c_1$ ở định dạng số thực chuẩn FP32 ($32\text{ bits}$):
+\begin{equation}
+\text{Dung lượng hệ số co giãn đơn} = \frac{32\text{ bits}}{64\text{ tham số}} = 0.50\text{ bits/tham số}
+\end{equation}
+Mức hao phí $0.50\text{ bit}$ chiếm tới $12.5\%$ tổng dung lượng lưu trữ của trọng số 4-bit!
+
+\textbf{Lượng tử hóa kép (Double Quantization)} giải quyết bài toán này bằng cách gom các hệ số co giãn $c_1$ thành các khối lớn hơn với kích thước $B_2 = 256$, sau đó lượng tử hóa chính các hệ số $c_1$ từ FP32 xuống số nguyên 8-bit (FP8) với hệ số co giãn cấp hai $c_2$ (FP32).
+Dung lượng bộ nhớ thực tế cho mỗi tham số sau khi áp dụng Double Quantization:
+\begin{align}
+\text{Dung lượng scale DQ} &= \frac{8\text{ bits}}{B_1} + \frac{32\text{ bits}}{B_1 \times B_2} = \frac{8}{64} + \frac{32}{64 \times 256} \notag \\
+&= 0.125 + \frac{32}{16384} \approx 0.125 + 0.001953 = \mathbf{0.126953\text{ bits/tham số}}
+\end{align}
+Mức tiết kiệm bộ nhớ trên từng tham số là:
+\begin{equation}
+\Delta b = 0.50 - 0.126953 = \mathbf{0.373047\text{ bits/tham số}}
+\end{equation}
+Với mô hình Llama-3-70B ($70 \times 10^9$ tham số), lượng tử hóa kép giúp cắt giảm trực tiếp:
+\begin{equation}
+\Delta M = \frac{70 \times 10^9 \times 0.373047\text{ bits}}{8\text{ bits/byte} \times 1024^3\text{ bytes/GiB}} \approx \mathbf{3.04\text{ GiB VRAM!}}
+\end{equation}
+Mức tiết kiệm $3.04\text{ GiB}$ này mang tính chất sống còn, quyết định xem một mô hình 70B có thể chạy vừa khít trong giới hạn $48\text{ GB}$ VRAM của 2 card đồ họa RTX 3090/4090 hay không!
+
+\paragraph{3. Cơ Chế Paged Optimizers Chống Sập Bộ Nhớ (OOM)}:
+Trong quá trình tinh chỉnh, khi gặp các mẫu dữ liệu có độ dài chuỗi (Sequence Length) đột biến, bộ nhớ đệm kích hoạt (Activation Memory) tăng vọt cục bộ, dễ dẫn đến hiện tượng sập bộ nhớ (\term{CUDA Out-Of-Memory}).
+QLoRA tích hợp tính năng \textbf{Paged Optimizers} dựa trên công nghệ bộ nhớ ảo phân trang thống nhất của NVIDIA (CUDA Unified Memory Page-locked Paging):
+Khi VRAM chạm ngưỡng tới hạn ($>95\%$), hệ thống tự động hoán chuyển (Page-out) các trạng thái của bộ tối ưu AdamW (First Moments $\mathbf{m}_t$ và Second Moments $\mathbf{v}_t$) sang bộ nhớ RAM hệ thống thông qua bus PCIe tốc độ cao, giải phóng không gian cho tính toán kích hoạt. Sau khi hoàn thành lan truyền ngược, các trang dữ liệu được kéo ngược trở lại (Page-in) GPU để cập nhật trọng số. Kỹ thuật này triệt tiêu hoàn toàn nguy cơ sập luồng trong các đợt huấn luyện dài ngày!
+
+---
+
+\subsection{DoRA: Tinh Chỉnh Phân Rã Độ Lớn \& Hướng Trọng Số (Weight-Decomposed Low-Rank Adaptation)}
+\label{sec:dora-math-decomposition}
+
+Mặc dù LoRA đã trở thành tiêu chuẩn công nghiệp cho tinh chỉnh hiệu quả tham số, các công trình nghiên cứu sâu về động học tối ưu nhận thấy LoRA vẫn có khoảng cách hiệu năng nhất định so với tinh chỉnh toàn phần (Full Fine-Tuning) trên các tác vụ đòi hỏi tư duy logic cao như toán học và lập trình (GSM8K, MATH, HumanEval).
+Năm 2024, Shih-Yang Liu và nhóm nghiên cứu NVIDIA/UT Austin công bố \textbf{DoRA (Weight-Decomposed Low-Rank Adaptation)}, giải mã chính xác nguyên nhân gốc rễ của khoảng cách này và đề xuất giải pháp đột phá.
+
+\paragraph{1. Phân Tích Động Học Trọng Số: Độ Lớn (Magnitude) \& Hướng (Direction)}:
+Bất kỳ ma trận trọng số nào $\mathbf{W} \in \mathbb{R}^{d \times k}$ đều có thể phân rã thành vector độ lớn và ma trận hướng chuẩn hóa theo từng cột (Column-wise L2 Norm):
+\begin{equation}
+\mathbf{W} = \mathbf{m} \odot \frac{\mathbf{V}}{\|\mathbf{V}\|_c}
+\end{equation}
+Trong đó:
+\begin{itemize}
+  \item $\mathbf{m} \in \mathbb{R}^{1 \times k}$ là vector chứa độ lớn Euclidean của từng cột: $m_j = \|\mathbf{w}_{:, j}\|_2 = \sqrt{\sum_{i=1}^d W_{i, j}^2}$.
+  \item $\mathbf{V} \in \mathbb{R}^{d \times k}$ là ma trận hướng. Ma trận $\frac{\mathbf{V}}{\|\mathbf{V}\|_c}$ chứa các cột có chuẩn đơn vị ($\|\mathbf{v}_{:, j} / \|\mathbf{v}_{:, j}\|_2\|_2 = 1$).
+  \item Ký hiệu $\odot$ đại diện cho phép nhân phát thanh theo từng cột.
 \end{itemize}
 
-DoRA khắc phục hạn chế này bằng cách phân tách ma trận trọng số thành hai thành phần độc lập:
+\begin{figure}[ht]
+\centering
+\begin{tikzpicture}[scale=0.9, every node/.style={scale=0.9}]
+  % Axes
+  \draw[->, thick, color=gray!60] (-0.5, 0) -- (5.5, 0) node[right] {\footnotesize $w_1$};
+  \draw[->, thick, color=gray!60] (0, -0.5) -- (0, 4.5) node[above] {\footnotesize $w_2$};
+  
+  % Base weight W0
+  \draw[->, ultra thick, color=primarycolor!90] (0, 0) -- (3.0, 2.0) node[midway, above left] {$\mathbf{w}_0$};
+  \draw[dashed, color=primarycolor!50] (0,0) circle (3.605);
+  \node[color=primarycolor!90, font=\scriptsize] at (3.2, 1.6) {$\|\mathbf{w}_0\|_2 = m_0$};
+  
+  % LoRA update
+  \draw[->, thick, color=dangercolor!80, dashed] (3.0, 2.0) -- (4.2, 3.2) node[midway, right] {\scriptsize $\Delta \mathbf{w} = \frac{\alpha}{r}\mathbf{A}\mathbf{B}$};
+  \draw[->, ultra thick, color=dangercolor!90] (0, 0) -- (4.2, 3.2) node[above right] {\small $\mathbf{w}_{\text{LoRA}}$};
+  
+  % DoRA update: Decoupled
+  \draw[->, thick, color=secondarycolor!80, dashed] (3.0, 2.0) -- (2.0, 3.0) node[midway, left] {\scriptsize Xoay hướng $\mathbf{V}$};
+  \draw[->, ultra thick, color=secondarycolor!90] (0, 0) -- (2.6, 3.9) node[above] {\small $\mathbf{w}_{\text{DoRA}} = m \frac{\mathbf{V}}{\|\mathbf{V}\|}$};
+  \node[draw, fill=secondarycolor!10, rounded corners=2pt, font=\scriptsize, align=center] at (4.5, 0.8) {DoRA tách biệt hoàn toàn\\Độ lớn $m$ và Hướng $\mathbf{V}$};
+\end{tikzpicture}
+\caption{Minh họa hình học sự khác biệt giữa LoRA và DoRA: LoRA buộc độ lớn và hướng thay đổi tỷ lệ thuận; DoRA cho phép xoay góc biểu diễn độc lập với việc điều chỉnh độ dài véc-tơ.}
+\label{fig:dora-geometric-intuition}
+\end{figure}
+
+Phân tích thống kê về mức độ biến thiên giữa mô hình gốc $\mathbf{W}_0$ và mô hình sau tinh chỉnh $\mathbf{W}$:
+\begin{itemize}
+  \item \textbf{Trong Full Fine-Tuning (FT)}: Mức thay đổi độ lớn $\Delta m$ và mức thay đổi góc hướng $\Delta \theta$ có hệ số tương quan rất yếu hoặc hơi âm. Mô hình có thể xoay góc biểu diễn rất mạnh mà hầu như giữ nguyên độ lớn của nơ-ron, hoặc ngược lại.
+  \item \textbf{Trong LoRA truyền thống}: Vì $\mathbf{W} = \mathbf{W}_0 + \frac{\alpha}{r} \mathbf{A}\mathbf{B}$, mọi cập nhật lên ma trận $\mathbf{A}, \mathbf{B}$ đều đồng thời tác động lên cả hướng và độ lớn theo một tỷ lệ cố định. Mức tương quan giữa $\Delta m$ và $\Delta \theta$ luôn luôn dương và rất chặt chẽ, tạo ra hiện tượng ``ghép đôi cứng nhắc'' (Coupled Dynamics), khiến LoRA khó lòng mô phỏng các biến đổi phức tạp của Full Fine-Tuning!
+\end{itemize}
+
+\paragraph{2. Công Thức Toán Học Của DoRA}:
+DoRA giải quyết triệt để vấn đề này bằng cách \textbf{chỉ áp dụng LoRA để điều chỉnh ma trận hướng $\mathbf{V}$}, trong khi độ lớn $\mathbf{m}$ được tối ưu hóa độc lập như một vector tham số riêng:
 \begin{equation}
-\mathbf{W} = \mathbf{m} \odot \frac{\mathbf{W}_0 + \Delta \mathbf{W}}{\|\mathbf{W}_0 + \Delta \mathbf{W}\|_c} = \mathbf{m} \odot \frac{\mathbf{W}_0 + \frac{\alpha}{r} \mathbf{A}\mathbf{B}}{\|\mathbf{W}_0 + \frac{\alpha}{r} \mathbf{A}\mathbf{B}\|_c}
+\label{eq:dora-forward-formulation}
+\mathbf{W} = \mathbf{m} \odot \frac{\mathbf{V}}{\|\mathbf{V}\|_c} = \mathbf{m} \odot \frac{\mathbf{W}_0 + \frac{\alpha}{r} \mathbf{A} \mathbf{B}}{\|\mathbf{W}_0 + \frac{\alpha}{r} \mathbf{A} \mathbf{B}\|_c}
 \end{equation}
-Trong đó $\mathbf{m} \in \mathbb{R}^{1 \times k}$ là véc-tơ độ lớn có thể huấn luyện được, $\|\cdot\|_c$ là chuẩn Frobenius theo từng cột, và $\frac{\alpha}{r}\mathbf{A}\mathbf{B}$ là nhánh LoRA điều chỉnh hướng. DoRA thu hẹp hoàn toàn khoảng cách năng lực giữa LoRA và Full Fine-Tuning trên các tác vụ lập trình và toán học phức tạp!
+Trong đó:
+\begin{itemize}
+  \item $\mathbf{W}_0 \in \mathbb{R}^{d \times k}$: Trọng số cơ sở được đóng băng (Frozen).
+  \item $\mathbf{m} \in \mathbb{R}^{1 \times k}$: Vector độ lớn khả huấn (Trainable Magnitude), được khởi tạo chính xác bằng chuẩn cột ban đầu: $\mathbf{m} = \|\mathbf{W}_0\|_c$.
+  \item $\mathbf{A} \in \mathbb{R}^{d \times r}$ và $\mathbf{B} \in \mathbb{R}^{r \times k}$: Hai ma trận adapter hạng thấp, với $\mathbf{B} = \mathbf{0}$ tại $t=0$.
+\end{itemize}
+Tại bước huấn luyện đầu tiên ($t=0$):
+\begin{equation}
+\mathbf{W} = \|\mathbf{W}_0\|_c \odot \frac{\mathbf{W}_0 + \mathbf{0}}{\|\mathbf{W}_0 + \mathbf{0}\|_c} = \|\mathbf{W}_0\|_c \odot \frac{\mathbf{W}_0}{\|\mathbf{W}_0\|_c} = \mathbf{W}_0
+\end{equation}
+Đặc tính bảo toàn hành vi ban đầu tại bước khởi đầu được giữ nguyên vẹn $100\%$!
+
+\paragraph{3. Dẫn Xuất Giải Tích Gradient: Cơ Chế Chiếu Trực Giao (Orthogonal Projection)}:
+Hãy phân tích gradient của hàm mất mát $\mathcal{L}$ đối với vector độ lớn $\mathbf{m}$ và ma trận hướng $\mathbf{V}$ để hiểu tại sao DoRA lại ổn định và vượt trội:
+
+\textbf{Gradient theo độ lớn $\mathbf{m}$}:
+\begin{equation}
+\nabla_{\mathbf{m}} \mathcal{L} = \sum_{i=1}^d \left( \nabla_{\mathbf{W}} \mathcal{L} \right)_{i, :} \odot \left( \frac{\mathbf{V}}{\|\mathbf{V}\|_c} \right)_{i, :}
+\end{equation}
+Gradient của $m_j$ chính là tích vô hướng giữa gradient trọng số và vector hướng đơn vị của cột đó, đo lường sự cần thiết phải tăng hoặc giảm cường độ phát xung của nơ-ron.
+
+\textbf{Gradient theo ma trận hướng $\mathbf{V}$}:
+Áp dụng quy tắc đạo hàm hàm hợp ma trận:
+\begin{equation}
+\nabla_{\mathbf{V}} \mathcal{L} = \frac{\mathbf{m}}{\|\mathbf{V}\|_c} \odot \left[ \nabla_{\mathbf{W}} \mathcal{L} - \frac{\mathbf{V}}{\|\mathbf{V}\|_c^2} \odot \sum_{i=1}^d \left( \mathbf{V} \odot \nabla_{\mathbf{W}} \mathcal{L} \right) \right]
+\end{equation}
+Viết dưới dạng toán tử ma trận cho từng cột vector $\mathbf{v}$ và đạo hàm $\mathbf{g} = \nabla_{\mathbf{w}} \mathcal{L}$:
+\begin{equation}
+\label{eq:dora-orthogonal-projection}
+\nabla_{\mathbf{v}} \mathcal{L} = \frac{m}{\|\mathbf{v}\|_2} \left( \mathbf{I} - \frac{\mathbf{v} \mathbf{v}^T}{\|\mathbf{v}\|_2^2} \right) \mathbf{g}
+\end{equation}
+Ma trận $\mathbf{P}_{\mathbf{v}} = \left( \mathbf{I} - \frac{\mathbf{v} \mathbf{v}^T}{\|\mathbf{v}\|_2^2} \right)$ chính là \textbf{Ma trận chiếu trực giao (Orthogonal Projection Matrix)} lên không gian phần bù trực giao của vector $\mathbf{v}$!
+Tính chất sống còn của toán tử này:
+\begin{equation}
+\mathbf{v}^T \left( \mathbf{I} - \frac{\mathbf{v} \mathbf{v}^T}{\|\mathbf{v}\|_2^2} \right) = \mathbf{v}^T - \frac{\mathbf{v}^T \mathbf{v}}{\|\mathbf{v}\|_2^2} \mathbf{v}^T = \mathbf{v}^T - \mathbf{v}^T = \mathbf{0}^T
+\end{equation}
+\textbf{Hệ quả toán học then chốt}: Gradient cập nhật cho nhánh hướng $\mathbf{V}$ luôn luôn vuông góc $100\%$ với vector hướng hiện tại!
+Điều này đồng nghĩa với việc nhánh LoRA $(\mathbf{A}, \mathbf{B})$ trong DoRA được giải phóng hoàn toàn khỏi nhiệm vụ điều chỉnh độ lớn: nó \textbf{chỉ thuần túy xoay góc của không gian biểu diễn}. Việc thay đổi độ lớn được bàn giao toàn quyền cho vector tham số $\mathbf{m}$ một chiều siêu nhẹ.
+
+\paragraph{4. Hợp Nhất Trọng Số Zero-Overhead Khi Suy Luận}:
+Giống như LoRA, sau khi quá trình huấn luyện kết thúc, toàn bộ các tham số của DoRA được gộp tĩnh thành một ma trận duy nhất trước khi triển khai:
+\begin{equation}
+\mathbf{W}_{\text{deployed}} = \mathbf{m} \odot \frac{\mathbf{W}_0 + \frac{\alpha}{r} \mathbf{A} \mathbf{B}}{\|\mathbf{W}_0 + \frac{\alpha}{r} \mathbf{A} \mathbf{B}\|_c} \in \mathbb{R}^{d \times k}
+\end{equation}
+Mô hình serving chỉ cần tải ma trận $\mathbf{W}_{\text{deployed}}$, đạt tốc độ suy luận nguyên bản với chi phí trễ bằng 0!
 
 ---
 
@@ -1297,8 +1520,195 @@ class BitNetTernaryLinear:
         return y_acc
 \end{lstlisting}
 
-\begin{simulationbox}[Mô Phỏng Trực Quan Hóa Thuật Toán GRPO \& Lớp Tuyến Tính BitNet 1.58b]
-Để củng cố trực giác vật lý và kiến trúc phần cứng của hai đột phá công nghệ này, dưới đây là kịch bản và prompt chuẩn để yêu cầu AI sinh mã nguồn hoạt họa 60 FPS bằng thư viện Manim Community Edition (Manim CE):
+\begin{lstlisting}[language=Python, caption={Bộ tối ưu hóa hệ số tỷ lệ AWQ và kỹ thuật gập vào LayerNorm (Lin et al., 2024).}]
+class AWQScaleOptimizer:
+    """
+    Activation-aware Weight Quantization (AWQ) Scale Optimizer (Lin et al., 2023).
+    Finds per-channel protection scales s = s_X^alpha that minimize:
+    min_{alpha} || W @ X - Q(W * diag(s)) @ diag(s)^-1 @ X ||_F^2
+    """
+    def __init__(self, bits: int = 4, n_grid: int = 20):
+        self.bits = bits
+        self.n_grid = n_grid
+        self.q_max = (1 << (bits - 1)) - 1  # 7 for 4-bit signed symmetric
+
+    def quantize_symmetric(self, w: np.ndarray) -> np.ndarray:
+        """Per-channel symmetric quantization along axis 1 (per row)."""
+        scales = np.max(np.abs(w), axis=1, keepdims=True) / self.q_max
+        scales = np.maximum(scales, 1e-8)
+        q = np.clip(np.round(w / scales), -self.q_max, self.q_max)
+        return q * scales
+
+    def optimize_scale(
+        self,
+        w: np.ndarray,
+        x: np.ndarray
+    ) -> Tuple[np.ndarray, float, float]:
+        """
+        w: (d_out, d_in)
+        x: (d_in, N) calibration activations
+        Returns: (best_scale_s, best_alpha, best_loss)
+        """
+        act_mean = np.mean(np.abs(x), axis=1)
+        act_mean = np.maximum(act_mean, 1e-6)
+
+        # Baseline loss without AWQ (s = 1.0)
+        y_true = np.matmul(w, x)
+        w_q_base = self.quantize_symmetric(w)
+        y_base = np.matmul(w_q_base, x)
+        baseline_loss = float(np.mean((y_true - y_base) ** 2))
+
+        best_loss = baseline_loss
+        best_alpha = 0.0
+        best_s = np.ones_like(act_mean)
+
+        for alpha in np.linspace(0.0, 1.0, self.n_grid):
+            s_cand = act_mean ** alpha
+            geom_mean = np.exp(np.mean(np.log(s_cand)))
+            s_cand = s_cand / max(geom_mean, 1e-6)
+
+            # Transformed weights: W' = W * diag(s)
+            w_scaled = w * s_cand[np.newaxis, :]
+            w_scaled_q = self.quantize_symmetric(w_scaled)
+            # Reconstruct effective weight: W_recon = W_scaled_q * diag(s)^-1
+            w_recon = w_scaled_q / s_cand[np.newaxis, :]
+
+            y_pred = np.matmul(w_recon, x)
+            loss = float(np.mean((y_true - y_pred) ** 2))
+
+            if loss < best_loss:
+                best_loss = loss
+                best_alpha = float(alpha)
+                best_s = s_cand.copy()
+
+        return best_s, best_alpha, best_loss
+
+    @staticmethod
+    def fold_scale_into_layernorm(ln_weight: np.ndarray, s: np.ndarray) -> np.ndarray:
+        """
+        Folds the AWQ scale vector s into preceding LayerNorm weights:
+        W_LN_new = W_LN / s
+        Ensuring zero runtime latency overhead at inference time!
+        """
+        return ln_weight / s
+\end{lstlisting}
+
+\begin{lstlisting}[language=Python, caption={Tầng tuyến tính DoRA phân rã độc lập Độ lớn và Hướng (Liu et al., ICML 2024).}]
+class DoRALinearLayer:
+    """
+    Weight-Decomposed Low-Rank Adaptation (DoRA, Liu et al., ICML 2024).
+    Decouples weight magnitude m and direction V:
+    W = m * (W_0 + (alpha / r) * A @ B) / ||W_0 + (alpha / r) * A @ B||_c
+    Where ||.||_c is the column-wise L2 norm over input dimensions.
+    """
+    def __init__(self, d_in: int, d_out: int, r: int = 8, alpha: float = 16.0):
+        self.d_in = d_in
+        self.d_out = d_out
+        self.r = r
+        self.alpha = alpha
+        self.scaling = alpha / r
+
+        # Base weights (frozen)
+        self.w0 = np.random.standard_normal((d_in, d_out)).astype(np.float32)
+
+        # Trainable magnitude vector m: initialized to column-wise L2 norm of W0
+        self.m = np.linalg.norm(self.w0, axis=0, keepdims=True)
+
+        # Trainable low-rank direction matrices
+        self.a = np.random.standard_normal((d_in, r)).astype(np.float32) * 0.01
+        self.b = np.zeros((r, d_out), dtype=np.float32)
+
+    def get_decomposed_weight(self) -> np.ndarray:
+        delta_w = self.scaling * np.matmul(self.a, self.b)
+        v = self.w0 + delta_w
+        v_norm = np.linalg.norm(v, axis=0, keepdims=True)
+        v_norm = np.maximum(v_norm, 1e-8)
+        return self.m * (v / v_norm)
+
+    def forward(self, x: np.ndarray) -> np.ndarray:
+        w_dora = self.get_decomposed_weight()
+        return np.matmul(x, w_dora)
+
+    def merge_weights(self) -> np.ndarray:
+        """Merges DoRA direction and magnitude into static base weight."""
+        return self.get_decomposed_weight()
+\end{lstlisting}
+
+\begin{lstlisting}[language=Python, caption={Bộ tính toán giải tích dung lượng và mức tiết kiệm của QLoRA Double Quantization.}]
+class QLoRADoubleQuantCalculator:
+    """
+    Calculates exact memory footprint and savings of QLoRA Double Quantization (DQ).
+    Weights: 4-bit (NF4). Block size B1 (default 64).
+    First-level scales: FP32 (32 bits) without DQ -> 32 / B1 = 0.50 bits/param.
+    With Double Quantization (DQ):
+    First-level scales quantized to FP8 (8 bits) with block size B2 (default 256).
+    Second-level scales in FP32 (32 bits).
+    Memory per param for scales: 8 / B1 + 32 / (B1 * B2)
+    Total saving: 32 / B1 - (8 / B1 + 32 / (B1 * B2)) = 0.373 bits/param.
+    """
+    def __init__(self, block_size_b1: int = 64, block_size_b2: int = 256):
+        self.b1 = block_size_b1
+        self.b2 = block_size_b2
+
+    def calculate_bits_per_param(self) -> dict:
+        weight_bits = 4.0
+        single_quant_scale_bits = 32.0 / self.b1
+        single_quant_total = weight_bits + single_quant_scale_bits
+
+        dq_c1_scale_bits = 8.0 / self.b1
+        dq_c2_scale_bits = 32.0 / (self.b1 * self.b2)
+        dq_total_scale_bits = dq_c1_scale_bits + dq_c2_scale_bits
+        dq_total = weight_bits + dq_total_scale_bits
+
+        savings_per_param = single_quant_scale_bits - dq_total_scale_bits
+        return {
+            "weight_bits": weight_bits,
+            "single_quant_scale_bits": single_quant_scale_bits,
+            "single_quant_total_bits": single_quant_total,
+            "double_quant_scale_bits": dq_total_scale_bits,
+            "double_quant_total_bits": dq_total,
+            "savings_bits_per_param": savings_per_param,
+        }
+
+    def calculate_model_vram_gb(
+        self,
+        num_parameters: int,
+        include_lora: bool = True,
+        lora_params: int = 100_000_000
+    ) -> dict:
+        bits_info = self.calculate_bits_per_param()
+        bytes_per_gb = 1024 ** 3
+
+        fp16_bytes = num_parameters * 2.0
+        fp16_gb = fp16_bytes / bytes_per_gb
+
+        sq_bytes = num_parameters * (bits_info["single_quant_total_bits"] / 8.0)
+        sq_gb = sq_bytes / bytes_per_gb
+
+        dq_bytes = num_parameters * (bits_info["double_quant_total_bits"] / 8.0)
+        dq_gb = dq_bytes / bytes_per_gb
+
+        savings_bytes = num_parameters * (bits_info["savings_bits_per_param"] / 8.0)
+        savings_gb = savings_bytes / bytes_per_gb
+
+        lora_gb = 0.0
+        if include_lora:
+            # LoRA weights (BF16, 2B) + Gradients (BF16, 2B) + AdamW (FP32, 8B) = 12B/param
+            lora_bytes = lora_params * 12.0
+            lora_gb = lora_bytes / bytes_per_gb
+
+        return {
+            "fp16_gb": fp16_gb,
+            "single_quant_gb": sq_gb,
+            "double_quant_gb": dq_gb,
+            "vram_saved_gb": savings_gb,
+            "lora_overhead_gb": lora_gb,
+            "total_qlora_training_gb": dq_gb + lora_gb,
+        }
+\end{lstlisting}
+
+\begin{simulationbox}[Mô Phỏng Trực Quan Hóa Thuật Toán Lượng Tử Hóa, LoRA \& Alignment]
+Để củng cố trực giác vật lý và kiến trúc phần cứng của các đột phá công nghệ trong chương này, dưới đây là kịch bản và prompt chuẩn để yêu cầu AI sinh mã nguồn hoạt họa 60 FPS bằng thư viện Manim Community Edition (Manim CE):
 
 \paragraph{Prompt 1: Hoạt Họa 60 FPS Cơ Chế Chuẩn Hóa Nhóm GRPO (DeepSeek-R1)}
 \begin{quote}\small\itshape
@@ -1324,6 +1734,33 @@ class BitNetTernaryLinear:
   \item \textbf{Cảnh 2: Luồng Dữ Liệu Thực Thi (Dataflow in Action)}: Dòng token kích hoạt INT8 đi vào. Các phần tử gặp trọng số $+1$ được dẫn thẳng vào cổng cộng (Green wire), phần tử gặp trọng số $-1$ được dẫn vào cổng trừ (Red wire), phần tử gặp $0$ bị ngắt mạch (Disconnected wire), chứng minh không có bất kỳ phép nhân dấu phẩy động nào diễn ra.
   \item \textbf{Cảnh 3: Biểu Đồ Hiệu Suất Băng Thông}: Mô phỏng việc nén mô hình 70B từ $140\text{ GB}$ VRAM xuống còn $14\text{ GB}$, chạy mượt mà trên bộ nhớ thống nhất (Unified Memory) của Apple M-series hoặc GPU tiêu dùng.
   \item Đảm bảo mã nguồn chuẩn mực, sử dụng bảng màu Navy/Amber/Teal và render trực tiếp với lệnh: \code{manim -pql scene.py BitNetSiliconAdderScene}.''
+\end{enumerate}
+\end{quote}
+
+\paragraph{Prompt 3: Hoạt Họa 60 FPS Tối Ưu Hóa AWQ \& Gập Hệ Số LayerNorm Folding}
+\begin{quote}\small\itshape
+``Hãy viết một đoạn mã Python sử dụng thư viện Manim CE để tạo một video giải thích trực quan về thuật toán AWQ (Activation-aware Weight Quantization) và cơ chế Zero-Latency LayerNorm Folding:
+\begin{enumerate}
+  \item \textbf{Cảnh 1: Phân Phối Kích Hoạt \& Kênh Ngoại Lai (Activation Outliers)}: Thể hiện một ma trận kích hoạt $\mathbf{X}$ chạy qua mạng. Zoom cận cảnh vào kênh thứ $0$ và $1$ với các cột kích hoạt cao vọt lên (màu đỏ phát sáng), lớn gấp $50\times$ so với các kênh thông thường (màu xám nhạt).
+  \item \textbf{Cảnh 2: Cơ Chế Co Giãn Bảo Vệ (Protection Scaling)}: Hiển thị ma trận trọng số $\mathbf{W}$. Khi áp dụng hệ số $s > 1$, các cột trọng số kết nối với kênh ngoại lai được kéo dãn biên độ lên $s$ lần. Minh họa bằng lưới phân vị INT4: khi biên độ cột trọng số tăng cao, sai số làm tròn tương đối $\Delta w / w$ co nhỏ lại rõ rệt.
+  \item \textbf{Cảnh 3: Gập Tỷ Lệ Vào LayerNorm (Zero-Latency Folding)}: Xuất hiện khối LayerNorm trước khối tuyến tính. Thể hiện vector tỷ lệ $\mathbf{s}^{-1}$ bay từ phép nhân ma trận ngược trở lại khối LayerNorm và hợp nhất trực tiếp vào vector trọng số $\boldsymbol{\gamma}_{\text{LN}}$, biến đổi thành $\boldsymbol{\gamma}_{\text{LN}}' = \boldsymbol{\gamma}_{\text{LN}} / \mathbf{s}$. Một đồng hồ đếm độ trễ bổ sung hiển thị con số $0\text{ ns}$ phát sáng màu xanh lá.
+  \item Render trực tiếp bằng lệnh: \code{manim -pql scene.py AWQLayerNormFoldingScene}.''
+\end{enumerate}
+\end{quote}
+
+\paragraph{Prompt 4: Hoạt Họa 60 FPS Phân Rã Độ Lớn \& Hướng DoRA So Với LoRA Truyền Thống}
+\begin{quote}\small\itshape
+``Hãy viết một kịch bản Manim CE 60 FPS minh họa hình học sự khác biệt giữa LoRA và DoRA trên không gian vector 2 chiều và mặt cầu chuẩn hóa:
+\begin{enumerate}
+  \item \textbf{Cảnh 1: Vector Trọng Số Gốc $\mathbf{w}_0$}: Vẽ một vector gốc màu xanh navy bắt đầu từ tâm tọa độ và một đường tròn nét đứt biểu diễn mặt cầu chuẩn hóa $\|\mathbf{w}\|_2 = m_0$.
+  \item \textbf{Cảnh 2: Hạn Chế Ghép Đôi Của LoRA (Coupled Dynamics)}: Thể hiện cập nhật LoRA $\Delta \mathbf{w} = \frac{\alpha}{r}\mathbf{A}\mathbf{B}$. Vector kết quả $\mathbf{w}_{\text{LoRA}}$ vừa bị kéo dài độ lớn vừa bị đổi hướng theo một quỹ đạo dính chéo cứng nhắc. Đồ thị phân tán $\Delta m$ vs $\Delta \theta$ hiển thị một đường thẳng hồi quy dốc đứng (hệ số tương quan dương $r \approx 0.85$).
+  \item \textbf{Cảnh 3: Phân Rã Độc Lập DoRA (Decoupled Freedom)}:
+  \begin{itemize}
+    \item Bước 1: Vector hướng $\mathbf{V}$ trượt linh hoạt trên mặt cầu đơn vị nhờ ma trận chiếu trực giao $\mathbf{P}_{\mathbf{v}} = \mathbf{I} - \frac{\mathbf{v}\mathbf{v}^T}{\|\mathbf{v}\|^2}$.
+    \item Bước 2: Vector độ lớn $\mathbf{m}$ co dãn tự do độ dài vector mà không làm đổi góc hướng.
+    \item Đồ thị $\Delta m$ vs $\Delta \theta$ phân tán tự do giống hệt đám mây điểm của Full Fine-Tuning.
+  \end{itemize}
+  \item Render trực tiếp với lệnh: \code{manim -pql scene.py DoRAOrthogonalDecompositionScene}.''
 \end{enumerate}
 \end{quote}
 \end{simulationbox}
@@ -1354,6 +1791,12 @@ class BitNetTernaryLinear:
 
   \item \textbf{Câu A.9 (Ý Nghĩa Của Trọng Số Bậc Ba Trong BitNet b1.58)}: \\
   So sánh BitNet 1-bit nhị phân thuần túy ($\{-1, +1\}$) và BitNet b1.58 bậc ba ($\{-1, 0, +1\}$). Tại sao việc bổ sung trạng thái $0$ lại là bước ngoặt quyết định giúp mô hình đạt hiệu năng tương đương FP16 ở cùng quy mô tham số? Phân tích theo lý thuyết lọc tính năng (Feature Filtering) và tính thưa động (Dynamic Sparsity).
+
+  \item \textbf{Câu A.10 (Bản Chất LayerNorm Folding Trong Thuật Toán AWQ)}: \\
+  Tại sao trong thuật toán AWQ, việc nhân ma trận co giãn $\text{diag}(\mathbf{s})^{-1}$ vào kích hoạt $\mathbf{X}$ tại thời gian chạy (Runtime) lại gây ra hiện tượng nghẽn băng thông bộ nhớ (Memory Bandwidth Bottleneck)? Trình bày cơ chế toán học của kỹ thuật gập trực tiếp (LayerNorm Folding) vào trọng số của tầng chuẩn hóa đi trước và giải thích tại sao kỹ thuật này triệt tiêu hoàn toàn độ trễ bổ sung ($0\text{ ns}$).
+
+  \item \textbf{Câu A.11 (Nguyên Lý Phân Rã Độ Lớn \& Hướng Của DoRA)}: \\
+  So sánh cơ chế cập nhật tham số giữa LoRA truyền thống và DoRA. Bằng cách nào việc phân rã ma trận trọng số $\mathbf{W} = \mathbf{m} \odot \frac{\mathbf{V}}{\|\mathbf{V}\|_c}$ kết hợp với ma trận chiếu trực giao $\mathbf{P}_{\mathbf{v}} = \mathbf{I} - \frac{\mathbf{v}\mathbf{v}^T}{\|\mathbf{v}\|_2^2}$ giúp loại bỏ sự ghép đôi cứng nhắc (Coupled Dynamics) giữa độ lớn và góc hướng?
 \end{enumerate}
 
 \subsection{Nhóm B: Bài Toán Tính Toán Giải Tích Bằng Tay (Analytical Problems)}
@@ -1420,6 +1863,26 @@ class BitNetTernaryLinear:
     \item Chứng minh rằng dung lượng thông tin lý thuyết của một biến ngẫu nhiên nhận 3 giá trị đẳng xác suất là $\log_2(3) \approx 1.58496\text{ bits}$.
     \item Chứng minh rằng một byte ($8\text{ bits}$) có thể chứa tối đa 5 tham số bậc ba độc lập. Tính dung lượng bộ nhớ thực tế (theo đơn vị GiB) cần thiết để lưu trữ toàn bộ ma trận trọng số của mô hình ngôn ngữ 70 tỷ tham số khi được đóng gói bằng phương pháp này, và so sánh với mô hình FP16 gốc.
   \end{enumerate}
+
+  \item \textbf{Bài B.8 (Tính Toán Giải Tích Mức Tiết Kiệm VRAM Của QLoRA Double Quantization)}: \\
+  Xét hai mô hình ngôn ngữ mã nguồn mở hàng đầu: Llama-3-70B ($70 \times 10^9$ tham số) và Llama-3.1-405B ($405 \times 10^9$ tham số).
+  Trọng số 4-bit được chia thành các khối kích thước $B_1 = 64$.
+  \begin{enumerate}
+    \item Tính dung lượng hệ số co giãn cấp 1 (FP32) trên từng tham số khi không áp dụng Double Quantization.
+    \item Khi áp dụng Double Quantization với block size cấp hai $B_2 = 256$, hệ số $c_1$ được lượng tử hóa sang FP8 ($8\text{ bits}$) và hệ số $c_2$ giữ dạng FP32 ($32\text{ bits}$). Tính dung lượng scale trung bình trên từng tham số và chứng minh rằng mức tiết kiệm là $\Delta b \approx 0.373\text{ bits/tham số}$.
+    \item Tính chính xác dung lượng VRAM tiết kiệm được (theo đơn vị GiB) cho cả hai mô hình 70B và 405B.
+  \end{enumerate}
+
+  \item \textbf{Bài B.9 (Chứng Minh Giải Tích Tính Trực Giao Của Gradient Hướng DoRA)}: \\
+  Cho một vector cột trọng số $\mathbf{w} = m \frac{\mathbf{v}}{\|\mathbf{v}\|_2}$ với $m = \|\mathbf{w}\|_2 > 0$ và $\mathbf{v} \neq \mathbf{0}$.
+  Gọi $\mathbf{g} = \nabla_{\mathbf{w}} \mathcal{L}$ là gradient của hàm mất mát đối với vector trọng số hiệu dụng $\mathbf{w}$.
+  \begin{enumerate}
+    \item Chứng minh rằng gradient đối với vector hướng $\mathbf{v}$ có dạng:
+    \begin{equation*}
+    \nabla_{\mathbf{v}} \mathcal{L} = \frac{m}{\|\mathbf{v}\|_2} \left( \mathbf{I} - \frac{\mathbf{v}\mathbf{v}^T}{\|\mathbf{v}\|_2^2} \right) \mathbf{g}
+    \end{equation*}
+    \item Chứng minh rằng tích vô hướng $\mathbf{v}^T \nabla_{\mathbf{v}} \mathcal{L} = 0$, khẳng định rằng gradient cập nhật cho vector hướng luôn trực giao hoàn toàn với vector hướng hiện tại.
+  \end{enumerate}
 \end{enumerate}
 
 \subsection{Nhóm C: Thực Hành Kỹ Nghệ \& Lập Trình (Implementation Labs)}
@@ -1452,6 +1915,25 @@ class BitNetTernaryLinear:
 
   \item \textbf{Bài C.6 (Lớp Tuyến Tính BitNet b1.58 Thuần Phép Cộng Số Nguyên)}: \\
   Xây dựng lớp Python \code{BitNetTernaryLinear} thực hiện lượng tử hóa trọng số bậc ba theo Absmean, lượng tử hóa kích hoạt INT8, và phép lan truyền xuôi \code{forward_pure_addition} hoàn toàn không sử dụng phép nhân số thực, kiểm chứng tính tương đương chính xác với phép nhân ma trận số nguyên chuẩn.
+
+  \item \textbf{Bài C.7 (Bộ Tối Ưu Hóa Tỷ Lệ AWQScaleOptimizer \& Gập Vào LayerNorm)}: \\
+  Xây dựng lớp Python \code{AWQScaleOptimizer} thực hiện:
+  \begin{itemize}
+    \item Đo đạc biên độ trung bình kích hoạt theo từng kênh $s_{X, j} = \text{mean}(|X_{j, :}|)$.
+    \item Quét lưới siêu tham số $\alpha \in [0, 1]$ với 20 điểm mẫu để tìm tỷ lệ $\mathbf{s} = \mathbf{s}_X^\alpha$ tối thiểu hóa sai số $\|\mathbf{W}\mathbf{X} - Q(\mathbf{W} \cdot \text{diag}(\mathbf{s})) \cdot \text{diag}(\mathbf{s})^{-1}\mathbf{X}\|_F^2$.
+    \item Hiện thực phương thức \code{fold_scale_into_layernorm} gập trực tiếp tỷ lệ $\mathbf{s}$ vào trọng số LayerNorm đi trước.
+  \end{itemize}
+
+  \item \textbf{Bài C.8 (Tầng Tuyến Tính DoRALinearLayer Phân Rã Độ Lớn \& Hướng)}: \\
+  Xây dựng lớp Python \code{DoRALinearLayer} mô phỏng tầng tuyến tính:
+  \begin{itemize}
+    \item Khởi tạo vector độ lớn $\mathbf{m} = \|\mathbf{W}_0\|_c$ và hai ma trận LoRA $\mathbf{A}, \mathbf{B}$ với $\mathbf{B} = \mathbf{0}$.
+    \item Hiện thực hóa lan truyền xuôi theo công thức $\mathbf{W} = \mathbf{m} \odot \frac{\mathbf{W}_0 + \frac{\alpha}{r}\mathbf{A}\mathbf{B}}{\|\mathbf{W}_0 + \frac{\alpha}{r}\mathbf{A}\mathbf{B}\|_c}$.
+    \item Hiện thực phương thức \code{merge_weights} hợp nhất vĩnh viễn trọng số phục vụ serving zero-latency.
+  \end{itemize}
+
+  \item \textbf{Bài C.9 (Bộ Tính Toán QLoRADoubleQuantCalculator Định Cỡ Bộ Nhớ)}: \\
+  Xây dựng lớp Python \code{QLoRADoubleQuantCalculator} tính toán chính xác số bit trên tham số và phân tích chi tiết dung lượng VRAM tĩnh, bộ nhớ LoRA (trọng số, gradient, AdamW) và bộ đệm kích hoạt cho các mô hình $7\text{B}, 13\text{B}, 70\text{B}, 405\text{B}$.
 \end{enumerate}
 
 \subsection{Nhóm D: Phân Tích Thất Bại \& Debugging Thực Tế (Post-Mortem Analysis)}
@@ -1516,6 +1998,22 @@ class BitNetTernaryLinear:
     \item \textbf{Lọc tính năng tường minh (Explicit Feature Filtering)}: Mô hình có khả năng chủ động ngắt hoàn toàn các kết nối không quan trọng ($W_{ij} = 0$).
     \item \textbf{Tính thưa động (Dynamic Sparsity)}: Chỉ những kênh kích hoạt thực sự quan trọng mới được tích lũy vào nơ-ron đích, phản ánh chính xác cấu trúc thưa của mạng nơ-ron sinh học và bảo toàn trọn vẹn năng lực suy luận tương đương FP16.
   \end{itemize}
+
+  \item \textbf{Lời giải Câu A.10}:
+  Trong quá trình suy luận theo lô hoặc sinh từng token (Auto-regressive Generation), tầng giải mã Transformer bị giới hạn bởi băng thông bộ nhớ (Memory Bandwidth Bound). Nếu sau mỗi tầng chuẩn hóa, hệ thống phải thực hiện thêm một phép chia véc-tơ $\mathbf{x} \oslash \mathbf{s}$ trên kích hoạt trước khi đưa vào nhân GEMM, GPU bắt buộc phải thực thi thêm một kernel tính toán riêng biệt (Elementwise Kernel), gây tiêu tốn băng thông đọc/ghi bộ nhớ VRAM và tạo ra rào cản đồng bộ luồng (Kernel Launch Overhead).
+  Kỹ thuật LayerNorm Folding nhận diện rằng phép chuẩn hóa $\text{RMSNorm}(\mathbf{z}) = \frac{\mathbf{z}}{\text{RMS}(\mathbf{z})} \odot \boldsymbol{\gamma}_{\text{LN}}$ kết thúc bằng một phép nhân vô hướng với vector trọng số tĩnh $\boldsymbol{\gamma}_{\text{LN}}$. Do đó:
+  \begin{equation*}
+  \frac{\mathbf{z}}{\text{RMS}(\mathbf{z})} \odot \boldsymbol{\gamma}_{\text{LN}} \oslash \mathbf{s} = \frac{\mathbf{z}}{\text{RMS}(\mathbf{z})} \odot \left( \boldsymbol{\gamma}_{\text{LN}} \oslash \mathbf{s} \right) = \frac{\mathbf{z}}{\text{RMS}(\mathbf{z})} \odot \boldsymbol{\gamma}_{\text{LN}}'
+  \end{equation*}
+  Bằng cách chia trước ma trận trọng số tĩnh $\boldsymbol{\gamma}_{\text{LN}}' = \boldsymbol{\gamma}_{\text{LN}} \oslash \mathbf{s}$ một lần duy nhất khi nạp mô hình vào bộ nhớ, đầu ra của tầng LayerNorm tự động là $\mathbf{x}'$ mà hoàn toàn không tốn thêm bất kỳ chỉ lệnh máy nào trong quá trình suy luận, triệt tiêu $100\%$ độ trễ thời gian chạy ($0\text{ ns}$).
+
+  \item \textbf{Lời giải Câu A.11}:
+  Trong LoRA truyền thống, $\mathbf{W} = \mathbf{W}_0 + \frac{\alpha}{r}\mathbf{A}\mathbf{B}$. Bất kỳ bước cập nhật gradient nào lên $\mathbf{A}, \mathbf{B}$ cũng đồng thời làm thay đổi độ lớn (Norm) và góc xoay (Angle) của từng cột trọng số theo một tỷ lệ phụ thuộc chặt chẽ vào nhau (Coupled Dynamics). Điều này hạn chế khả năng tinh chỉnh tinh tế của mô hình: nó không thể xoay góc biểu diễn mà vẫn giữ nguyên độ lớn chuẩn của nơ-ron.
+  DoRA giải quyết vấn đề này bằng cách phân tách:
+  \begin{equation*}
+  \mathbf{W} = \mathbf{m} \odot \frac{\mathbf{V}}{\|\mathbf{V}\|_c}, \quad \text{với } \mathbf{V} = \mathbf{W}_0 + \frac{\alpha}{r}\mathbf{A}\mathbf{B}
+  \end{equation*}
+  Về mặt hình học, gradient cập nhật cho vector hướng $\mathbf{v}$ được nhân với ma trận chiếu trực giao $\mathbf{P}_{\mathbf{v}} = \mathbf{I} - \frac{\mathbf{v}\mathbf{v}^T}{\|\mathbf{v}\|_2^2}$. Vì $\mathbf{v}^T \mathbf{P}_{\mathbf{v}} = \mathbf{0}$, mọi gradient đẩy lên nhánh LoRA đều vuông góc tuyệt đối với vector hướng hiện tại. Nhờ đó, nhánh LoRA chỉ thuần túy trượt trên mặt cầu đơn vị để tìm góc biểu diễn tối ưu, trong khi độ lớn của nơ-ron được bàn giao hoàn toàn cho vector $\mathbf{m}$ điều chỉnh độc lập, tái lập chính xác động học của Full Fine-Tuning.
 \end{itemize}
 
 \subsection{Lời Giải Nhóm B: Bài Toán Tính Toán Giải Tích Bằng Tay}
@@ -1698,6 +2196,70 @@ Tính mức gia tăng sai số toàn cục tối thiểu:
   Mô hình BitNet b1.58 cắt giảm chính xác \textbf{$10$ lần ($90\%$)} dung lượng bộ nhớ, giúp một mô hình 70 tỷ tham số chạy mượt mà ngay trên RAM $16\text{ GB}$ của máy tính cá nhân hoặc thiết bị biên thông minh!
 \end{enumerate}
 
+\paragraph{Lời giải Bài B.8}:
+\begin{enumerate}
+  \item Dung lượng scale đơn (FP32, 32 bits) trên từng tham số với block size $B_1 = 64$:
+  \begin{equation*}
+  b_{\text{single}} = \frac{32\text{ bits}}{64} = 0.50\text{ bits/tham số}
+  \end{equation*}
+
+  \item Khi áp dụng Double Quantization với $B_2 = 256$, scale cấp 1 được lượng tử hóa sang FP8 ($8\text{ bits}$), và scale cấp 2 giữ FP32 ($32\text{ bits}$):
+  \begin{align*}
+  b_{\text{double}} &= \frac{8\text{ bits}}{B_1} + \frac{32\text{ bits}}{B_1 \times B_2} = \frac{8}{64} + \frac{32}{64 \times 256} \\
+  &= 0.125 + \frac{32}{16384} \approx 0.125 + 0.001953 = 0.126953\text{ bits/tham số}
+  \end{align*}
+  Mức tiết kiệm bộ nhớ trên từng tham số:
+  \begin{equation*}
+  \Delta b = b_{\text{single}} - b_{\text{double}} = 0.50 - 0.126953 = \mathbf{0.373047\text{ bits/tham số}} \approx \mathbf{0.373\text{ bits/tham số}}
+  \end{equation*}
+  (Điều phải chứng minh).
+
+  \item Tính dung lượng VRAM tiết kiệm được cho mô hình 70B và 405B:
+  \begin{itemize}
+    \item Với Llama-3-70B ($N_1 = 70 \times 10^9$ tham số):
+    \begin{equation*}
+    \Delta M_{\text{70B}} = \frac{70 \times 10^9 \times 0.373047}{8 \times 1024^3} = \frac{26.113 \times 10^9}{8{,}589{,}934{,}592} \approx \mathbf{3.04\text{ GiB}}
+    \end{equation*}
+    (Tương đương xấp xỉ $3.26\text{ GB}$ theo hệ thập phân).
+    \item Với Llama-3.1-405B ($N_2 = 405 \times 10^9$ tham số):
+    \begin{equation*}
+    \Delta M_{\text{405B}} = \frac{405 \times 10^9 \times 0.373047}{8 \times 1024^3} = \frac{151.084 \times 10^9}{8{,}589{,}934{,}592} \approx \mathbf{17.59\text{ GiB}}
+    \end{equation*}
+    (Tương đương xấp xỉ $18.89\text{ GB}$ theo hệ thập phân).
+    Mức tiết kiệm $17.59\text{ GiB}$ này tương đương với dung lượng của gần một card đồ họa RTX 4090 độc lập, cho phép mở rộng batch size hoặc chiều dài ngữ cảnh gấp nhiều lần!
+  \end{itemize}
+\end{enumerate}
+
+\paragraph{Lời giải Bài B.9}:
+\begin{enumerate}
+  \item Đặt vector trọng số hiệu dụng $\mathbf{w} = m \frac{\mathbf{v}}{\|\mathbf{v}\|_2}$ với $m = \|\mathbf{w}\|_2 > 0$ và $\mathbf{v} \neq \mathbf{0}$.
+  Ký hiệu $\|\mathbf{v}\|_2 = (\mathbf{v}^T \mathbf{v})^{1/2}$. Vi phân của chuẩn L2:
+  \begin{equation*}
+  d\|\mathbf{v}\|_2 = \frac{\mathbf{v}^T d\mathbf{v}}{\|\mathbf{v}\|_2}
+  \end{equation*}
+  Vi phân của vector $\mathbf{w}$ theo $\mathbf{v}$ (khi cố định $m$):
+  \begin{equation*}
+  d\mathbf{w} = m \left( \frac{d\mathbf{v}}{\|\mathbf{v}\|_2} - \frac{\mathbf{v} d\|\mathbf{v}\|_2}{\|\mathbf{v}\|_2^2} \right) = m \left( \frac{d\mathbf{v}}{\|\mathbf{v}\|_2} - \frac{\mathbf{v} (\mathbf{v}^T d\mathbf{v})}{\|\mathbf{v}\|_2^3} \right) = \frac{m}{\|\mathbf{v}\|_2} \left( \mathbf{I} - \frac{\mathbf{v}\mathbf{v}^T}{\|\mathbf{v}\|_2^2} \right) d\mathbf{v}
+  \end{equation*}
+  Theo quy tắc đạo hàm hàm hợp, cho gradient $\mathbf{g} = \nabla_{\mathbf{w}} \mathcal{L}$:
+  \begin{equation*}
+  d\mathcal{L} = \mathbf{g}^T d\mathbf{w} = \mathbf{g}^T \left[ \frac{m}{\|\mathbf{v}\|_2} \left( \mathbf{I} - \frac{\mathbf{v}\mathbf{v}^T}{\|\mathbf{v}\|_2^2} \right) d\mathbf{v} \right] = \left[ \frac{m}{\|\mathbf{v}\|_2} \left( \mathbf{I} - \frac{\mathbf{v}\mathbf{v}^T}{\|\mathbf{v}\|_2^2} \right) \mathbf{g} \right]^T d\mathbf{v}
+  \end{equation*}
+  Do đó:
+  \begin{equation*}
+  \nabla_{\mathbf{v}} \mathcal{L} = \frac{m}{\|\mathbf{v}\|_2} \left( \mathbf{I} - \frac{\mathbf{v}\mathbf{v}^T}{\|\mathbf{v}\|_2^2} \right) \mathbf{g}
+  \end{equation*}
+  (Điều phải chứng minh).
+
+  \item Tính tích vô hướng $\mathbf{v}^T \nabla_{\mathbf{v}} \mathcal{L}$:
+  \begin{align*}
+  \mathbf{v}^T \nabla_{\mathbf{v}} \mathcal{L} &= \mathbf{v}^T \left[ \frac{m}{\|\mathbf{v}\|_2} \left( \mathbf{I} - \frac{\mathbf{v}\mathbf{v}^T}{\|\mathbf{v}\|_2^2} \right) \mathbf{g} \right] = \frac{m}{\|\mathbf{v}\|_2} \left( \mathbf{v}^T - \frac{(\mathbf{v}^T \mathbf{v}) \mathbf{v}^T}{\|\mathbf{v}\|_2^2} \right) \mathbf{g} \\
+  &= \frac{m}{\|\mathbf{v}\|_2} \left( \mathbf{v}^T - \frac{\|\mathbf{v}\|_2^2 \mathbf{v}^T}{\|\mathbf{v}\|_2^2} \right) \mathbf{g} = \frac{m}{\|\mathbf{v}\|_2} \left( \mathbf{v}^T - \mathbf{v}^T \right) \mathbf{g} = \frac{m}{\|\mathbf{v}\|_2} \cdot \mathbf{0}^T \cdot \mathbf{g} = 0
+  \end{align*}
+  (Điều phải chứng minh).
+  Hệ quả: Gradient cập nhật cho nhánh hướng $\mathbf{v}$ luôn trực giao hoàn toàn với vector $\mathbf{v}$ hiện tại, chứng minh DoRA phân rã triệt để giữa góc hướng và độ dài vector.
+\end{enumerate}
+
 \subsection{Lời Giải Nhóm C: Thực Hành Kỹ Nghệ \& Lập Trình}
 Dưới đây là mã nguồn hoàn chỉnh cho các bài thực hành phòng lab:
 
@@ -1821,6 +2383,17 @@ Phương thức \code{forward_pure_addition} hiện thực hóa cơ chế tính 
 y_{q, j} = \sum_{k: \widetilde{W}_{j,k} = +1} x_{q, k} - \sum_{k: \widetilde{W}_{j,k} = -1} x_{q, k}
 \end{equation*}
 Kết quả kiểm thử tự động trong phòng lab chứng minh rằng đầu ra của phương thức thuần cộng/trừ số nguyên trùng khớp chính xác $100\%$ (\code{assert_array_equal}) với phép nhân ma trận chuẩn $\mathbf{x}_q \mathbf{W}^T$, trong khi cắt giảm hơn $36\times$ năng lượng tiêu thụ trên phần cứng vi mạch!
+
+\paragraph{Lời giải Bài C.7, C.8, C.9}:
+Xem chi tiết mã nguồn hoàn chỉnh của các lớp \code{AWQScaleOptimizer}, \code{DoRALinearLayer}, và \code{QLoRADoubleQuantCalculator} tại Mục~\ref{sec:python-production-modules}.
+\begin{itemize}
+  \item \textbf{Bài C.7 (\code{AWQScaleOptimizer})}:
+  Thuật toán thực hiện tìm kiếm lưới trên 20 điểm mẫu của siêu tham số $\alpha \in [0, 1]$. Trên dữ liệu hiệu chuẩn có kênh ngoại lai lớn ($X_0$ lớn gấp $50\times$), thuật toán tự động nhận diện giá trị tối ưu $\alpha^* \approx 0.40 - 0.60$, kéo giảm hơn $10\times$ sai số bình phương tái tạo so với lượng tử hóa thông thường không có AWQ. Phương thức \code{fold_scale_into_layernorm} chia trước véc-tơ trọng số LayerNorm cho $\mathbf{s}$, triệt tiêu hoàn toàn chi phí trễ thời gian chạy ($0\text{ ns}$).
+  \item \textbf{Bài C.8 (\code{DoRALinearLayer})}:
+  Khởi tạo $\mathbf{m} = \|\mathbf{W}_0\|_c$ và $\mathbf{B} = \mathbf{0}$, bảo đảm tính tương đương toán học chính xác $100\%$ với mô hình cơ sở tại thời điểm $t=0$. Khi tinh chỉnh, vector độ lớn $\mathbf{m}$ và ma trận hướng $\mathbf{V}$ được cập nhật độc lập, giúp nhánh LoRA tự do xoay góc mà không bị phụ thuộc độ lớn. Phương thức \code{merge_weights} hợp nhất vĩnh viễn $\mathbf{W}_{\text{merged}} = \mathbf{m} \odot \frac{\mathbf{W}_0 + \frac{\alpha}{r}\mathbf{A}\mathbf{B}}{\|\mathbf{W}_0 + \frac{\alpha}{r}\mathbf{A}\mathbf{B}\|_c}$ để phục vụ suy luận không trễ.
+  \item \textbf{Bài C.9 (\code{QLoRADoubleQuantCalculator})}:
+  Định cỡ bộ nhớ chi tiết cho mô hình Llama-3-70B: Double Quantization nén các hệ số co giãn cấp 1 (FP32) xuống FP8 với block size 256, tiết kiệm chính xác $0.373\text{ bits/tham số}$ ($3.04\text{ GiB}$). Toàn bộ chi phí VRAM cho mô hình tĩnh, adapter LoRA, đạo hàm và trạng thái bộ tối ưu AdamW được khống chế ở mức $34.7\text{ GiB}$, cho phép tinh chỉnh mượt mà trên 2 card đồ họa RTX 3090/4090 ($48\text{ GB}$).
+\end{itemize}
 
 \subsection{Lời Giải Nhóm D: Phân Tích Thất Bại \& Debugging Thực Tế}
 

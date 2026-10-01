@@ -22,14 +22,14 @@ Khi một mô hình ngôn ngữ lớn (LLM) được cấp quyền đọc email,
 Nhiều kỹ sư phần mềm khi bước vào lĩnh vực an ninh mạng thường ngộ nhận rằng bảo mật chỉ là việc cài đặt chứng chỉ SSL/TLS hay sử dụng mật khẩu mạnh. Trong thực tế kỹ nghệ, an ninh mạng là một cuộc đấu trí dựa trên các nguyên lý toán học, kiến trúc giao thức tầng thấp và mô hình hóa hiểm họa có hệ thống.
 
 \subsection{Tam Giác Bảo Mật CIA \& Mô Hình Hiểm Họa STRIDE}
-\begin{definitionbox}[Tam Giác Bảo Mật CIA (Confidentiality, Integrity, Availability)]
+\begin{definition}[Tam Giác Bảo Mật CIA (Confidentiality, Integrity, Availability)]
 Mọi quyết định thiết kế an ninh trong khoa học máy tính đều xoay quanh ba thuộc tính cơ bản:
 \begin{itemize}
   \item \textbf{Bí Mật (Confidentiality)}: Dữ liệu chỉ được phép truy cập bởi các thực thể được cấp quyền hợp lệ. Trong hệ thống AI, điều này bao gồm: bảo vệ trọng số mô hình (Model Weights), khóa API của dịch vụ LLM, dữ liệu nhạy cảm của người dùng (PII), và nội dung của cơ sở dữ liệu tri thức RAG.
   \item \textbf{Toàn Vẹn (Integrity)}: Dữ liệu và trạng thái hệ thống không bị sửa đổi trái phép hoặc giả mạo. Đối với AI, toàn vẹn nghĩa là tập dữ liệu huấn luyện không bị cấy backdoor (\textit{Poisoning}), prompt hệ thống không bị ghi đè (\textit{Prompt Injection}), và kết quả suy luận không bị can thiệp trên đường truyền.
   \item \textbf{Khả Dụng (Availability)}: Hệ thống và tài nguyên phải luôn sẵn sàng phục vụ khi người dùng hợp lệ yêu cầu. Kẻ tấn công có thể phá hủy tính khả dụng bằng các cuộc tấn công từ chối dịch vụ (DDoS) vào API Gateway hoặc gửi các prompt tính toán cực đại làm cạn kiệt VRAM (\textit{Sponge Attacks}).
 \end{itemize}
-\end{definitionbox}
+\end{definition}
 
 Để đánh giá một hệ sinh thái AI có an toàn hay không, phương pháp kỹ thuật chuẩn mực là áp dụng mô hình phân loại hiểm họa \textbf{STRIDE} do Microsoft đề xuất (Bảng~\ref{tab:stride-ai}).
 
@@ -115,14 +115,13 @@ Bản chất thiết kế ban đầu của ARP không có bất kỳ cơ chế x
   \item Giao thức ARP cho phép một máy tính nhận phản hồi \code{ARP Reply} ngay cả khi nó không hề gửi yêu cầu (\textit{Gratuitous ARP}).
 \end{itemize}
 
-\begin{intuitionbox}[Bản Chất Cuộc Tấn Công Man-in-the-Middle Bằng ARP Spoofing]
+\paragraph{Bản Chất Cuộc Tấn Công Man-in-the-Middle Bằng ARP Spoofing}:
 Kẻ tấn công $M$ trong mạng LAN liên tục gửi các gói tin ARP Reply giả mạo:
 \begin{center}
 \code{"192.168.1.1 (Gateway) đang ở địa chỉ MAC của M!"} gửi tới máy chủ AI.\\
 \code{"192.168.1.100 (AI Server) đang ở địa chỉ MAC của M!"} gửi tới Router Gateway.
 \end{center}
 Bảng ARP Cache của cả hai bên bị nhiễm độc. Khi đó, toàn bộ lưu lượng giữa máy chủ AI và Internet đều bị ép chạy qua máy kẻ tấn công $M$. Kẻ tấn công có thể nghe lén toàn bộ câu lệnh, đánh cắp API keys (nếu không dùng HTTPS/TLS), hoặc tráo đổi dữ liệu phản hồi!
-\end{intuitionbox}
 
 \textbf{Biện pháp phòng thủ}: Cấu hình bảng ARP tĩnh (\textit{Static ARP}), bật tính năng \term{Dynamic ARP Inspection (DAI)} trên switch mạng doanh nghiệp, và bắt buộc mã hóa toàn bộ lưu lượng tầng ứng dụng bằng mTLS (Mutual TLS 1.3).
 
@@ -174,23 +173,128 @@ trong đó:
 Khi máy khách gửi gói tin \code{ACK} hợp lệ cuối cùng, số xác nhận của nó chính là $ISN_s + 1$. Máy chủ chỉ việc trừ đi 1 và tính lại hàm băm $\mathcal{H}_K$. Nếu khớp, hệ điều hành mới chính thức cấp phát socket! Kỹ thuật này giúp máy chủ hoàn toàn miễn nhiễm với việc tràn bộ nhớ SYN Queue!
 \end{theorem}
 
-\subsection{Tường Lửa Linux Stateful Firewall (Netfilter \& iptables)}
-Tường lửa của hệ điều hành Linux vận hành thông qua kiến trúc \term{Netfilter} tích hợp sẵn bên trong nhân Linux Kernel. Netfilter cung cấp 5 điểm chặn (Hooks) trên đường đi của gói tin:
+\subsection{Kiến Trúc Netfilter, iptables \& Bước Chuyển Sang nftables}
+Mặc dù công cụ dòng lệnh \code{iptables} rất phổ biến, bản thân nó chỉ là một giao diện người dùng cấu hình (\textit{Control Plane}). Cỗ máy thực thi chính (\textit{Data Plane}) nằm sâu trong nhân Linux mang tên \term{Netfilter}.
+
+Để xử lý gói tin có thứ tự và tối ưu, Netfilter tổ chức các quy tắc vào một ma trận gồm **5 Bảng (Tables)** và **5 Chuỗi (Chains)** theo thứ tự ưu tiên xử lý giảm dần:
 \begin{enumerate}
-  \item \code{PREROUTING}: Bắt gói tin ngay khi vừa tới card mạng trước khi đưa ra quyết định định tuyến.
-  \item \code{INPUT}: Xử lý gói tin có đích đến là chính các tiến trình trên máy chủ này.
-  \item \code{FORWARD}: Chuyển tiếp gói tin đi sang một giao diện mạng khác (vai trò Router).
-  \item \code{OUTPUT}: Xử lý gói tin do chính các tiến trình máy chủ nội bộ tạo ra để phát ra ngoài.
-  \item \code{POSTROUTING}: Xử lý gói tin ngay trước khi phát ra dây mạng (thường dùng để làm SNAT/Masquerade).
+  \item \textbf{Bảng raw}: Ưu tiên cao nhất. Thường dùng để cấu hình cờ \code{NOTRACK}, miễn trừ các gói tin khỏi hệ thống theo dõi trạng thái \code{conntrack} (rất quan trọng khi tối ưu hóa tải lớn cho máy chủ DNS hoặc vLLM để tránh tràn bảng conntrack table).
+  \item \textbf{Bảng mangle}: Dùng để sửa đổi các trường trong IP Header (ví dụ: thay đổi thông số TOS -- Type of Service, TTL, hoặc đánh dấu gói tin bằng nhãn \code{MARK} để định tuyến nâng cao).
+  \item \textbf{Bảng nat}: Chuyên trách dịch địa chỉ mạng (Network Address Translation): DNAT (Port Forwarding từ cổng ngoài vào container) và SNAT/MASQUERADE (chia sẻ kết nối Internet cho các container Docker).
+  \item \textbf{Bảng filter}: Bảng mặc định và quan trọng nhất đối với an ninh, quyết định một gói tin được chấp nhận (\code{ACCEPT}), từ chối mềm (\code{REJECT}) hay vứt bỏ âm thầm (\code{DROP}).
+  \item \textbf{Bảng security}: Dùng để gắn các nhãn ngữ cảnh bảo mật SELinux (Mandatory Access Control).
 \end{enumerate}
 
-Khác với tường lửa tĩnh chỉ lọc theo IP và cổng, tường lửa hiện đại là \term{Stateful Firewall} (tường lửa theo dõi trạng thái) sử dụng mô-đun \code{conntrack}. Nó theo dõi chu trình sống của kết nối qua 4 trạng thái:
+\begin{figure}[htbp]
+\centering
+\resizebox{\linewidth}{!}{%
+\begin{tikzpicture}[node distance=1.1cm, auto,
+    chain/.style={rectangle, draw=primarycolor, thick, fill=boxbg, align=center, rounded corners=2pt, minimum height=0.7cm, minimum width=2.4cm, font=\scriptsize\bfseries},
+    decision/.style={diamond, draw=secondarycolor, thick, fill=accentcolor!20, align=center, inner sep=0pt, aspect=1.8, font=\tiny\bfseries},
+    arrow/.style={draw=primarycolor, -Stealth, thick}
+]
+    \node[chain] (nic) {Card Mạng (NIC)};
+    \node[chain, right=0.8cm of nic] (preroute) {PREROUTING\\ \tiny (raw, mangle, nat)};
+    \node[decision, right=0.8cm of preroute] (route) {Quyết định\\ Định tuyến};
+    \node[chain, above right=0.6cm and 0.8cm of route] (forward) {FORWARD\\ \tiny (mangle, filter)};
+    \node[chain, below right=0.6cm and 0.8cm of route] (input) {INPUT\\ \tiny (mangle, filter)};
+    \node[chain, right=1.0cm of input] (process) {Tiến Trình Local\\ \tiny (vLLM / Triton / Gateway)};
+    \node[chain, right=1.0cm of process] (output) {OUTPUT\\ \tiny (raw, mangle, nat, filter)};
+    \node[decision, right=0.8cm of output] (route_out) {Định tuyến\\ Chiều Đi};
+    \node[chain, above right=0.6cm and 0.8cm of route_out] (postroute) {POSTROUTING\\ \tiny (mangle, nat)};
+    \node[chain, right=0.8cm of postroute] (out_nic) {Dây Mạng / Internet};
+
+    \draw[arrow] (nic) -- (preroute);
+    \draw[arrow] (preroute) -- (route);
+    \draw[arrow] (route) |- node[above, font=\tiny] {Đích là máy khác} (forward);
+    \draw[arrow] (route) |- node[below, font=\tiny] {Đích là máy này} (input);
+    \draw[arrow] (input) -- (process);
+    \draw[arrow] (process) -- (output);
+    \draw[arrow] (output) -- (route_out);
+    \draw[arrow] (route_out) |- (postroute);
+    \draw[arrow] (forward) -| (postroute);
+    \draw[arrow] (postroute) -- (out_nic);
+\end{tikzpicture}%
+}
+\caption{Luồng di chuyển tuần tự của gói tin qua các bảng và chuỗi trong nhân Linux Netfilter}
+\label{fig:netfilter-packet-flow}
+\end{figure}
+
+Tuy nhiên, trong các trung tâm dữ liệu AI hiện đại với lưu lượng hàng trăm Gigabit, \code{iptables} bộc lộ điểm yếu chết người: Mỗi khi một quy tắc được thêm hoặc sửa, toàn bộ bảng quy tắc phải được sao chép và cập nhật dưới một khóa khóa toàn cục (\textit{Global Mutex Lock}), khiến độ trễ mạng tăng đột biến. Để khắc phục, nhân Linux giới thiệu \term{nftables}:
 \begin{itemize}
-  \item \code{NEW}: Gói tin mở đầu một kết nối mới (ví dụ: cờ SYN bật).
-  \item \code{ESTABLISHED}: Kết nối hai chiều đã được thiết lập thành công.
-  \item \code{RELATED}: Kết nối phụ có liên quan tới một kết nối đang hoạt động.
-  \item \code{INVALID}: Gói tin dị thường, không khớp với bất kỳ luồng hợp lệ nào $\implies$ Drop ngay lập tức!
+  \item Sử dụng một máy ảo bytecode nội vi cực nhanh (\textit{Tiny Virtual Machine}) chạy trực tiếp trong nhân.
+  \item Hỗ trợ các cấu trúc dữ liệu Set và Map với độ phức tạp tìm kiếm $\mathcal{O}(1)$ thay vì duyệt tuần tự $\mathcal{O}(N)$ như iptables.
+  \item Hỗ trợ cập nhật quy tắc nguyên tử (\textit{Atomic Transactions}) mà không cần ngắt quãng luồng truyền gói tin.
 \end{itemize}
+
+\subsection{Lọc Gói Tin Tầng Cực Thấp Bằng eBPF \& XDP (eXpress Data Path)}
+Khi một đợt tấn công từ chối dịch vụ phân tán (DDoS) xảy ra với cường độ hàng chục triệu gói tin trên giây, ngay cả cơ chế \code{nftables} hay \code{iptables} cũng không thể cứu vãn máy chủ. Nguyên nhân là do cấu trúc dữ liệu cốt lõi của nhân Linux: Mỗi gói tin khi chạm vào card mạng đều bị kernel phân bổ một cấu trúc bộ nhớ \term{sk\_buff (Socket Buffer)} có kích thước hơn 256 byte kèm theo hàng loạt con trỏ và metadata. Việc cấp phát hàng triệu cấu trúc \code{sk_buff} làm cạn kiệt bộ nhớ đệm CPU L1/L2 và đẩy CPU vào tình trạng bão hòa ngắt phần cứng (\textit{Interrupt Storm}).
+
+Công nghệ đột phá nhất của kỹ nghệ an ninh hạ tầng hiện đại là \term{XDP (eXpress Data Path)} kết hợp \term{eBPF (Extended Berkeley Packet Filter)}.
+
+\begin{figure}[htbp]
+\centering
+\resizebox{0.95\linewidth}{!}{%
+\begin{tikzpicture}[node distance=1.0cm, auto,
+    layer/.style={rectangle, draw=primarycolor, thick, fill=boxbg, text centered, rounded corners=2pt, minimum height=0.8cm, minimum width=10cm, font=\small\bfseries},
+    xdp/.style={rectangle, draw=secondarycolor, ultra thick, fill=accentcolor!25, text centered, rounded corners=2pt, minimum height=0.9cm, minimum width=10cm, font=\small\bfseries}
+]
+    \node[layer] (user) {Tầng Người Dùng (User Space: FastAPI, vLLM, Triton Serving)};
+    \node[layer, below=0.4cm of user] (socket) {Tầng Socket \& Giao Vận (TCP/UDP Stack, alloc sk\_buff)};
+    \node[layer, below=0.4cm of socket] (netfilter) {Tầng Netfilter (iptables, nftables, conntrack)};
+    \node[xdp, below=0.4cm of netfilter] (xdp_layer) {$\bigstar$ XDP Driver Hook (eBPF Bytecode thực thi trực tiếp trên DMA Ring Buffer)};
+    \node[layer, below=0.4cm of xdp_layer] (nic) {Card Mạng Vật Lý (Hardware NIC / PCIe Rx Ring)};
+
+    \draw[draw=dangercolor, line width=1.5pt, -Stealth] (nic) -- (xdp_layer);
+    \draw[draw=dangercolor, line width=1.5pt, -Stealth] (xdp_layer.east) -- ++(1.0, 0) node[right, font=\scriptsize\bfseries\color{dangercolor}] {XDP\_DROP (Vứt gói tin rác trong 10 nanoseconds!)};
+    \draw[draw=primarycolor, thick, -Stealth] (xdp_layer) -- (netfilter);
+    \draw[draw=primarycolor, thick, -Stealth] (netfilter) -- (socket);
+    \draw[draw=primarycolor, thick, -Stealth] (socket) -- (user);
+\end{tikzpicture}%
+}
+\caption{Vị trí chiến lược của XDP: Đánh chặn gói tin độc hại trước khi nhân Linux cấp phát bộ nhớ sk\_buff}
+\label{fig:xdp-packet-filter}
+\end{figure}
+
+Chương trình eBPF được biên dịch thành mã máy và cắm trực tiếp vào tầng điều khiển của card mạng (\textit{Driver Level}). Tại đây, chương trình có thể đưa ra quyết định tối thượng:
+\begin{itemize}
+  \item \code{XDP_DROP}: Vứt bỏ gói tin ngay lập tức tại vòng đệm phần cứng (Rx Ring) mà hoàn toàn không phân bổ bộ nhớ \code{sk_buff}. Một máy chủ GPU tiêu chuẩn có thể loại bỏ hơn \textbf{$40\text{ triệu gói tin/giây}$} chỉ bằng một nhân CPU duy nhất!
+  \item \code{XDP_PASS}: Cho phép gói tin hợp lệ tiếp tục đi lên Network Stack truyền thống của hệ điều hành.
+  \item \code{XDP_TX}: Phản hồi gói tin ngược lại cổng card mạng vừa nhận (dùng để làm bộ cân bằng tải Load Balancer tốc độ cực đại).
+\end{itemize}
+
+\subsection{Kiến Trúc Mạng Không Tin Cậy (Zero Trust) \& Bảo Vệ mTLS Đa Cụm}
+Trong hạ tầng trí tuệ nhân tạo phân tán, một cụm phục vụ mô hình bao gồm hàng chục máy chủ GPU, các node lưu trữ véc-tơ, cơ sở dữ liệu đệm Redis và các cổng API Gateway. Nếu áp dụng tư duy an ninh truyền thống (\textit{Perimeter Security} -- xây tường lửa bảo vệ vòng ngoài và coi toàn bộ mạng nội bộ bên trong là an toàn), kẻ tấn công chỉ cần xâm nhập một dịch vụ phụ trợ là có thể tự do nghe lén toàn bộ luồng dữ liệu thô giữa các máy chủ.
+
+Kiến trúc chuẩn công nghiệp hiện đại bắt buộc phải tuân thủ mô hình \term{Zero Trust Architecture (ZTA)}: \textit{``Không bao giờ tin tưởng, luôn luôn xác thực''} (\textit{Never Trust, Always Verify}).
+
+Trụ cột kỹ thuật của Zero Trust trong cụm AI là \term{mTLS (Mutual TLS)} kết hợp cơ chế định danh công việc \term{SPIFFE/SPIRE}:
+\begin{enumerate}
+  \item \textbf{Xác thực hai chiều (Two-Way Handshake)}: Không chỉ máy khách xác thực danh tính của máy chủ (như HTTPS thông thường), máy chủ API phục vụ mô hình cũng bắt buộc yêu cầu máy khách xuất trình chứng chỉ kỹ thuật số X.509 hợp lệ.
+  \item \textbf{Định danh phân tán (SPIFFE ID)}: Mỗi tiến trình (ví dụ: \code{vllm-worker-node} hoặc \code{rag-retriever}) được gán một định danh chuẩn hóa duy nhất:
+  \begin{center}
+  \code{spiffe://ai-cluster.internal/ns/production/sa/vllm-inference}
+  \end{center}
+  \item \textbf{Tự động xoay vòng chứng chỉ (Automatic Certificate Rotation)}: Các chứng chỉ mã hóa TLS ngắn hạn chỉ có thời hạn hiệu lực trong vài giờ (ví dụ: 12 giờ) và được daemon nội bộ tự động gia hạn ngầm, triệt tiêu hoàn toàn rủi ro bị lộ khóa bí mật dài hạn.
+\end{enumerate}
+
+\subsection{Tấn Công \& Phòng Thủ Đầu Độc Bộ Đệm Ngữ Cảnh (Semantic Cache Poisoning)}
+Để giảm thiểu độ trễ và chi phí gọi LLM, hầu hết các hệ thống AI quy mô lớn đều tích hợp một tầng \term{Semantic Cache} (Bộ đệm ngữ nghĩa sử dụng Vector DB). Khi người dùng đưa vào một truy vấn $q$, hệ thống tính toán véc-tơ nhúng $\mathbf{e}_q$ và tìm kiếm trong Cache xem đã có câu hỏi tương tự hay chưa:
+\begin{equation}
+\text{Nếu } \cos(\mathbf{e}_q, \mathbf{e}_{\text{cached}}) \ge \theta_{\text{threshold}} \implies \text{Trả về câu trả lời có sẵn trong Cache (Cache Hit)}
+\end{equation}
+
+Kỹ thuật này mở ra một bề mặt tấn công an ninh mạng nguy hiểm: \term{Semantic Cache Poisoning}.
+\begin{itemize}
+  \item \textbf{Kịch bản tấn công}: Kẻ tấn công gửi một câu hỏi bề ngoài có vẻ vô hại nhưng mang ngữ nghĩa tương tự với một câu hỏi nghiệp vụ phổ biến, ví dụ: \textit{``Hướng dẫn thủ tục cài đặt ứng dụng bảo mật của công ty''}. Nhưng trong câu hỏi này, kẻ tấn công dùng kỹ thuật xã hội (\textit{Social Engineering}) hoặc lồng ghép prompt injection tinh vi để mô hình sinh ra đường link tải về mã độc Trojan.
+  \item \textbf{Hậu quả lây lan}: Câu trả lời độc hại này lập tức được lưu vào Semantic Cache. Khi hàng nghìn nhân viên khác trong công ty đặt câu hỏi chính thống: \textit{``Làm thế nào để cài phần mềm bảo mật?''}, hệ thống thấy độ tương đồng Cosine vượt ngưỡng $\theta$ và lập tức trả về câu trả lời đã bị nhiễm độc từ Cache mà không hề gọi lại mô hình!
+\end{itemize}
+
+\textbf{Giải pháp phòng thủ hai lớp}:
+\begin{enumerate}
+  \item \textbf{Phân loại khả năng lưu đệm (Cacheability Classifier)}: Chỉ những câu trả lời xuất phát từ các nguồn dữ liệu đã được xác thực ký số (Ground-truth verified) mới được phép ghi vào Cache. Các truy vấn có yếu tố động, thông tin tài chính hoặc chỉ thị điều hành bắt buộc phải được gắn cờ \code{NO_CACHE}.
+  \item \textbf{Ngưỡng Cosine thích ứng (Adaptive Thresholding)}: Thay vì cố định ngưỡng $\theta = 0.85$, hệ thống tự động tăng ngưỡng lên $\theta = 0.96$ đối với các truy vấn liên quan đến an ninh, tài chính và phân quyền, ngăn chặn triệt để hiện tượng va chạm ngữ nghĩa ngẫu nhiên (\textit{False Hit}).
+\end{enumerate}
 
 ---
 
@@ -224,7 +328,7 @@ H(\mathcal{K}) = - \sum_{i=1}^m p(k_i) \log_2 p(k_i)
 trong đó quy ước $0 \log_2 0 = 0$. Giá trị $H(\mathcal{K})$ đo lường mức độ hỗn loạn (độ phân tán) của lưu lượng mạng.
 \end{definition}
 
-\begin{intuitionbox}[Ý Nghĩa Bản Chất Của Biến Động Entropy Trong Sự Cố Mạng]
+\paragraph{Ý Nghĩa Bản Chất Của Biến Động Entropy Trong Sự Cố Mạng}:
 \begin{itemize}
   \item \textbf{Trạng thái bình thường}: Người dùng truy cập đa dạng các dịch vụ: Web (cổng 80, 443), DNS (cổng 53), Mail (cổng 587), SSH (cổng 22). Các cổng xuất hiện với tỷ lệ tương đối ổn định. Do đó, Entropy $H(\mathcal{K})$ duy trì ở mức trung bình cao.
   \item \textbf{Tấn công SYN Flood / UDP Flood vào một cổng duy nhất} (ví dụ cổng 443): Hàng triệu gói tin dội dập vào đúng một cổng đích ($p(443) \approx 1.0$, các cổng khác $p \approx 0$). Khi đó:
@@ -238,9 +342,8 @@ trong đó quy ước $0 \log_2 0 = 0$. Giá trị $H(\mathcal{K})$ đo lường
   \end{equation*}
   $\rightarrow$ \textbf{Entropy tăng đột biến vượt ngưỡng trần} là bằng chứng toán học của hành vi rà quét trinh sát.
 \end{itemize}
-\end{intuitionbox}
 
-\begin{workedexamplebox}[Tính Toán Bằng Tay Biến Động Entropy Khi Xảy Ra Tấn Công]
+\begin{example}[Tính Toán Bằng Tay Biến Động Entropy Khi Xảy Ra Tấn Công]
 Xét một máy chủ trong 10 giây ghi nhận $N = 1000$ gói tin đến các cổng:
 \paragraph{Trường hợp 1: Trạng thái bình thường}
 Số lượng gói tin đến các cổng: Cổng 443 có 500 gói, Cổng 80 có 250 gói, Cổng 53 có 125 gói, Cổng 22 có 125 gói.
@@ -270,7 +373,7 @@ H_{\text{attack}} &= - \Big( 0.95(-0.074) + 0.025(-5.322) + 0.0125(-6.322) \cdot
 &= - (-0.0703 - 0.1331 - 0.1581) \approx 0.3615 \text{ bits}
 \end{align*}
 Entropy đã giảm từ $1.75$ xuống còn $0.36$ bits (giảm gần $80\%$). Một bộ giám sát AI chỉ cần theo dõi đạo hàm theo thời gian $\frac{dH}{dt}$ là có thể kích hoạt cảnh báo DoS tức thời trong vòng vài giây!
-\end{workedexamplebox}
+\end{example}
 
 ---
 
@@ -297,7 +400,7 @@ P(A \mid T) = \frac{P(T \mid A) P(A)}{P(T \mid A) P(A) + P(T \mid \neg A) P(\neg
 \end{equation}
 \end{theorem}
 
-\begin{workedexamplebox}[Chứng Minh Số Học: Tại Sao Mô Hình Chính Xác 99\% Vẫn Báo Giả Đến 91\%?]
+\begin{example}[Chứng Minh Số Học: Tại Sao Mô Hình Chính Xác 99\% Vẫn Báo Giả Đến 91\%?]
 Xét một trung tâm dữ liệu xử lý $1.000.000$ phiên truy cập mỗi ngày.
 \begin{itemize}
   \item Các cuộc tấn công thực sự diễn ra rất hiếm hoi: chỉ có $100$ phiên là mã độc thật $\implies$ Tỷ lệ cơ sở $P(A) = \frac{100}{1.000.000} = 0.0001$ ($0.01\%$).
@@ -314,7 +417,7 @@ P(A \mid T) &= \frac{0.99 \times 0.0001}{(0.99 \times 0.0001) + (0.001 \times 0.
 &= \frac{0.000099}{0.000099 + 0.0009999} = \frac{0.000099}{0.0010989} \approx 0.0901 \quad (\mathbf{9.01\%}!)
 \end{align*}
 \textbf{Kết luận kinh hoàng}: Dù mô hình có độ nhạy $99\%$ và tỷ lệ báo sai chỉ $0.1\%$, thì trong $100$ cảnh báo xuất hiện trên màn hình của chuyên viên SOC, có tới \textbf{91 cảnh báo là giả mạo}!
-\end{workedexamplebox}
+\end{example}
 
 Chính vì nghịch lý này, một kỹ sư AI hiện đại không bao giờ dùng một mô hình phân loại đơn lẻ để tự động chặn mạng. Thay vào đó, ta xây dựng một hệ thống \textbf{Multi-Stage SOC Triage Agent} sử dụng kiến trúc Agentic Workflow:
 \begin{enumerate}

@@ -100,7 +100,7 @@ Vì các $z_i$ độc lập với nhau, phương sai của tổng bằng tổng 
 Độ lệch chuẩn của tích vô hướng là $\sigma_S = \sqrt{\text{Var}(S)} = \sqrt{d_k}$.
 \end{proof}
 
-\begin{intuitionbox}[Hệ Lụy Của Hiện Tượng Bão Hòa Hàm Softmax Khi $d_k$ Lớn]
+\paragraph{Hệ Lụy Của Hiện Tượng Bão Hòa Hàm Softmax Khi $d_k$ Lớn}:
 Khi $d_k = 128$, độ lệch chuẩn của điểm số chú ý thô là $\sqrt{128} \approx 11.31$.
 Các giá trị trong ma trận $\mathbf{S} = \mathbf{Q}\mathbf{K}^T$ sẽ dao động rất rộng (ví dụ từ $-30$ đến $+30$).
 Khi đưa các giá trị có độ chênh lệch hàng chục đơn vị vào hàm Softmax:
@@ -119,7 +119,6 @@ Bằng cách chia cho $\sqrt{d_k}$, phương sai của điểm số được chu
 \text{Var}\left(\frac{S}{\sqrt{d_k}}\right) = \frac{\text{Var}(S)}{(\sqrt{d_k})^2} = \frac{d_k}{d_k} = 1
 \end{equation}
 Giúp các giá trị rơi đúng vào vùng có đạo hàm nhạy cảm nhất của hàm Softmax!
-\end{intuitionbox}
 
 ---
 
@@ -258,7 +257,7 @@ Trong giai đoạn suy luận tự hồi quy (Decode), dung lượng bộ nhớ 
 \section{Ví Dụ Giải Mẫu Tính Toán Số Học Bằng Tay}
 \label{sec:ch06-numerical-walkthrough}
 
-\begin{workedexamplebox}[Ví Dụ 1: Tính Toán Toàn Bộ Ma Trận Self-Attention Bằng Tay Cho Chuỗi 3 Tokens]
+\begin{example}[Tính Toán Toàn Bộ Ma Trận Self-Attention Bằng Tay Cho Chuỗi 3 Tokens]
 Xét cơ chế Self-Attention đơn giản với $d_k = 2$ cho chuỗi gồm 3 tokens ($L=3$):
 \begin{equation*}
 \mathbf{Q} = \begin{bmatrix} 1.0 & 0.0 \\ 0.0 & 2.0 \\ 1.0 & 1.0 \end{bmatrix}, \quad
@@ -295,10 +294,10 @@ A_{11} = \frac{0.4931}{1.7362} \approx 0.2840, \quad A_{12} = \frac{1.0000}{1.73
 \mathbf{o}_1 &= 0.2840 \begin{bmatrix} 10.0 \\ 0.0 \end{bmatrix} + 0.5760 \begin{bmatrix} 0.0 \\ 20.0 \end{bmatrix} + 0.1400 \begin{bmatrix} 5.0 \\ 5.0 \end{bmatrix} \\
 &= \begin{bmatrix} 2.840 \\ 0.000 \end{bmatrix} + \begin{bmatrix} 0.000 \\ 11.520 \end{bmatrix} + \begin{bmatrix} 0.700 \\ 0.700 \end{bmatrix} = \begin{bmatrix} 3.540 \\ 12.220 \end{bmatrix}
 \end{align*}
-\end{workedexamplebox}
+\end{example}
 
-\begin{workedexamplebox}[Ví Dụ 2: Tính Toán Từng Bước Thuật Toán Online Softmax]
-Xét một véc-tơ 4 phần tử: $\mathbf{x} = [2.0, 4.0, 1.0, 5.0]$, chia thành 2 block kích thước $B = 2$:
+\begin{example}[Thuật Toán Online Softmax Từng Bước]
+Xét véc-tơ gồm 4 phần tử $\mathbf{x} = [2.0, 4.0, 1.0, 5.0]$, chia làm 2 block với kích thước $B = 2$:
 \begin{itemize}
   \item Block 1: $\mathbf{x}^{(1)} = [2.0, 4.0]$.
   \item Block 2: $\mathbf{x}^{(2)} = [1.0, 5.0]$.
@@ -327,7 +326,7 @@ S_3 &= \frac{e^{1.0 - 5.0}}{d_2} = \frac{e^{-4.0}}{1.4360} = \frac{0.0183}{1.436
 S_4 &= \frac{e^{5.0 - 5.0}}{d_2} = \frac{e^{0.0}}{1.4360} = \frac{1.0000}{1.4360} \approx \mathbf{0.6964}
 \end{align*}
 Tổng xác suất: $0.0347 + 0.2562 + 0.0127 + 0.6964 = 1.0000$. Kết quả trùng khớp hoàn hảo với Softmax chuẩn mà không cần lưu toàn bộ mảng cùng lúc!
-\end{workedexamplebox}
+\end{example}
 
 ---
 

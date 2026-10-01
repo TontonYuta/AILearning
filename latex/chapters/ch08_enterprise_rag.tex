@@ -70,13 +70,12 @@ Cho hai véc-tơ biểu diễn đa chiều $\mathbf{u}, \mathbf{v} \in \mathbb{R
   \end{equation}
 \end{itemize}
 
-\begin{intuitionbox}[Tại Sao Phải Chuẩn Hóa L2 Trước Khi Lưu Vào Vector DB?]
+\paragraph{Tại Sao Phải Chuẩn Hóa L2 Trước Khi Lưu Vào Vector DB?}:
 Nếu tất cả các véc-tơ trong cơ sở dữ liệu đều được chuẩn hóa độ dài về $1$ ($\|\mathbf{u}\|_2 = \|\mathbf{v}\|_2 = 1$ ngay khi nạp vào), ta có mối liên hệ toán học hoàn hảo:
 \begin{equation}
 D_{L2}^2(\mathbf{u}, \mathbf{v}) = \|\mathbf{u} - \mathbf{v}\|_2^2 = \|\mathbf{u}\|_2^2 + \|\mathbf{v}\|_2^2 - 2 \mathbf{u} \cdot \mathbf{v} = 2 - 2 \langle \mathbf{u}, \mathbf{v} \rangle = 2 D_{\text{Cosine}}(\mathbf{u}, \mathbf{v})
 \end{equation}
 Do đó, việc tối đa hóa Cosine Similarity hoàn toàn tương đương với việc tối đa hóa Dot Product và tối thiểu hóa khoảng cách Euclid. Trong sản xuất, các kỹ sư luôn chuẩn hóa $L_2$ trước để chỉ cần tính Dot Product, tận dụng tối đa tập lệnh SIMD/AVX-512 trên CPU hoặc Tensor Cores trên GPU.
-\end{intuitionbox}
 
 \subsection{Thuật Toán IVFFlat (Inverted File with Flat Vectors)}
 IVFFlat giải quyết bài toán tìm kiếm ANN bằng phương pháp phân vùng không gian Voronoi:
@@ -151,7 +150,7 @@ Cho $M$ danh sách xếp hạng tài liệu độc lập từ các hệ thống 
 trong đó $r_m(d) \in \{1, 2, 3, \dots\}$ là thứ hạng (1-indexed) của tài liệu $d$ trong danh sách thứ $m$. Hằng số làm mịn $k$ (thường chọn $k = 60$) có tác dụng giảm độ dốc giữa các thứ hạng đầu, ngăn chặn việc một tài liệu đứng hạng 1 ở một danh sách đơn lẻ lấn át hoàn toàn một tài liệu đứng hạng 2 và hạng 3 ở cả hai danh sách. Nếu tài liệu $d$ không xuất hiện trong danh sách $m$, ta quy ước $r_m(d) = \infty \implies \frac{1}{k + r_m(d)} = 0$.
 \end{definition}
 
-\begin{workedexamplebox}[Tính Toán Bằng Tay Dung Hợp Thứ Hạng RRF]
+\begin{example}[Tính Toán Bằng Tay Dung Hợp Thứ Hạng RRF]
 Xét 4 tài liệu $\{A, B, C, D\}$ được xếp hạng bởi 2 động cơ:
 \begin{itemize}
   \item Danh sách 1 (BM25): Hạng 1 là $A$, Hạng 2 là $B$, Hạng 3 là $C$. ($D$ không có trong danh sách).
@@ -166,7 +165,7 @@ Xét 4 tài liệu $\{A, B, C, D\}$ được xếp hạng bởi 2 động cơ:
 \end{itemize}
 Thứ hạng chung cuộc: \textbf{$B > A > D > C$}.
 Tài liệu $B$ giành chiến thắng vì nó giữ vị trí rất cao trên cả hai kênh tìm kiếm, chứng minh sức mạnh của nguyên lý xếp hạng tương hỗ!
-\end{workedexamplebox}
+\end{example}
 
 ---
 

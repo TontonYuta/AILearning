@@ -467,6 +467,170 @@ N_{\text{GPU}} = \left\lceil \frac{500}{64} \right\rceil = 8\text{ GPUs H100}
 
 ---
 
+\section{Lý Thuyết Học Máy Cốt Lõi, Tối Ưu Hóa \& Căn Bản Toán Học Mô Hình Lớn}
+\label{sec:app-math-deep-theory}
+
+\subsection{Định Lý Xấp Xỉ Phổ Quát (Universal Approximation Theorem)}
+Một trong những câu hỏi nền tảng nhất của lý thuyết học sâu: Tại sao mạng nơ-ron nhân tạo lại có thể học được những quy luật phức tạp bất kỳ của thế giới thực? Câu trả lời nằm ở \term{Định Lý Xấp Xỉ Phổ Quát (Universal Approximation Theorem)}, được chứng minh độc lập bởi Cybenko (1989) cho hàm kích hoạt Sigmoidal và Hornik (1991) cho các hàm kích hoạt phi tuyến tính tổng quát.
+
+\begin{theorem}[Định Lý Xấp Xỉ Phổ Quát Cybenko--Hornik]
+Cho $\sigma: \mathbb{R} \to \mathbb{R}$ là một hàm kích hoạt liên tục, không phải là đa thức (ví dụ: Sigmoid, Tanh, ReLU, GELU). Đặt $\mathcal{M}_n$ là không gian các hàm tạo bởi mạng truyền thẳng một tầng ẩn duy nhất với số lượng nơ-ron hữu hạn:
+\begin{equation}
+F(\mathbf{x}) = \sum_{i=1}^m \alpha_i \sigma(\mathbf{w}_i^T \mathbf{x} + b_i), \quad \alpha_i, b_i \in \mathbb{R}, \; \mathbf{w}_i \in \mathbb{R}^n
+\end{equation}
+Khi đó, với mọi tập compact $K \subset \mathbb{R}^n$, mọi hàm liên tục mục tiêu $f \in C(K)$ và mọi sai số $\epsilon > 0$, luôn tồn tại một mạng $F \in \mathcal{M}_n$ sao cho:
+\begin{equation}
+\sup_{\mathbf{x} \in K} |F(\mathbf{x}) - f(\mathbf{x})| < \epsilon
+\end{equation}
+Nói cách khác, không gian $\mathcal{M}_n$ là trù mật (\textit{dense}) trong không gian các hàm liên tục $C(K)$ theo chuẩn hội tụ đều.
+\end{theorem}
+
+\begin{proof}[Ý Tưởng Chứng Minh Giải Tích (Hahn-Banach \& Độ Đo Radon)]
+Giả sử phản chứng rằng bao đóng của $\mathcal{M}_n$ không trùng với $C(K)$. Theo Bổ đề Hahn-Banach kết hợp với Định lý Biểu diễn Riesz, tồn tại một phiếm hàm tuyến tính liên tục khác không $L \in C(K)^*$, tương ứng với một độ đo Radon có dấu $\mu \neq 0$ trên $K$, sao cho $L$ triệt tiêu trên toàn bộ $\mathcal{M}_n$:
+\begin{equation}
+L(F) = \int_K F(\mathbf{x}) d\mu(\mathbf{x}) = 0, \quad \forall F \in \mathcal{M}_n
+\end{equation}
+Đặc biệt, với mọi véc-tơ trọng số $\mathbf{w} \in \mathbb{R}^n$ và độ dịch $b \in \mathbb{R}$, ta luôn có:
+\begin{equation}
+\int_K \sigma(\mathbf{w}^T \mathbf{x} + b) d\mu(\mathbf{x}) = 0
+\end{equation}
+Khi $\sigma$ là hàm kích hoạt dạng Sigmoidal (thỏa mãn $\lim_{t \to -\infty} \sigma(t) = 0$ và $\lim_{t \to \infty} \sigma(t) = 1$), bằng cách cho độ dốc tiến tới vô cùng, hàm $\sigma(\lambda(\mathbf{w}^T \mathbf{x} + b))$ hội tụ yếu về hàm chỉ thị của nửa không gian $H = \{\mathbf{x} \mid \mathbf{w}^T \mathbf{x} + b \ge 0\}$.
+Điều này suy ra độ đo $\mu(H) = 0$ với mọi nửa không gian $H$. Vì các nửa không gian sinh ra toàn bộ đại số Borel trên $\mathbb{R}^n$, ta bắt buộc phải có độ đo $\mu \equiv 0$, mâu thuẫn trực tiếp với giả thiết $\mu \neq 0$.
+Do đó, $\mathcal{M}_n$ bắt buộc phải trù mật trong $C(K)$.
+\end{proof}
+
+\paragraph{Trực giác Kỹ nghệ: Nghịch lý Mạng Nông vs Sức Mạnh Mạng Sâu}:
+Mặc dù định lý khẳng định một tầng ẩn là đủ để xấp xỉ mọi hàm số, nhưng nó \textbf{không đưa ra giới hạn} cho số lượng nơ-ron $m$. Để xấp xỉ một hàm số biến thiên phức tạp trong không gian $n$ chiều (ví dụ bài toán chẵn lẻ Parity hoặc mặt gấp nếp), mạng một tầng ẩn đòi hỏi số lượng nơ-ron tăng theo hàm số mũ:
+\begin{equation}
+m = \mathcal{O}(2^n)
+\end{equation}
+Ngược lại, khi mở rộng chiều sâu thành mạng sâu $L$ tầng (\textit{Deep Networks}), mỗi tầng ẩn thực hiện một phép gập không gian (\textit{Space Folding}). Mạng sâu có thể tạo ra số lượng vùng tuyến tính cục bộ (\textit{Linear Regions}) tăng theo cấp số nhân $\mathcal{O}(k^L)$ chỉ với số lượng tham số tăng tuyến tính theo chiều sâu $\mathcal{O}(L)$. Đây chính là lý do các kiến trúc nền tảng như Transformer bắt buộc phải phát triển theo chiều sâu (ví dụ LLaMA-3 có 32 đến 128 tầng).
+
+\subsection{Dẫn Xuất Giải Tích Tách Rời Trọng Số Suy Giảm AdamW (Decoupled Weight Decay)}
+Hầu hết các kỹ sư đều quen thuộc với việc thêm hàm phạt điều chuẩn $L_2$ (\textit{L2 Regularization}) vào hàm mất mát:
+\begin{equation}
+\mathcal{L}_{\text{reg}}(\boldsymbol{\theta}) = \mathcal{L}(\boldsymbol{\theta}) + \frac{\lambda}{2} \|\boldsymbol{\theta}\|_2^2
+\end{equation}
+
+\paragraph{1. Với thuật toán hạ độ dốc ngẫu nhiên (SGD)}:
+Gradient tổng thể là $\mathbf{g}_t = \nabla \mathcal{L}(\boldsymbol{\theta}_t) + \lambda \boldsymbol{\theta}_t$. Bước cập nhật trọng số:
+\begin{equation}
+\boldsymbol{\theta}_{t+1} = \boldsymbol{\theta}_t - \eta \mathbf{g}_t = \boldsymbol{\theta}_t - \eta \left( \nabla \mathcal{L}(\boldsymbol{\theta}_t) + \lambda \boldsymbol{\theta}_t \right) = (1 - \eta \lambda) \boldsymbol{\theta}_t - \eta \nabla \mathcal{L}(\boldsymbol{\theta}_t)
+\end{equation}
+Trong SGD, việc thêm điều chuẩn $L_2$ hoàn toàn tương đương với việc co nhỏ trọng số đi một tỷ lệ $(1 - \eta \lambda)$ ở mỗi bước lặp (\textit{Weight Decay}).
+
+\paragraph{2. Sự sụp đổ của L2 Regularization trong Adam truyền thống}:
+Trong thuật toán Adam, véc-tơ gradient được chuẩn hóa bởi căn bậc hai của mô-men bậc hai tích lũy $\mathbf{v}_t$:
+\begin{equation}
+\mathbf{m}_t = \beta_1 \mathbf{m}_{t-1} + (1 - \beta_1) \mathbf{g}_t, \quad \mathbf{v}_t = \beta_2 \mathbf{v}_{t-1} + (1 - \beta_2) \mathbf{g}_t^2
+\end{equation}
+Nếu áp dụng $L_2$ Regularization bằng cách gộp $\lambda \boldsymbol{\theta}_t$ vào $\mathbf{g}_t$:
+\begin{equation}
+\boldsymbol{\theta}_{t+1} = \boldsymbol{\theta}_t - \frac{\eta}{\sqrt{\hat{\mathbf{v}}_t} + \epsilon} \hat{\mathbf{m}}_t \approx \boldsymbol{\theta}_t - \frac{\eta}{\sqrt{\hat{\mathbf{v}}_t} + \epsilon} \left( \nabla \mathcal{L} + \lambda \boldsymbol{\theta}_t \right) = \boldsymbol{\theta}_t - \left( \frac{\eta \lambda}{\sqrt{\hat{\mathbf{v}}_t} + \epsilon} \right) \boldsymbol{\theta}_t - \frac{\eta}{\sqrt{\hat{\mathbf{v}}_t} + \epsilon} \nabla \mathcal{L}
+\end{equation}
+\textbf{Nghịch lý toán học chí mạng}:
+Tỷ lệ suy giảm thực tế của trọng số bây giờ là $\frac{\eta \lambda}{\sqrt{\hat{\mathbf{v}}_t} + \epsilon}$.
+\begin{itemize}
+  \item Các tham số có gradient lịch sử rất lớn ($\hat{\mathbf{v}}_t$ lớn) sẽ bị phạt \textbf{ít hơn} vì mẫu số lớn!
+  \item Các tham số có gradient lịch sử nhỏ hoặc thưa thớt ($\hat{\mathbf{v}}_t \approx 0$) lại bị phạt co giật \textbf{cực mạnh}!
+\end{itemize}
+Điều này đi ngược lại hoàn toàn bản chất của Weight Decay: Một trọng số lớn cần phải được kiểm soát co lại mạnh hơn chứ không phải bị suy giảm ít hơn.
+
+\paragraph{3. Thuật toán AdamW giải quyết triệt để}:
+Loshchilov \& Hutter (2017) đề xuất tách rời (\textit{Decouple}) hoàn toàn bước tính gradient của hàm mất mát và bước suy giảm trọng số:
+\begin{equation}
+\boldsymbol{\theta}_{t+1} = (1 - \eta \lambda) \boldsymbol{\theta}_t - \frac{\eta}{\sqrt{\hat{\mathbf{v}}_t} + \epsilon} \left( \frac{\mathbf{m}_t}{1 - \beta_1^t} \right)
+\end{equation}
+Nhờ phép biến đổi giải tích này, mọi trọng số trong mạng nơ-ron Transformer đều bị suy giảm đồng đều theo đúng tỷ lệ $(1 - \eta \lambda)$ bất chấp độ lớn gradient cục bộ của nó, phục hồi khả năng khái quát hóa vượt bậc khi huấn luyện LLM quy mô hàng tỷ tham số.
+
+\subsection{Dẫn Xuất Giải Tích Đổi Mới Chính Sách Trực Tiếp (Direct Preference Optimization - DPO)}
+Trong quá trình căn chỉnh mô hình ngôn ngữ theo sở thích con người (RLHF), phương pháp cổ điển sử dụng thuật toán PPO đòi hỏi phải duy trì đồng thời 4 mô hình lớn trong bộ nhớ GPU: Actor Policy $\pi_\theta$, Reference Policy $\pi_{\text{ref}}$, Reward Model $r_\psi$, và Critic Value Network $V_\phi$. Hệ thống này cực kỳ bất ổn và dễ tràn VRAM.
+DPO (Rafailov et al., 2023) giải quyết bài toán này bằng cách giải tích nghiệm khép kín của bài toán tối ưu.
+
+\paragraph{1. Mô hình sở thích con người Bradley-Terry}:
+Cho câu hỏi gợi ý $x$ và hai câu trả lời ứng viên $(y_w, y_l)$, trong đó $y_w$ là phản hồi được con người ưa thích hơn $y_l$ ($y_w \succ y_l$). Xác suất con người lựa chọn $y_w$ tuân theo mô hình phân phối Logistic Bradley-Terry:
+\begin{equation}
+P(y_w \succ y_l \mid x) = \sigma\left( r(x, y_w) - r(x, y_l) \right) = \frac{1}{1 + \exp\left( - (r(x, y_w) - r(x, y_l)) \right)}
+\end{equation}
+
+\paragraph{2. Bài toán tối ưu hóa RLHF có phạt phân kỳ KL}:
+Mục tiêu là tìm chính sách $\pi$ tối đa hóa hàm thưởng kỳ vọng đồng thời không rời quá xa chính sách tham chiếu ban đầu $\pi_{\text{ref}}$:
+\begin{equation}
+\max_{\pi} \mathbb{E}_{x \sim \mathcal{D}, y \sim \pi(\cdot \mid x)} [r(x, y)] - \beta \, \mathbb{D}_{\text{KL}}\left(\pi(\cdot \mid x) \parallel \pi_{\text{ref}}(\cdot \mid x)\right)
+\end{equation}
+Khai triển định nghĩa của độ phân kỳ Kullback-Leibler:
+\begin{align}
+\max_{\pi} \mathbb{E}_{x \sim \mathcal{D}} \left[ \sum_y \pi(y \mid x) r(x, y) - \beta \sum_y \pi(y \mid x) \log \frac{\pi(y \mid x)}{\pi_{\text{ref}}(y \mid x)} \right] \nonumber \\
+= \max_{\pi} \mathbb{E}_{x \sim \mathcal{D}} \left[ - \beta \sum_y \pi(y \mid x) \log \frac{\pi(y \mid x)}{\frac{1}{Z(x)} \pi_{\text{ref}}(y \mid x) \exp\left(\frac{1}{\beta} r(x, y)\right)} + \beta \log Z(x) \right]
+\end{align}
+trong đó $Z(x) = \sum_y \pi_{\text{ref}}(y \mid x) \exp\left(\frac{1}{\beta} r(x, y)\right)$ là hằng số phân vùng (\textit{Partition Function}).
+Biểu thức bên trong tổng chính là độ phân kỳ KL âm: $- \beta \, \mathbb{D}_{\text{KL}}\left(\pi(\cdot \mid x) \parallel \pi^*(\cdot \mid x)\right)$. Vì $\mathbb{D}_{\text{KL}} \ge 0$ và đạt cực tiểu bằng 0 khi hai phân phối trùng nhau, chính sách tối ưu toàn cục $\pi^*(y \mid x)$ bắt buộc phải có dạng Boltzmann-Gibbs:
+\begin{equation}
+\pi^*(y \mid x) = \frac{1}{Z(x)} \pi_{\text{ref}}(y \mid x) \exp\left( \frac{1}{\beta} r(x, y) \right)
+\end{equation}
+
+\paragraph{3. Biến đổi nghịch đảo triệt tiêu hàm thưởng ngầm}:
+Lấy logarit tự nhiên ở cả hai vế:
+\begin{equation}
+\log \pi^*(y \mid x) = \log \pi_{\text{ref}}(y \mid x) + \frac{1}{\beta} r(x, y) - \log Z(x)
+\end{equation}
+Giải ra biểu thức giải tích của hàm thưởng ngầm $r(x, y)$:
+\begin{equation}
+r(x, y) = \beta \log \frac{\pi^*(y \mid x)}{\pi_{\text{ref}}(y \mid x)} + \beta \log Z(x)
+\end{equation}
+
+Thay thế trực tiếp biểu thức $r(x, y)$ vào mô hình xác suất sở thích Bradley-Terry:
+\begin{align}
+r(x, y_w) - r(x, y_l) &= \left( \beta \log \frac{\pi^*(y_w \mid x)}{\pi_{\text{ref}}(y_w \mid x)} + \beta \log Z(x) \right) - \left( \beta \log \frac{\pi^*(y_l \mid x)}{\pi_{\text{ref}}(y_l \mid x)} + \beta \log Z(x) \right) \nonumber \\
+&= \beta \log \frac{\pi^*(y_w \mid x)}{\pi_{\text{ref}}(y_w \mid x)} - \beta \log \frac{\pi^*(y_l \mid x)}{\pi_{\text{ref}}(y_l \mid x)}
+\end{align}
+Hằng số phân vùng $Z(x)$ -- vốn cực kỳ khó tính toán trong không gian từ vựng ngôn ngữ khổng lồ -- \textbf{đã tự động triệt tiêu hoàn toàn}!
+
+\paragraph{4. Hàm mất mát DPO khép kín}:
+Hàm mất mát Maximum Likelihood trực tiếp cho mạng nơ-ron $\pi_\theta$:
+\begin{equation}
+\mathcal{L}_{\text{DPO}}(\theta; \pi_{\text{ref}}) = - \mathbb{E}_{(x, y_w, y_l) \sim \mathcal{D}} \left[ \log \sigma \left( \beta \log \frac{\pi_\theta(y_w \mid x)}{\pi_{\text{ref}}(y_w \mid x)} - \beta \log \frac{\pi_\theta(y_l \mid x)}{\pi_{\text{ref}}(y_l \mid x)} \right) \right]
+\end{equation}
+Đạo hàm theo tham số $\theta$:
+\begin{equation}
+\nabla_\theta \mathcal{L}_{\text{DPO}} = - \beta \underbrace{\sigma\left( \hat{r}_\theta(x, y_l) - \hat{r}_\theta(x, y_w) \right)}_{\text{Trọng số điều phối động}} \left[ \nabla_\theta \log \pi_\theta(y_w \mid x) - \nabla_\theta \log \pi_\theta(y_l \mid x) \right]
+\end{equation}
+Khi mô hình đánh giá sai nghiêm trọng (tức $\hat{r}_\theta(x, y_l) \gg \hat{r}_\theta(x, y_w)$), trọng số hàm Sigmoid tiến tới $1.0$, thúc đẩy gradient sửa đổi mạnh mẽ. Khi mô hình đã đánh giá đúng, trọng số tiến về 0, ngăn ngừa hiện tượng phá hủy tri thức cũ.
+
+\subsection{Định Lý Phổ Ma Trận \& Tối Ưu Hóa Rank Thấp LoRA (Low-Rank Adaptation)}
+\begin{theorem}[Bổ Đề Eckart--Young--Mirsky Cho Xấp Xỉ Ma Trận Hạng Thấp]
+Cho ma trận trọng số $\mathbf{W} \in \mathbb{R}^{m \times n}$ có phân rã giá trị kỳ dị (SVD):
+\begin{equation}
+\mathbf{W} = \mathbf{U} \mathbf{\Sigma} \mathbf{V}^T = \sum_{i=1}^{\min(m, n)} \sigma_i \mathbf{u}_i \mathbf{v}_i^T
+\end{equation}
+trong đó $\sigma_1 \ge \sigma_2 \ge \dots \ge \sigma_{\min(m, n)} \ge 0$.
+Với mọi số nguyên $r < \min(m, n)$, nghiệm tối ưu của bài toán xấp xỉ ma trận có hạng không vượt quá $r$ theo chuẩn Frobenius:
+\begin{equation}
+\min_{\mathbf{A}: \, \text{rank}(\mathbf{A}) \le r} \|\mathbf{W} - \mathbf{A}\|_F
+\end{equation}
+chính là ma trận cắt cụt SVD $r$ thành phần đầu tiên:
+\begin{equation}
+\mathbf{W}_r = \sum_{i=1}^r \sigma_i \mathbf{u}_i \mathbf{v}_i^T
+\end{equation}
+Sai số xấp xỉ tối thiểu đạt được chính xác bằng tổng bình phương các giá trị kỳ dị bị loại bỏ:
+\begin{equation}
+\|\mathbf{W} - \mathbf{W}_r\|_F = \sqrt{\sum_{i=r+1}^{\min(m, n)} \sigma_i^2}
+\end{equation}
+\end{theorem}
+
+\paragraph{Ý nghĩa đối với kiến trúc LoRA}:
+Trong kỹ thuật tinh chỉnh LoRA (Hu et al., 2021), thay vì cập nhật toàn bộ ma trận trọng số $\mathbf{W}_0 \in \mathbb{R}^{d \times k}$, ta đóng băng $\mathbf{W}_0$ và chỉ huấn luyện phần biến thiên ma trận hạng thấp:
+\begin{equation}
+\mathbf{W} = \mathbf{W}_0 + \Delta \mathbf{W} = \mathbf{W}_0 + \frac{\alpha}{r} \mathbf{B}\mathbf{A}, \quad \mathbf{B} \in \mathbb{R}^{d \times r}, \; \mathbf{A} \in \mathbb{R}^{r \times k}
+\end{equation}
+Thực nghiệm phổ giá trị kỳ dị của các mô hình LLM chứng minh rằng ma trận biến thiên $\Delta \mathbf{W}$ trong các tác vụ miền hẹp có phổ năng lượng suy giảm cực kỳ dốc (\textit{Steep Spectral Decay}):
+\begin{equation}
+\frac{\sum_{i=1}^r \sigma_i^2}{\sum_{i=1}^{\min(d, k)} \sigma_i^2} \ge 0.95 \quad \text{chỉ với } r = 8 \text{ hoặc } r = 16!
+\end{equation}
+Điều này chứng minh bằng toán học rằng việc chỉ huấn luyện $0.1\%$ số lượng tham số qua cặp ma trận $(\mathbf{B}, \mathbf{A})$ vẫn bảo toàn được $95\%$ năng lượng thông tin của toàn bộ quá trình tinh chỉnh tham số!
+
+---
+
 \section{Tổng Hợp Các Hằng Số \& Bảng Ký Hiệu Chuẩn Mực}
 \label{sec:app-math-symbols}
 

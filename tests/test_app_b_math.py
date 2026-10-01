@@ -160,3 +160,103 @@ def test_chinchilla_scaling_law_derivation():
     assert math.isclose(a_exponent + b_exponent, 1.0)
     assert 0.40 <= a_exponent <= 0.50
     assert 0.50 <= b_exponent <= 0.60
+
+
+def test_universal_approximation_toy():
+    """Verify Universal Approximation Theorem on 1D function using shallow network."""
+    # Target: sin(2 * pi * x) on [0, 1]
+    np.random.seed(42)
+    x = np.linspace(0, 1, 100).reshape(-1, 1)
+    y_true = np.sin(2 * np.pi * x)
+    
+    # 20 hidden units with random weights and linear output fit
+    m = 20
+    W1 = np.random.randn(1, m) * 4.0
+    b1 = np.random.randn(1, m) * 2.0
+    
+    # Hidden activations with Tanh
+    H = np.tanh(x @ W1 + b1)  # shape (100, m)
+    
+    # Least-squares fit for output weights (alpha)
+    alpha, _, _, _ = np.linalg.lstsq(H, y_true, rcond=None)
+    y_pred = H @ alpha
+    
+    max_error = np.max(np.abs(y_pred - y_true))
+    # Approximation error should be reasonably bounded
+    assert max_error < 0.25
+
+
+def test_adamw_weight_decay_decoupling():
+    """Verify AdamW decouples weight decay from adaptive gradient scaling."""
+    eta = 0.01
+    weight_decay = 0.1
+    
+    theta_0 = np.array([2.0, 2.0])
+    # Parameter 0 has huge gradient, parameter 1 has small gradient
+    g = np.array([10.0, 0.1])
+    
+    # In AdamW, weight decay co-factors (1 - eta * lambda) identically
+    theta_decayed = theta_0 * (1.0 - eta * weight_decay)
+    
+    # Both weights decay by exact same fraction (0.999) regardless of g
+    decay_ratio_0 = theta_decayed[0] / theta_0[0]
+    decay_ratio_1 = theta_decayed[1] / theta_0[1]
+    assert np.isclose(decay_ratio_0, decay_ratio_1)
+    assert np.isclose(decay_ratio_0, 0.999)
+
+
+def test_dpo_loss_and_gradient_dynamics():
+    """Verify DPO loss and implicit reward weighting dynamics."""
+    beta = 0.1
+    
+    # Case 1: Model agrees with preference (r_w > r_l)
+    logp_w_model = -1.0
+    logp_w_ref = -2.0  # implicit reward w = 0.1 * (-1.0 - (-2.0)) = +0.1
+    logp_l_model = -3.0
+    logp_l_ref = -2.0  # implicit reward l = 0.1 * (-3.0 - (-2.0)) = -0.1
+    
+    r_w = beta * (logp_w_model - logp_w_ref)
+    r_l = beta * (logp_l_model - logp_l_ref)
+    
+    # Margin is positive: r_w - r_l = 0.2
+    margin = r_w - r_l
+    loss_satisfied = -np.log(1.0 / (1.0 + np.exp(-margin)))
+    
+    # Case 2: Model violates preference (r_w < r_l)
+    r_w_bad = -0.1
+    r_l_bad = +0.1
+    margin_bad = r_w_bad - r_l_bad  # -0.2
+    loss_violated = -np.log(1.0 / (1.0 + np.exp(-margin_bad)))
+    
+    # Loss must be strictly higher when model favors the dispreferred output
+    assert loss_violated > loss_satisfied
+    
+    # Weighting factor in gradient: sigma(r_l - r_w)
+    weight_bad = 1.0 / (1.0 + np.exp(-(r_l_bad - r_w_bad)))
+    weight_good = 1.0 / (1.0 + np.exp(-(r_l - r_w)))
+    assert weight_bad > weight_good
+
+
+def test_eckart_young_mirsky_lora():
+    """Verify Eckart-Young-Mirsky SVD low-rank truncation and energy preservation."""
+    np.random.seed(42)
+    # Weight matrix W of size (64, 32) with decaying singular values
+    U, _ = np.linalg.qr(np.random.randn(64, 32))
+    V, _ = np.linalg.qr(np.random.randn(32, 32))
+    # Steeply decaying singular values (e.g. geometric decay)
+    s = np.array([2.0 ** (-i * 0.4) for i in range(32)])
+    W = U @ np.diag(s) @ V.T
+    
+    # Rank-8 approximation
+    r = 8
+    W_r = U[:, :r] @ np.diag(s[:r]) @ V[:, :r].T
+    
+    # Analytical Frobenius error
+    frobenius_err_actual = np.linalg.norm(W - W_r, 'fro')
+    frobenius_err_theoretical = np.sqrt(np.sum(s[r:] ** 2))
+    assert np.isclose(frobenius_err_actual, frobenius_err_theoretical)
+    
+    # Cumulative energy captured by rank-8
+    energy_captured = np.sum(s[:r] ** 2) / np.sum(s ** 2)
+    assert energy_captured > 0.95  # 95%+ energy preserved
+

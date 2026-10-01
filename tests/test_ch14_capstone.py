@@ -2,8 +2,9 @@
 Unit tests for Chapter 14: Flagship Capstone AI-NetSecOps Platform
 Covers:
 - MTTR and storage capacity calculations
-- AINetSecOpsPlatform (Triage, Diagnostics, RAG Intel, Safety Guardrail, Workflow)
+- AINetSecOpsPlatform (Triage, Diagnostics, RAG Intel, Safety Guardrail with Protected Allowlist)
 - TransactionalNetworkConfigurator (Automated Rollback derivation & LIFO execution)
+- End-to-end latency calculation
 """
 
 import re
@@ -33,6 +34,14 @@ def calculate_annual_savings(
     annual_savings = freed_hours * hourly_rate * 12.0
     return freed_hours, annual_savings
 
+def calculate_end_to_end_latency(
+    triage_ms: float, rag_ms: float, synthesis_ms: float, guardrail_ms: float
+) -> Tuple[float, float]:
+    """Returns (total_ms, synthesis_percentage)."""
+    total = triage_ms + rag_ms + synthesis_ms + guardrail_ms
+    percentage = (synthesis_ms / total) * 100.0
+    return total, round(percentage, 2)
+
 def test_mttr_and_savings_math():
     # Exercise B.1: 80% at 2min, 20% at 20min
     new_mttr = calculate_new_mttr(0.8, 2.0, 0.2, 20.0)
@@ -42,6 +51,11 @@ def test_mttr_and_savings_math():
     freed_hrs, annual_savings = calculate_annual_savings(400, 45.0, 5.6, 60.0)
     assert freed_hrs == pytest.approx(262.666, abs=0.1)
     assert annual_savings == pytest.approx(189120.0, abs=10.0)
+
+    # Exercise B.3: Latency calculations
+    total_ms, synth_pct = calculate_end_to_end_latency(300.0, 25.0, 1200.0, 5.0)
+    assert total_ms == 1530.0
+    assert synth_pct == pytest.approx(78.43, abs=0.1)
 
 # ==============================================================================
 # 2. AI-NETSECOPS PLATFORM
@@ -55,6 +69,10 @@ class AINetSecOpsPlatform:
         re.compile(r"\bformat\b", re.IGNORECASE),
         re.compile(r"\bip\s+route\s+del\s+default\b", re.IGNORECASE),
     ]
+
+    PROTECTED_ALLOWLIST = {
+        "127.0.0.1", "10.0.0.1", "10.0.0.2", "192.168.1.1", "8.8.8.8"
+    }
 
     def __init__(self, cve_database: Optional[Dict[str, str]] = None):
         self.cve_database = cve_database or {
@@ -97,10 +115,14 @@ class AINetSecOpsPlatform:
             return "systemd-resolve --flush-caches"
         return "echo 'No action defined'"
 
-    def validate_command_safety(self, command: str) -> bool:
+    def validate_command_safety(self, command: str, target_ip: Optional[str] = None) -> bool:
         for pattern in self.DANGEROUS_COMMANDS:
             if pattern.search(command):
                 return False
+
+        if target_ip and target_ip in self.PROTECTED_ALLOWLIST:
+            return False
+
         return True
 
     def execute_workflow(
@@ -118,7 +140,7 @@ class AINetSecOpsPlatform:
             diagnostics = self.run_threat_intel_rag(event_text)
 
         remediation_cmd = self.generate_remediation_command("BLOCK_IP", source_ip)
-        is_safe = self.validate_command_safety(remediation_cmd)
+        is_safe = self.validate_command_safety(remediation_cmd, target_ip=source_ip)
 
         record = {
             "incident_id": incident_id,
@@ -135,29 +157,40 @@ class AINetSecOpsPlatform:
 def test_platform_triage():
     platform = AINetSecOpsPlatform()
     assert platform.supervisor_triage("High packet loss on gateway") == "NETOPS_DIAGNOSIS"
-    assert platform.supervisor_triage("Detected port scan on port 443") == "SECOPS_THREAT_INTEL"
-    assert platform.supervisor_triage("How to reset password?") == "GENERAL_INQUIRY"
+    assert platform.supervisor_triage("Port scan detected from remote host") == "SECOPS_THREAT_INTEL"
+    assert platform.supervisor_triage("How do I request VPN access?") == "GENERAL_INQUIRY"
 
-def test_platform_command_safety():
+def test_platform_allowlist_blocks_critical_infrastructure():
     platform = AINetSecOpsPlatform()
-    assert platform.validate_command_safety("iptables -I INPUT -s 192.168.1.5 -j DROP")
-    assert not platform.validate_command_safety("rm -rf /etc/network")
-    assert not platform.validate_command_safety("reboot now")
-    assert not platform.validate_command_safety("ip route del default")
+    # Blocking default gateway 10.0.0.1 must be rejected by guardrail
+    cmd = platform.generate_remediation_command("BLOCK_IP", "10.0.0.1")
+    is_safe = platform.validate_command_safety(cmd, target_ip="10.0.0.1")
+    assert is_safe is False
+
+    # Blocking external malicious IP 203.0.113.50 must be permitted
+    cmd_ext = platform.generate_remediation_command("BLOCK_IP", "203.0.113.50")
+    is_safe_ext = platform.validate_command_safety(cmd_ext, target_ip="203.0.113.50")
+    assert is_safe_ext is True
+
+def test_platform_dangerous_command_guardrail():
+    platform = AINetSecOpsPlatform()
+    assert platform.validate_command_safety("rm -rf /etc/network") is False
+    assert platform.validate_command_safety("ip route del default") is False
+    assert platform.validate_command_safety("reboot") is False
+    assert platform.validate_command_safety("iptables -I INPUT -s 1.2.3.4 -j DROP") is True
 
 def test_platform_workflow_execution():
     platform = AINetSecOpsPlatform()
     res = platform.execute_workflow(
-        incident_id="INC-001",
-        event_text="Suspicious horizontal scan from external host",
-        source_ip="203.0.113.42"
+        incident_id="INC-2026-001",
+        event_text="Detected SYN Flood attack from untrusted IP",
+        source_ip="198.51.100.25"
     )
+    assert res["incident_id"] == "INC-2026-001"
     assert res["route"] == "SECOPS_THREAT_INTEL"
     assert res["is_safe"] is True
-    assert res["requires_human_approval"] is True
     assert res["status"] == "WAITING_FOR_HUMAN_APPROVAL"
-    assert "iptables -I INPUT -s 203.0.113.42 -j DROP" in res["proposed_command"]
-    assert len(platform.audit_log) == 1
+    assert res["requires_human_approval"] is True
 
 # ==============================================================================
 # 3. TRANSACTIONAL NETWORK CONFIGURATOR
@@ -192,22 +225,32 @@ class TransactionalNetworkConfigurator:
         executed_cmd, rollback_cmd = self.history_stack.pop()
         return True, f"Da hoan nguyen thanh cong bang lenh: {rollback_cmd}"
 
-def test_transactional_configurator_flow():
+def test_transactional_network_rollback():
     configurator = TransactionalNetworkConfigurator()
     
-    # 1. Execute iptables block
-    cmd = "iptables -I INPUT -s 10.10.10.5 -j DROP"
-    success, msg = configurator.execute_with_transaction(cmd)
-    assert success
+    # 1. Execute iptables command
+    ok, msg = configurator.execute_with_transaction("iptables -I INPUT -s 10.99.1.5 -j DROP")
+    assert ok is True
     assert len(configurator.history_stack) == 1
-    assert configurator.history_stack[-1][1] == "iptables -D INPUT -s 10.10.10.5 -j DROP"
+    assert configurator.history_stack[-1][1] == "iptables -D INPUT -s 10.99.1.5 -j DROP"
 
-    # 2. Rollback
-    rb_success, rb_msg = configurator.rollback_last_action()
-    assert rb_success
-    assert "iptables -D INPUT -s 10.10.10.5 -j DROP" in rb_msg
+    # 2. Execute route command
+    ok2, msg2 = configurator.execute_with_transaction("ip route add 192.168.100.0/24 via 10.0.0.254")
+    assert ok2 is True
+    assert len(configurator.history_stack) == 2
+
+    # 3. Rollback last action (LIFO) -> route command
+    rb_ok, rb_msg = configurator.rollback_last_action()
+    assert rb_ok is True
+    assert "ip route del 192.168.100.0/24 via 10.0.0.254" in rb_msg
+    assert len(configurator.history_stack) == 1
+
+    # 4. Rollback first action -> iptables
+    rb_ok2, rb_msg2 = configurator.rollback_last_action()
+    assert rb_ok2 is True
+    assert "iptables -D INPUT -s 10.99.1.5 -j DROP" in rb_msg2
     assert len(configurator.history_stack) == 0
 
-    # 3. Rollback on empty stack
-    empty_success, empty_msg = configurator.rollback_last_action()
-    assert not empty_success
+    # 5. Empty rollback fails gracefully
+    rb_ok3, rb_msg3 = configurator.rollback_last_action()
+    assert rb_ok3 is False

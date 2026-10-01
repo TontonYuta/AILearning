@@ -1,8 +1,8 @@
 % ==============================================================================
 % CH01_ORIENTATION.TEX — CHƯƠNG 1: TOÀN CẢNH HỆ THỐNG AI & KỸ SƯ AI CHUYÊN NGHIỆP
 % ==============================================================================
-% Định dạng: Sách chuyên khảo kinh điển (Classic Engineering Monograph)
-% Chuẩn mực: Không dùng hộp đóng khung 4 phía, toán học 5 bước, bài tập đa tầng
+% Định dạng: Sách chuyên khảo kinh điển (Classic Academic & Engineering Monograph)
+% Chuẩn mực: Tuyệt đối không dùng khung hộp 4 phía, toán học 5 bước, bài tập đa tầng
 % ==============================================================================
 
 \chapter{Toàn Cảnh Hệ Thống AI \& Chân Dung Kỹ Sư AI Chuyên Nghiệp}
@@ -11,7 +11,7 @@
 \section{Bối Cảnh Lịch Sử: Sự Chuyển Dịch Từ Nghiên Cứu Sang Kỹ Nghệ}
 \label{sec:history-and-shift}
 
-Trong hơn nửa thế kỷ phát triển của Trí tuệ Nhân tạo (Artificial Intelligence -- AI), ranh giới giữa nghiên cứu học thuật và ứng dụng công nghiệp đã trải qua ba cuộc biến chuyển mang tính kiến tạo:
+Trong hơn nửa thế kỷ phát triển của Trí tuệ Nhân tạo (\textit{Artificial Intelligence -- AI}), ranh giới giữa nghiên cứu học thuật và ứng dụng công nghiệp đã trải qua ba cuộc biến chuyển mang tính kiến tạo:
 
 \paragraph{Kỷ nguyên thứ nhất: Hệ thống chuyên gia và Quy tắc hình thức (1950 -- 1990)}
 Trong giai đoạn này, tri thức nhân loại được mã hóa thủ công thành hàng nghìn quy tắc \code{IF-THEN} thông qua logic suy diễn. Các hệ thống như MYCIN hay DENDRAL chứng minh khả năng giải quyết bài toán hẹp, nhưng sụp đổ nhanh chóng trước sự bùng nổ tổ hợp và tính bất định của thế giới thực. Hệ quả là ``Mùa đông AI'' kéo dài khi kỳ vọng vượt quá giới hạn phần cứng và năng lực biểu diễn dữ liệu.
@@ -22,7 +22,7 @@ Sự trỗi dậy của định dạng tính toán song song trên GPU kết h�
 \paragraph{Kỷ nguyên thứ ba: Mô hình nền tảng và Kỷ nguyên Kỹ nghệ AI (2020 -- Nay)}
 Sự ra đời của kiến trúc Transformer (Vaswani et al., 2017) kết hợp với các định luật mở rộng quy mô (\textit{Scaling Laws} của Kaplan et al. và Chinchilla) đã sinh ra các Mô hình Ngôn ngữ Lớn (LLM) và Mô hình Nền tảng (\textit{Foundation Models}). Các mô hình này được tiền huấn luyện trên hàng chục nghìn tỷ token dữ liệu phi cấu trúc, sở hữu năng lực suy luận tổng quát và khả năng thích nghi qua chỉ dẫn ngôn ngữ tự nhiên. 
 
-Sự thay đổi này biến mô hình AI từ một sản phẩm nghiên cứu thử nghiệm thành một **thành phần hạ tầng phần mềm cốt lõi (Core Software Primitive)**, tương tự như một hệ quản trị cơ sở dữ liệu hay một hệ điều hành phân tán. Khi mô hình đã có sẵn, thách thức không còn nằm ở việc huấn luyện thuật toán cơ bản, mà nằm ở:
+Sự thay đổi này biến mô hình AI từ một sản phẩm nghiên cứu thử nghiệm thành một \textbf{thành phần hạ tầng phần mềm cốt lõi (Core Software Primitive)}, tương tự như một hệ quản trị cơ sở dữ liệu hay một hệ điều hành phân tán. Khi mô hình đã có sẵn, thách thức không còn nằm ở việc huấn luyện thuật toán cơ bản, mà nằm ở:
 \begin{itemize}
   \item Làm thế nào tích hợp mô hình vào luồng nghiệp vụ đáng tin cậy với độ trễ tính bằng mili-giây?
   \item Làm thế nào bảo vệ hệ thống trước các cuộc tấn công tiêm mã lệnh (\textit{Prompt Injection}) và rò rỉ dữ liệu doanh nghiệp?
@@ -30,7 +30,7 @@ Sự thay đổi này biến mô hình AI từ một sản phẩm nghiên cứu 
   \item Làm thế nào triệt tiêu hiện tượng ảo giác (\textit{Hallucination}) để mô hình đưa ra câu trả lời có trích dẫn nguồn kiểm chứng được?
 \end{itemize}
 
-Từ bối cảnh đó, vai trò **Kỹ sư AI (AI Engineer)** chính thức ra đời.
+Từ bối cảnh đó, vai trò \textbf{Kỹ sư AI (AI Engineer)} chính thức ra đời.
 
 ---
 
@@ -43,7 +43,9 @@ Sự nhập nhằng về khái niệm thường khiến người mới bắt đ�
 \centering
 \small
 \setlength{\tabcolsep}{4pt}
-\begin{tabular}{p{0.20\textwidth}p{0.24\textwidth}p{0.25\textwidth}p{0.25\textwidth}}
+\caption{Ma trận phân định trách nhiệm các vai trò kỹ thuật trong hệ sinh thái AI}
+\label{tbl:role-comparison}
+\begin{tabular}{p{0.18\textwidth}p{0.24\textwidth}p{0.26\textwidth}p{0.26\textwidth}}
 \toprule
 \textbf{Vai Trò} & \textbf{Trọng Tâm Chính} & \textbf{Công Cụ \& Ngôn Ngữ} & \textbf{Đầu Ra Kỳ Vọng} \\
 \midrule
@@ -56,8 +58,6 @@ Sự nhập nhằng về khái niệm thường khiến người mới bắt đ�
 \textbf{AI Engineer} & Tích hợp mô hình nền tảng vào phần mềm thực tế, tối ưu hóa suy luận, RAG, Agent, bảo mật \& hạ tầng. & Python, FastAPI, Docker, vLLM, Qdrant, LangGraph, Linux, PostgreSQL. & Ứng dụng AI ổn định, chịu tải cao, an toàn, P99 $< 500\text{ms}$, chi phí thấp. \\
 \bottomrule
 \end{tabular}
-\caption{Ma trận phân định trách nhiệm các vai trò kỹ thuật trong hệ sinh thái AI}
-\label{tbl:role-comparison}
 \end{table}
 
 \begin{definition}[Kỹ Sư AI Chuyên Nghiệp -- Professional AI Engineer]
@@ -65,6 +65,36 @@ Một Kỹ sư AI là một kỹ sư phần mềm chuyên sâu, sở hữu tư d
 \end{definition}
 
 Triết lý cốt lõi của một Kỹ sư AI không phải là xem mô hình như một ``hộp đen thần kỳ'', mà là hiểu tường minh giới hạn vật lý, cơ chế quản lý bộ nhớ và các điểm gãy tiềm tàng của nó trong hệ thống tổng thể.
+
+\subsection{Cây Quyết Định Thích Ứng Kỹ Thuật: Prompting vs RAG vs Fine-Tuning}
+
+Khi đối mặt với một bài toán AI trong doanh nghiệp, lỗi phổ biến nhất của các kỹ sư thiếu kinh nghiệm là nhảy ngay vào việc huấn luyện lại hoặc tinh chỉnh mô hình (\textit{Fine-Tuning}). Điều này dẫn đến sự lãng phí tài nguyên và chi phí bảo trì khổng lồ. 
+
+\begin{figure}[htbp]
+\centering
+\small
+\begin{verbatim}
+                 [Bài toán Doanh Nghiệp Mới]
+                             |
+             (Mô hình có sẵn tri thức ngành?)
+                    /                \
+                 [CÓ]               [KHÔNG]
+                  /                    \
+    (Cần định dạng đầu ra?)      (Tri thức thay đổi liên tục?)
+         /          \                  /           \
+      [CÓ]        [KHÔNG]           [CÓ]         [KHÔNG]
+       /              \              /               \
+[Few-shot Prompt] [Zero-shot]   [Enterprise RAG]  (Cần dạy phong cách/ngữ pháp?)
+                                                     /           \
+                                                  [CÓ]         [KHÔNG]
+                                                   /               \
+                                            [LoRA Fine-Tune]  [RAG + Few-shot]
+\end{verbatim}
+\caption{Sơ đồ cây quyết định lựa chọn công nghệ tối ưu cho hệ thống AI}
+\label{fig:decision-tree-ai}
+\end{figure}
+
+Nguyên tắc vàng của Kỹ sư AI: \textbf{Ưu tiên kỹ thuật có chi phí và độ phức tạp thấp nhất trước.} Chỉ nâng cấp lên RAG khi cần tri thức động hoặc tài liệu nội bộ; và chỉ áp dụng Fine-Tuning khi cần uốn nắn hành vi đặc thù, phong cách ngôn ngữ hoặc tối ưu hóa kích thước mô hình để giảm chi phí suy luận.
 
 ---
 
@@ -74,13 +104,13 @@ Triết lý cốt lõi của một Kỹ sư AI không phải là xem mô hình n
 Một hệ thống AI chuyên nghiệp trong doanh nghiệp không bao giờ vận hành dưới dạng một cuốn sổ ghi chép tương tác (\textit{Jupyter Notebook}). Nó là một chu trình khép kín gồm 7 công đoạn liên kết chặt chẽ:
 
 \begin{enumerate}
-  \item \textbf{Tầng Thu Thập \& Làm Sạch Dữ Liệu (Data Ingestion \& Governance)}: Tiếp nhận dữ liệu phi cấu trúc từ hàng nghìn nguồn (PDF, cơ sở dữ liệu quan hệ, API, luồng log mạng), bóc tách nội dung, loại bỏ thông tin định danh cá nhân (PII) và kiểm tra tính toàn vẹn.
+  \item \textbf{Tầng Thu Thập \& Quản Trị Dữ Liệu (Data Ingestion \& Governance)}: Tiếp nhận dữ liệu phi cấu trúc từ hàng nghìn nguồn (PDF, cơ sở dữ liệu quan hệ, API, luồng log mạng), bóc tách nội dung, loại bỏ thông tin định danh cá nhân (PII) và kiểm tra tính toàn vẹn.
   \item \textbf{Tầng Lựa Chọn \& Thích Ứng Mô Hình (Model Selection \& Adaptation)}: Lựa chọn mô hình nền tảng tối ưu theo bài toán đánh đổi giữa năng lực lập luận, độ trễ và chi phí. Quyết định áp dụng kỹ thuật Prompt Engineering, In-Context Learning, RAG, hay Fine-Tuning LoRA.
   \item \textbf{Tầng Tối Ưu Hóa Phục Vụ Suy Luận (Inference Serving Layer)}: Triển khai mô hình trên cụm máy chủ chuyên dụng sử dụng các công nghệ quản lý bộ nhớ ảo như PagedAttention và gom cụm động (Continuous Batching) với công cụ vLLM.
   \item \textbf{Tầng Logic Nghiệp Vụ \& Điều Phối Tự Hành (Orchestration \& Agentic Logic)}: Xây dựng đồ thị trạng thái điều phối (State Graph) với LangGraph, quản trị phiên làm việc, tích hợp công cụ ngoại vi và cơ chế can thiệp của con người (\textit{Human-in-the-Loop}).
   \item \textbf{Tầng Đánh Giá Định Lượng \& Kiểm Soát An Ninh (Evaluation \& Guardrails)}: Đo lường chất lượng đầu ra tự động bằng các chỉ số Faithfulness, Answer Relevance thông qua framework Ragas. Áp dụng các bộ lọc kiểm soát mã độc, chống tấn công tiêm mã lệnh gián tiếp.
   \item \textbf{Tầng Đóng Gói \& Vận Hành Phân Tán (Containerization \& Distributed Deployment)}: Đóng gói microservices bằng Docker, điều phối tài nguyên GPU bằng Kubernetes, bảo vệ dịch vụ phía sau API Gateway và hàng đợi thông điệp bất đồng bộ (RabbitMQ/Kafka).
-  \item \textbf{Tầng Quan Sát, Cảnh Báo \& Tối Ưu Chi Phí (Observability \& FinOps)}: Giám sát thời gian thực các chỉ số P50/P99 Latency, tỷ lệ token sinh trên giây, lượng VRAM tiêu thụ bằng Prometheus và Grafana. Áp dụng bộ nhớ đệm ngữ nghĩa hai tầng để tiết kiệm chi phí gọi mô hình.
+  \item \textbf{Tầng Quan Sát, Cảnh Báo \& Quản Trị Tài Chính (Observability \& FinOps)}: Giám sát thời gian thực các chỉ số P50/P99 Latency, tỷ lệ token sinh trên giây, lượng VRAM tiêu thụ bằng Prometheus và Grafana. Áp dụng bộ nhớ đệm ngữ nghĩa hai tầng để tiết kiệm chi phí gọi mô hình.
 \end{enumerate}
 
 ---
@@ -92,9 +122,9 @@ Một hệ thống AI chuyên nghiệp trong doanh nghiệp không bao giờ v�
 
 \subsection{Kiến Trúc Von Neumann vs Kiến Trúc Xử Lý Song Song Của GPU}
 
-Bộ vi xử lý trung tâm (CPU) được thiết kế theo kiến trúc von Neumann truyền thống, tối ưu hóa cho **độ trễ của một luồng xử lý đơn lẻ (Low-Latency Sequential Execution)**. Một CPU hiện đại có từ 8 đến 64 lõi tính toán phức tạp, được hỗ trợ bởi các tầng bộ nhớ đệm khổng lồ (L1, L2, L3 cache) và các mạch dự đoán rẽ nhánh suy đoán (\textit{Branch Prediction}).
+Bộ vi xử lý trung tâm (CPU) được thiết kế theo kiến trúc von Neumann truyền thống, tối ưu hóa cho \textbf{độ trễ của một luồng xử lý đơn lẻ (Low-Latency Sequential Execution)}. Một CPU hiện đại có từ 8 đến 64 lõi tính toán phức tạp, được hỗ trợ bởi các tầng bộ nhớ đệm khổng lồ (L1, L2, L3 cache) và các mạch dự đoán rẽ nhánh suy đoán (\textit{Branch Prediction}).
 
-Ngược lại, Bộ xử lý đồ họa (GPU) được thiết kế cho **thông lượng tính toán song song quy mô lớn (High-Throughput Parallel Execution)**. Một GPU máy chủ hiện đại như NVIDIA H100 sở hữu:
+Ngược lại, Bộ xử lý đồ họa (GPU) được thiết kế cho \textbf{thông lượng tính toán song song quy mô lớn (High-Throughput Parallel Execution)}. Một GPU máy chủ hiện đại như NVIDIA H100 sở hữu:
 \begin{itemize}
   \item Hơn $14.500$ nhân CUDA (CUDA Cores) vận hành đồng thời.
   \item Hàng trăm nhân Tensor Cores thế hệ thứ 4 chuyên dụng thực hiện phép nhân ma trận trên định dạng số thực 16-bit (FP16, BF16) và số nguyên 8-bit (INT8, FP8).
@@ -103,21 +133,21 @@ Ngược lại, Bộ xử lý đồ họa (GPU) được thiết kế cho **thô
 
 \subsection{Phân Loại Bài Toán: Compute-Bound vs Memory-Bound}
 
-Trong khoa học máy tính, hiệu năng của một phép tính toán $T$ được giới hạn bởi một trong hai yếu tố:
+Trong khoa học máy tính, hiệu năng của một phép tính toán $T$ được giới hạn bởi một trong hai yếu tố theo mô hình Roofline:
 \begin{equation}
 T = \max\left( \frac{\text{Số Phép Tính (FLOPs)}}{\text{Năng Lực Tính Toán của Chip (FLOPs/s)}}, \quad \frac{\text{Lượng Dữ Liệu Cần Đọc/Ghi (Bytes)}}{\text{Băng Thông Bộ Nhớ (Bytes/s)}} \right)
 \label{eq:roofline-model}
 \end{equation}
 
-Tỷ số giữa số phép tính trên một byte dữ liệu được truyền tải được gọi là **Mật độ Tính toán (Operational Intensity)**:
+Tỷ số giữa số phép tính trên một byte dữ liệu được truyền tải được gọi là \textbf{Mật độ Tính toán (Operational Intensity)}:
 \begin{equation}
 I = \frac{\text{FLOPs}}{\text{Bytes}}
 \label{eq:operational-intensity}
 \end{equation}
 
 \begin{itemize}
-  \item Nếu $I > I_{\text{critical}}$: Thuật toán nằm trong vùng **Compute-Bound** (Nghẽn do năng lực tính toán). GPU đạt công suất tối đa của các nhân xử lý, bộ nhớ đáp ứng thừa thãi.
-  \item Nếu $I < I_{\text{critical}}$: Thuật toán nằm trong vùng **Memory-Bound** (Nghẽn do băng thông bộ nhớ). Các nhân xử lý phải nhàn rỗi chờ dữ liệu được kéo từ bộ nhớ HBM vào bộ nhớ đệm SRAM trên chip.
+  \item Nếu $I > I_{\text{critical}}$: Thuật toán nằm trong vùng \textbf{Compute-Bound} (Nghẽn do năng lực tính toán). GPU đạt công suất tối đa của các nhân xử lý, bộ nhớ đáp ứng thừa thãi.
+  \item Nếu $I < I_{\text{critical}}$: Thuật toán nằm trong vùng \textbf{Memory-Bound} (Nghẽn do băng thông bộ nhớ). Các nhân xử lý phải nhàn rỗi chờ dữ liệu được kéo từ bộ nhớ HBM vào bộ nhớ đệm SRAM trên chip.
 \end{itemize}
 
 \subsection{Nghịch Lý Hai Pha Của Suy Luận LLM: Prefill vs Decode}
@@ -129,16 +159,16 @@ Trong pha này, mô hình nhận toàn bộ $L_{\text{in}}$ tokens đầu vào c
 \begin{equation}
 [L_{\text{in}} \times d_{\text{model}}] \times [d_{\text{model}} \times d_{\text{model}}] \longrightarrow [L_{\text{in}} \times d_{\text{model}}]
 \end{equation}
-Với mỗi byte trọng số được đọc từ bộ nhớ VRAM vào chip, nó được tái sử dụng qua $L_{\text{in}}$ hàng của ma trận đầu vào. Do đó, mật độ tính toán $I \approx L_{\text{in}}$. Khi $L_{\text{in}}$ lớn ($> 512$ tokens), giai đoạn Prefill hoàn toàn là **Compute-Bound**. GPU khai thác tối đa công suất của các nhân Tensor Cores.
+Với mỗi byte trọng số được đọc từ bộ nhớ VRAM vào chip, nó được tái sử dụng qua $L_{\text{in}}$ hàng của ma trận đầu vào. Do đó, mật độ tính toán $I \approx L_{\text{in}}$. Khi $L_{\text{in}}$ lớn ($> 512$ tokens), giai đoạn Prefill hoàn toàn là \textbf{Compute-Bound}. GPU khai thác tối đa công suất của các nhân Tensor Cores.
 
 \paragraph{Giai đoạn 2: Sinh Token Tự Hồi Quy (Autoregressive Generation / Decode)}
 Sau khi sinh ra token đầu tiên, mô hình chỉ nhận đúng $1$ token vừa sinh làm đầu vào để dự đoán token kế tiếp. Phép toán chuyển từ nhân ma trận với ma trận thành phép nhân véc-tơ với ma trận (GEMV):
 \begin{equation}
 [1 \times d_{\text{model}}] \times [d_{\text{model}} \times d_{\text{model}}] \longrightarrow [1 \times d_{\text{model}}]
 \end{equation}
-Để sinh ra đúng **một token đơn lẻ**, GPU bắt buộc phải đọc **toàn bộ hàng chục tỷ tham số của mô hình** từ bộ nhớ VRAM HBM chuyển vào thanh ghi của chip tính toán! 
+Để sinh ra đúng \textbf{một token đơn lẻ}, GPU bắt buộc phải đọc \textbf{toàn bộ hàng chục tỷ tham số của mô hình} từ bộ nhớ VRAM HBM chuyển vào thanh ghi của chip tính toán! 
 
-Mật độ tính toán của pha Decode xấp xỉ bằng $I \approx 1\text{ FLOP/Byte}$, trong khi điểm bão hòa của H100 là gần $150\text{ FLOPs/Byte}$. Kết quả là: **Pha Decode bị nghẽn băng thông bộ nhớ nghiêm trọng (Severe Memory-Bound)**. Các nhân tính toán mạnh mẽ của GPU phải chờ $95\%$ thời gian chỉ để dữ liệu di chuyển qua đường bus bộ nhớ.
+Mật độ tính toán của pha Decode xấp xỉ bằng $I \approx 1\text{ FLOP/Byte}$, trong khi điểm bão hòa của H100 là gần $150\text{ FLOPs/Byte}$. Kết quả là: \textbf{Pha Decode bị nghẽn băng thông bộ nhớ nghiêm trọng (Severe Memory-Bound)}. Các nhân tính toán mạnh mẽ của GPU phải chờ $95\%$ thời gian chỉ để dữ liệu di chuyển qua đường bus bộ nhớ.
 
 ---
 
@@ -148,6 +178,7 @@ Mật độ tính toán của pha Decode xấp xỉ bằng $I \approx 1\text{ FL
 \subsection{Công Thức Phân Rã Độ Trễ Trải Nghiệm Người Dùng}
 
 Trong một ứng dụng AI hội thoại hoặc trợ lý lập trình, cảm nhận về độ trễ của người dùng không đơn thuần là tổng thời gian hoàn tất. Nó được đo bằng hai chỉ số giải tích độc lập:
+
 \begin{enumerate}
   \item \textbf{Time-to-First-Token (TTFT)}: Thời gian từ khi bấm gửi yêu cầu đến khi ký tự đầu tiên xuất hiện trên màn hình. Chỉ số này phản ánh độ trễ của pha Prefill cộng với độ trễ mạng và hàng đợi.
   \item \textbf{Time-per-Output-Token (TPOT)}: Thời gian trung bình để sinh ra một token tiếp theo trong pha Decode (nghịch đảo của tốc độ sinh token: $\text{Tokens/second} = \frac{1}{\text{TPOT}}$).
@@ -161,40 +192,40 @@ Tổng độ trễ phục vụ cho một phiên truy vấn sinh $N_{\text{out}}$
 
 Nếu hệ thống áp dụng cơ chế truyền luồng (Streaming), người dùng bắt đầu đọc được thông tin ngay tại thời điểm $t = \text{TTFT}$. Nếu TTFT $< 400\text{ms}$ và $\text{TPOT} < 30\text{ms}$ ($> 33\text{ tokens/s}$ -- nhanh hơn tốc độ đọc của mắt người), người dùng sẽ cảm nhận hệ thống phản hồi tức thì dù tổng thời gian sinh ra toàn bộ văn bản có thể mất 10 giây.
 
-\subsection{Mô Hình Kinh Tế Học: Điểm Hòa Vốn Giữa Cloud API \& Self-Hosted}
+\subsection{Kỹ Nghệ FinOps: TCO On-Premise vs Cloud GPU \& Điểm Hòa Vốn}
 
-Một trong những quyết định kiến trúc quan trọng nhất của Kỹ sư Trưởng AI là: **Khi nào nên dùng API đám mây (OpenAI, Anthropic, Google) và khi nào nên tự dựng cụm máy chủ vLLM phục vụ mô hình nguồn mở (Llama-3, Qwen)?**
+Một trong những quyết định kiến trúc quan trọng nhất của Kỹ sư Trưởng AI là: \textbf{Khi nào nên dùng API đám mây (OpenAI, Anthropic, Google) và khi nào nên tự dựng cụm máy chủ vLLM phục vụ mô hình nguồn mở (Llama-3, Qwen)?}
 
-Giả sử doanh nghiệp có lưu lượng truy vấn $Q$ yêu cầu mỗi ngày, mỗi yêu cầu có trung bình $N_{\text{in}}$ input tokens và $N_{\text{out}}$ output tokens.
-
-\paragraph{Chi phí sử dụng Cloud API hàng tháng ($C_{\text{Cloud}}$)}:
+\paragraph{Mô hình Chi phí API Đám Mây ($C_{\text{Cloud}}$)}:
 \begin{equation}
 C_{\text{Cloud}} = 30 \times Q \times \left( \frac{N_{\text{in}}}{10^6} \cdot P_{\text{in}} + \frac{N_{\text{out}}}{10^6} \cdot P_{\text{out}} \right)
 \label{eq:cloud-cost}
 \end{equation}
 Trong đó $P_{\text{in}}$ và $P_{\text{out}}$ là đơn giá tính bằng USD trên 1 triệu token.
 
-\paragraph{Chi phí tự vận hành cụm máy chủ GPU ($C_{\text{Self-Host}}$)}:
-\begin{equation}
-C_{\text{Self-Host}} = N_{\text{GPU}} \times (P_{\text{Rental}} + P_{\text{Power\&Network}}) + C_{\text{DevOps}}
-\label{eq:self-hosted-cost}
-\end{equation}
-Trong đó $N_{\text{GPU}}$ là số lượng GPU cần thiết để đảm bảo thỏa thuận mức độ dịch vụ (SLA) về độ trễ, $P_{\text{Rental}}$ là đơn giá thuê GPU hàng tháng, và $C_{\text{DevOps}}$ là chi phí nhân sự bảo trì hạ tầng.
+\paragraph{Mô hình Chi phí Tự Vận Hành Hạ Tầng ($C_{\text{Self-Host}}$)}:
+Chi phí tự vận hành phân chia thành hai mô hình tài chính:
+\begin{enumerate}
+  \item \textbf{Thuê Cloud GPU (OPEX)}: Chi phí thuê máy chủ theo giờ hoặc theo tháng từ các nhà cung cấp như Lambda Labs, RunPod hoặc AWS/GCP:
+  \begin{equation}
+  C_{\text{Cloud-GPU}} = N_{\text{GPU}} \times P_{\text{Rental-Month}} + C_{\text{DevOps}}
+  \end{equation}
+  \item \textbf{Mua Sắm On-Premise (CAPEX + OPEX)}: Mua đứt cụm máy chủ vật lý (ví dụ: máy chủ 8x H100 SXM5 trị giá khoảng $\$320.000\text{ USD}$):
+  \begin{equation}
+  \text{TCO}_{\text{Monthly}} = \frac{\text{CAPEX}_{\text{Hardware}}}{M_{\text{Amortization}}} + P_{\text{Power}} \times \text{PUE} + P_{\text{Datacenter}} + C_{\text{DevOps}}
+  \label{eq:tco-onprem}
+  \end{equation}
+  Trong đó $M_{\text{Amortization}}$ là số tháng khấu hao phần cứng (thường từ 24 đến 36 tháng đối với chip AI), $\text{PUE}$ (\textit{Power Usage Effectiveness}) là hệ số tiêu thụ điện năng cho làm mát (thường từ $1.2$ đến $1.5$).
+\end{enumerate}
 
-\begin{figure}[htbp]
-\centering
-\begin{tcolorbox}[blanker,left=12pt,top=6pt,bottom=6pt,borderline west={2.5pt}{0pt}{primarycolor}]
-\small
-\textbf{Nguyên Lý Điểm Hòa Vốn (Break-even Threshold)}:\\
-Vì chi phí Cloud API tăng tuyến tính theo lưu lượng truy vấn ($O(Q)$), trong khi chi phí Self-Hosted là chi phí bậc thang theo số cụm máy chủ ($O(\lceil Q / \text{Capacity} \rceil)$), luôn tồn tại một ngưỡng lưu lượng $Q^*$ mà tại đó:
-\begin{itemize}
-  \item Khi $Q < Q^*$: Dùng Cloud API tối ưu hơn rất nhiều vì không phải trả chi phí cố định khi hệ thống nhàn rỗi.
-  \item Khi $Q > Q^*$: Chi phí Cloud API tăng vọt làm kiệt quệ tài chính doanh nghiệp. Việc chuyển sang cụm máy chủ vLLM tự quản trị giúp giảm từ $60\%$ đến $85\%$ tổng chi phí vận hành.
-\end{itemize}
-\end{tcolorbox}
-\caption{Quy luật kinh tế học chuyển giao giữa Cloud API và Hạ tầng Tự Host}
-\label{fig:finops-breakeven}
-\end{figure}
+\paragraph{Công thức tính chi phí trên 1.000 tokens suy luận ($C_{1k}$)}:
+Khi tự vận hành máy chủ GPU với chi phí $C_{\text{hour}}$ (USD/giờ), thông lượng xử lý trung bình $T$ (tokens/giây), và hệ số sử dụng tải thực tế $\eta \in (0, 1]$ (\textit{Utilization Factor}):
+\begin{equation}
+C_{1k} = \frac{C_{\text{hour}}}{3.600 \times T \times \eta} \times 1.000
+\label{eq:cost-per-1k-tokens}
+\end{equation}
+
+Công thức trên chỉ rõ một thực tế nghiệt ngã: Nếu hệ thống GPU của doanh nghiệp chỉ có người dùng vào ban ngày và nhàn rỗi vào ban đêm ($\eta \approx 0.20$), chi phí thực tế cho mỗi token sẽ đắt gấp $5$ lần so với lý thuyết, khiến giải pháp tự host có thể lỗ nặng so với việc sử dụng Cloud API!
 
 ---
 
@@ -224,7 +255,7 @@ Xét một hệ thống phục vụ mô hình Llama-3-70B sử dụng định d�
   \begin{equation*}
   \text{Total Bandwidth}_{\text{A100}} = 2 \times 2.0\text{ TB/s} = 4.0\text{ TB/s} < 5.6\text{ TB/s}
   \end{equation*}
-  Như vậy, trên 2 GPU A100 FP16, hệ thống **không bao giờ đạt được tốc độ 40 tokens/s cho 1 user đơn lẻ**, tốc độ tối đa theo giới hạn vật lý chỉ là:
+  Như vậy, trên 2 GPU A100 FP16, hệ thống \textbf{không bao giờ đạt được tốc độ 40 tokens/s cho 1 user đơn lẻ}, tốc độ tối đa theo giới hạn vật lý chỉ là:
   \begin{equation*}
   R_{\max} = \frac{4.000\text{ GB/s}}{140\text{ GB/token}} \approx 28.57\text{ tokens/s}
   \end{equation*}
@@ -242,17 +273,84 @@ Xét một hệ thống phục vụ mô hình Llama-3-70B sử dụng định d�
 \end{enumerate}
 \end{example}
 
+\begin{example}[Phân Tích Toàn Diện TCO Cụm 8x H100 On-Premise vs Cloud GPU Trong 3 Năm]
+\label{ex:tco-comparison}
+Một viện nghiên cứu AI cân nhắc giữa hai phương án để sở hữu cụm 8 GPU H100 SXM5 80GB phục vụ suy luận và tinh chỉnh mô hình:
+\begin{itemize}
+  \item \textbf{Phương án A (Mua máy chủ On-Premise)}:
+    \begin{itemize}
+      \item Chi phí mua phần cứng (CAPEX): $\$320.000\text{ USD}$ cho máy chủ 8x H100.
+      \item Thời gian khấu hao phần cứng: $36\text{ tháng}$ ($3\text{ năm}$).
+      \item Công suất tiêu thụ điện tối đa của máy chủ: $10.2\text{ kW}$.
+      \item Hệ số làm mát của Trung tâm Dữ liệu: $\text{PUE} = 1.25$.
+      \item Đơn giá điện công nghiệp: $\$0.12\text{ USD/kWh}$.
+      \item Chi phí thuê tủ rack và mạng Internet cáp quang: $\$1.500\text{ USD/tháng}$.
+      \item Chi phí lương kỹ sư vận hành hạ tầng (phân bổ): $\$2.500\text{ USD/tháng}$.
+    \end{itemize}
+  \item \textbf{Phương án B (Thuê Cloud GPU Reserved 3 năm)}:
+    \begin{itemize}
+      \item Đơn giá thuê 8x H100 có cam kết 3 năm trên đám mây: $\$2.20\text{ USD/GPU/giờ}$.
+    \end{itemize}
+\end{itemize}
+
+\paragraph{Tính toán chi tiết từng bước}:
+\begin{enumerate}
+  \item \textbf{Chi phí khấu hao phần cứng Phương án A}:
+    \begin{equation*}
+    C_{\text{Amortization}} = \frac{\$320.000}{36} \approx \$8.888.89\text{ USD/tháng}
+    \end{equation*}
+  \item \textbf{Chi phí điện năng hàng tháng Phương án A}:
+    Tổng công suất tiêu thụ thực tế bao gồm làm mát:
+    \begin{equation*}
+    P_{\text{total}} = 10.2\text{ kW} \times 1.25 = 12.75\text{ kW}
+    \end{equation*}
+    Số kWh tiêu thụ trong một tháng ($30\text{ ngày} \times 24\text{ giờ} = 720\text{ giờ}$):
+    \begin{equation*}
+    E_{\text{month}} = 12.75\text{ kW} \times 720\text{ h} = 9.180\text{ kWh}
+    \end{equation*}
+    Tiền điện hàng tháng:
+    \begin{equation*}
+    C_{\text{Electricity}} = 9.180\text{ kWh} \times \$0.12 = \$1.101.60\text{ USD/tháng}
+    \end{equation*}
+  \item \textbf{Tổng chi phí vận hành TCO hàng tháng Phương án A}:
+    \begin{align*}
+    \text{TCO}_{\text{Monthly, OnPrem}} &= \$8.888.89 + \$1.101.60 + \$1.500.00 + \$2.500.00 \\
+    &= \$13.990.49\text{ USD/tháng}
+    \end{align*}
+    Tổng chi phí sau 3 năm ($36\text{ tháng}$):
+    \begin{equation*}
+    \text{TCO}_{\text{3-Year, OnPrem}} = \$13.990.49 \times 36 \approx \$503.658\text{ USD}
+    \end{equation*}
+
+  \item \textbf{Tính toán chi phí Phương án B (Cloud GPU)}:
+    Chi phí mỗi giờ cho cụm 8 GPU: $8 \times \$2.20 = \$17.60\text{ USD/giờ}$.
+    Chi phí mỗi tháng ($720\text{ giờ}$):
+    \begin{equation*}
+    C_{\text{Cloud-Monthly}} = \$17.60 \times 720 = \$12.672\text{ USD/tháng}
+    \end{equation*}
+    Tổng chi phí sau 3 năm:
+    \begin{equation*}
+    \text{TCO}_{\text{3-Year, Cloud}} = \$12.672 \times 36 = \$456.192\text{ USD}
+    \end{equation*}
+
+  \item \textbf{Kết luận Tài chính \& Rủi ro}:
+    Mặc dù mua đứt phần cứng có vẻ tạo cảm giác sở hữu, nhưng khi tính toán đầy đủ TCO (bao gồm điện, làm mát, thuê tủ rack, và lương kỹ sư bảo trì), Phương án B trên Cloud \textbf{tiết kiệm gần $\$47.500\text{ USD}$} trong 3 năm. Hơn nữa, thuê Cloud loại bỏ hoàn toàn rủi ro hỏng hóc phần cứng linh kiện và cho phép nâng cấp ngay lập tức sang thế hệ GPU Blackwell (B200) mới khi có mặt trên thị trường.
+\end{enumerate}
+\end{example}
+
 ---
 
 \section{Hiện Thực Hóa: Công Cụ Mô Phỏng Benchmark \& Phân Tích FinOps}
 \label{sec:implementation-finops}
 
-Dưới đây là đoạn mã nguồn Python hoàn chỉnh, được thiết kế theo chuẩn hướng đối tượng, có kiểm định kiểu dữ liệu nghiêm ngặt, cho phép kỹ sư đo lường phân rã TTFT/TPOT và tính toán điểm hòa vốn TCO kinh tế giữa Cloud API và cụm GPU tự dựng:
+Dưới đây là mô đun Python hoàn chỉnh chuẩn kỹ nghệ, cho phép tính toán hiệu năng suy luận vật lý, phân tích TCO đa năm, và ghi nhận chỉ số độ trễ phân rã TTFT/TPOT:
 
 \begin{lstlisting}[language=Python]
 from dataclasses import dataclass
-from typing import Dict, Any
+from typing import Dict, Any, List
 import math
+import time
+import asyncio
 
 @dataclass(frozen=True)
 class HardwareSpec:
@@ -260,7 +358,7 @@ class HardwareSpec:
     gpu_name: str
     vram_gb: float
     memory_bandwidth_tb_s: float
-    monthly_rental_usd: float
+    hourly_rental_usd: float
 
 @dataclass(frozen=True)
 class ModelInferenceSpec:
@@ -280,13 +378,24 @@ class FinOpsInferenceAnalyzer:
         self.model = model
         self.hardware = hardware
         
-    def calculate_max_single_user_decode_speed(self, num_gpus: int) -> float:
+    def calculate_max_single_user_decode_speed(self, num_gpus: int = 1) -> float:
         """Tinh toc do sinh token toi da (tokens/s) dua tren bang thong VRAM."""
         total_bandwidth_gb_s = num_gpus * (self.hardware.memory_bandwidth_tb_s * 1000.0)
         # Hieu suat thuc te cua phan cung dat khoang 80% bang thong ly thuyet
         effective_bandwidth = total_bandwidth_gb_s * 0.80
         max_tokens_per_second = effective_bandwidth / self.model.model_size_gb
         return round(max_tokens_per_second, 2)
+
+    def calculate_cost_per_1k_tokens(
+        self, throughput_tokens_per_sec: float, utilization_rate: float, num_gpus: int = 1
+    ) -> float:
+        """Tinh chi phi cho moi 1.000 tokens suy luan dua tren utilization."""
+        if throughput_tokens_per_sec <= 0 or utilization_rate <= 0:
+            raise ValueError("Throughput va utilization phai lon hon 0")
+        hourly_cost = num_gpus * self.hardware.hourly_rental_usd
+        tokens_per_hour = throughput_tokens_per_sec * 3600.0 * utilization_rate
+        cost_per_1k = (hourly_cost / tokens_per_hour) * 1000.0
+        return round(cost_per_1k, 6)
 
     def calculate_breakeven_daily_queries(
         self,
@@ -297,30 +406,62 @@ class FinOpsInferenceAnalyzer:
         num_gpus: int = 1
     ) -> Dict[str, Any]:
         """Xac dinh diem hoa von ve so luong query/ngay giua Cloud API va Self-host."""
-        # Chi phi tu host co dinh moi thang
-        monthly_fixed_cost = num_gpus * self.hardware.monthly_rental_usd
-        daily_fixed_cost = monthly_fixed_cost / 30.0
+        daily_fixed_cost = num_gpus * self.hardware.hourly_rental_usd * 24.0
         
-        # Chi phi moi query khi dung Cloud API
         cost_per_query_cloud = (
             (avg_prompt_tokens / 1_000_000.0) * cloud_price_per_m_input +
             (avg_output_tokens / 1_000_000.0) * cloud_price_per_m_output
         )
-        
         if cost_per_query_cloud <= 0:
             raise ValueError("Chi phi moi query Cloud phai lon hon 0")
             
-        # So query moi ngay can thiet de tong chi phi Cloud vuot chi phi co dinh cua GPU
         breakeven_queries_per_day = math.ceil(daily_fixed_cost / cost_per_query_cloud)
-        
         return {
             "model_size_gb": self.model.model_size_gb,
-            "monthly_gpu_cost_usd": monthly_fixed_cost,
+            "monthly_gpu_cost_usd": round(daily_fixed_cost * 30.0, 2),
             "cost_per_query_cloud_usd": round(cost_per_query_cloud, 6),
             "breakeven_queries_per_day": breakeven_queries_per_day,
             "breakeven_monthly_tokens_millions": round(
                 (breakeven_queries_per_day * (avg_prompt_tokens + avg_output_tokens) * 30) / 1e6, 2
             )
+        }
+
+class StreamingLatencyTracker:
+    """Bo ghi nhan va phan tich do tre phan ra TTFT va TPOT."""
+    
+    def __init__(self):
+        self.t_start = 0.0
+        self.t_first_token = 0.0
+        self.token_timestamps: List[float] = []
+
+    def start(self):
+        self.t_start = time.perf_counter()
+        self.token_timestamps.clear()
+
+    def record_token(self):
+        now = time.perf_counter()
+        if not self.token_timestamps:
+            self.t_first_token = now
+        self.token_timestamps.append(now)
+
+    def summary(self) -> Dict[str, float]:
+        if not self.token_timestamps:
+            return {"ttft_ms": 0.0, "tpot_ms": 0.0, "total_tokens": 0}
+            
+        ttft = (self.t_first_token - self.t_start) * 1000.0
+        n_tokens = len(self.token_timestamps)
+        
+        if n_tokens > 1:
+            decode_time = (self.token_timestamps[-1] - self.t_first_token) * 1000.0
+            tpot = decode_time / (n_tokens - 1)
+        else:
+            tpot = 0.0
+            
+        return {
+            "ttft_ms": round(ttft, 2),
+            "tpot_ms": round(tpot, 2),
+            "total_tokens": n_tokens,
+            "tokens_per_second": round(1000.0 / tpot, 2) if tpot > 0 else 0.0
         }
 \end{lstlisting}
 
@@ -335,6 +476,7 @@ class FinOpsInferenceAnalyzer:
   \item \textbf{Phân tích ranh giới Compute vs Memory}: Giải thích cặn kẽ tại sao giai đoạn xử lý Prompt (Prefill) của LLM lại là bài toán Compute-Bound, trong khi giai đoạn sinh từng token tiếp theo (Decode) lại chuyển hóa thành bài toán Memory-Bound? Yếu tố kiến trúc nào quyết định điểm lật trạng thái này?
   \item \textbf{Nghịch lý độ trễ trong Batching}: Khi một hệ thống tăng kích thước lô (Batch Size) từ $B=1$ lên $B=32$ trong giai đoạn Decode, thông lượng tổng thể (\textit{Overall Throughput} tính bằng tokens/giây) tăng gấp nhiều lần, nhưng độ trễ của từng người dùng đơn lẻ (\textit{Per-User Latency} tính bằng mili-giây/token) lại có xu hướng xấu đi. Hãy giải thích nguyên lý toán học và cơ chế đọc bộ nhớ HBM đằng sau nghịch lý này.
   \item \textbf{Tư duy Kiến trúc sư}: Một công ty khởi nghiệp xây dựng ứng dụng chatbot hỗ trợ khách hàng nội bộ với lượng truy vấn trung bình chỉ $500$ lượt mỗi ngày. Trưởng nhóm đề xuất thuê ngay một cụm máy chủ gồm 4 GPU H100 để tự host mô hình Llama-3-70B nhằm bảo mật dữ liệu tuyệt đối. Dưới vai trò là Lead AI Engineer, bạn sẽ phản biện đề xuất này như thế nào từ góc nhìn kinh tế học (FinOps) và đưa ra kiến trúc thay thế tối ưu hơn ra sao?
+  \item \textbf{Chi phí cơ hội của Free-tier vs Dedicated Serving}: Tại sao các dịch vụ API miễn phí (Free Tier) thường có độ trễ dao động rất lớn (\textit{High Jitter}) và không cam kết SLA? Cơ chế chia sẻ tài nguyên đa khách hàng (\textit{Multi-tenant Resource Sharing}) ảnh hưởng như thế nào đến hàng đợi GPU?
 \end{enumerate}
 
 \subsection{Nhóm B: Bài Toán Tính Toán Giải Tích Bằng Tay (Analytical Problems)}
@@ -350,18 +492,26 @@ class FinOpsInferenceAnalyzer:
     \item[a)] Nếu dùng API của Cloud Provider A với giá $\$3.00\text{ / 1M input tokens}$ và $\$15.00\text{ / 1M output tokens}$, tổng chi phí phải trả trong một tháng (30 ngày) là bao nhiêu?
     \item[b)] Doanh nghiệp cân nhắc thuê một cụm 4 máy chủ GPU với chi phí trọn gói $\$2.400\text{ USD/tháng}$. Hỏi sau bao nhiêu ngày vận hành thì chi phí thuê GPU bắt đầu rẻ hơn chi phí gọi Cloud API?
   \end{itemize}
+  \item \textbf{Tác động của Utilization Factor $\eta$ lên đơn giá Token}:
+  Một máy chủ GPU được thuê với giá $\$3.00\text{ USD/giờ}$. Cụm này đạt thông lượng phục vụ tối đa $T = 500\text{ tokens/s}$.
+  \begin{itemize}
+    \item[a)] Tính chi phí $C_{1k}$ cho mỗi 1.000 tokens khi hệ thống chạy hết công suất $100\%$ ($\eta = 1.0$).
+    \item[b)] Tính chi phí $C_{1k}$ khi hệ thống chỉ đạt mức tải trung bình $15\%$ ($\eta = 0.15$) do thiếu hụt người dùng vào ban đêm.
+  \end{itemize}
 \end{enumerate}
 
 \subsection{Nhóm C: Thực Hành Kỹ Nghệ \& Lập Trình (Implementation Labs)}
 
 \begin{enumerate}[label=\textbf{C\arabic*.}]
   \item \textbf{Xây dựng Bộ Đo Độ Trễ Streaming Bất Đồng Bộ}: Viết một lớp Python kế thừa thư viện \code{asyncio} để giả lập kết nối tới một máy chủ sinh token. Triển khai phương thức ghi nhận chính xác mốc thời gian $\text{TTFT}$ (thời điểm nhận được mẩu token đầu tiên) và tính toán $\text{TPOT}$ trung bình cho toàn bộ luồng dữ liệu trả về, xuất báo cáo dưới dạng từ điển có cấu trúc.
+  \item \textbf{Bộ Công Cụ Dự Báo Chi Phí Đám Mây Tự Động}: Viết một script đọc luồng log truy vấn JSONL, phân tích thống kê phân phối $N_{\text{in}}$ và $N_{\text{out}}$, và tự động tính toán tổng hóa đơn dự kiến hàng tháng của 3 nhà cung cấp đám mây phổ biến nhất (OpenAI, Anthropic, Google).
 \end{enumerate}
 
 \subsection{Nhóm D: Phân Tích Thất Bại \& Debugging Thực Tế (Post-Mortem Analysis)}
 
 \begin{enumerate}[label=\textbf{D\arabic*.}]
   \item \textbf{Sự Cố OOM Trong Đêm Ra Mắt}: Một hệ thống AI serving mô hình 70B trên cụm 2 GPU 80GB hoạt động rất mượt mà trong giai đoạn thử nghiệm với 1 người dùng. Tuy nhiên, trong ngày ra mắt chính thức, khi có 50 người dùng đồng thời gửi câu hỏi dài ($> 4.000$ tokens), toàn bộ cụm máy chủ bị sập với lỗi \code{CUDA Out of Memory (OOM)}. Hãy giải thích tại sao VRAM đủ chứa trọng số mô hình ($140\text{ GB} < 160\text{ GB}$) nhưng hệ thống vẫn bị tràn bộ nhớ? Bộ phận nào trong kiến trúc đã chiếm dụng lượng VRAM khổng lồ đột biến này?
+  \item \textbf{Sự Cố Đội Chi Phí Bất Thường (Cloud Cost Explosion)}: Một công ty triển khai RAG cho nội bộ 200 nhân viên. Cuối tháng, hóa đơn API tăng đột biến từ $\$500\text{ USD}$ lên $\$18.000\text{ USD}$ dù số lượng nhân viên không đổi. Khi điều tra nhật ký truy vấn, kỹ sư phát hiện một vòng lặp Agent bị kẹt do không có điều kiện dừng (\textit{Max Iterations limit}) và liên tục gửi prompt dài $32.000$ tokens lặp lại hàng nghìn lần. Hãy phân tích các lỗ hổng kiến trúc và thiết kế cơ chế Circuit Breaker ngân sách (Budget Hard-Cap) để ngăn chặn thảm họa tương tự.
 \end{enumerate}
 
 ---
@@ -373,6 +523,26 @@ class FinOpsInferenceAnalyzer:
 Trong pha Prefill, toàn bộ ma trận đầu vào kích thước $[L_{\text{in}} \times d]$ được nhân đồng thời với ma trận trọng số $[d \times d]$. Số phép tính cần thực hiện tỷ lệ với $O(L_{\text{in}} \cdot d^2)$, trong khi lượng dữ liệu cần nạp từ VRAM chỉ là $O(d^2)$ (trọng số) cộng với $O(L_{\text{in}} \cdot d)$ (đầu vào). Khi $L_{\text{in}}$ lớn, tỷ số $\text{FLOPs/Byte} \approx L_{\text{in}}$ vượt qua ngưỡng bão hòa của phần cứng ($> 150$), khiến các nhân Tensor Core hoạt động liên tục không phải chờ dữ liệu $\rightarrow$ Compute-Bound. 
 
 Trong pha Decode, vector đầu vào chỉ có kích thước $[1 \times d]$. Số phép tính chỉ là $O(1 \cdot d^2)$, nhưng vẫn phải nạp toàn bộ $O(d^2)$ trọng số từ VRAM. Tỷ số $\text{FLOPs/Byte} \approx 1 \ll 150$, các nhân tính toán chỉ làm việc trong tích tắc rồi phải dừng lại chờ nạp xong khối trọng số tiếp theo qua bus bộ nhớ $\rightarrow$ Memory-Bound.
+
+\paragraph{Lời giải Bài A2 (Nghịch lý độ trễ trong Batching)}:
+Khi tăng Batch Size từ $1$ lên $B$, trong mỗi bước giải mã, GPU vẫn phải đọc toàn bộ $M_{\text{weights}}$ bytes từ VRAM một lần, nhưng khối trọng số này được tái sử dụng để nhân đồng thời với $B$ vector đại diện cho $B$ người dùng:
+\begin{equation*}
+[B \times d] \times [d \times d] \longrightarrow [B \times d]
+\end{equation*}
+Lượng dữ liệu đọc qua bus bộ nhớ gần như không đổi, nhưng số phép tính tăng gấp $B$ lần. Do đó, thông lượng tổng cộng tăng vọt xấp xỉ tuyến tính theo $B$. Tuy nhiên, thời gian để hoàn tất một bước sinh token tăng nhẹ do:
+\begin{enumerate}
+  \item Phải đọc thêm $B$ khối bộ nhớ đệm KV Cache riêng biệt của $B$ người dùng từ các vùng nhớ phân mảnh khác nhau.
+  \item Chi phí đồng bộ hóa luồng giữa các khối tính toán.
+\end{enumerate}
+Do đó, độ trễ riêng lẻ của mỗi token (TPOT) tăng từ $25\text{ms}$ lên $45\text{ms}$, nhưng thông lượng chung tăng từ $40\text{ tokens/s}$ lên $700\text{ tokens/s}$.
+
+\paragraph{Lời giải Bài A3 (Tư duy Kiến trúc sư)}:
+Với $500$ lượt truy vấn/ngày, lưu lượng này quá nhỏ để chứng minh cho chi phí thuê 4 GPU H100 (tốn ít nhất $\$8.000$ đến $\$12.000\text{ USD/tháng}$).
+Kiến trúc thay thế tối ưu:
+\begin{enumerate}
+  \item Dùng mô hình mã nguồn mở cỡ nhỏ hơn như Llama-3-8B hoặc Qwen-2.5-7B lượng tử hóa INT4/AWQ chạy trên 1 GPU RTX 4090 hoặc L4 giá rẻ (chỉ khoảng $\$150 - \$250\text{ USD/tháng}$).
+  \item Hoặc sử dụng các mô hình Private Cloud với mã hóa đầu cuối (Zero Data Retention) để vừa đảm bảo bảo mật vừa chỉ trả tiền đúng theo lượng token sử dụng thực tế (khoảng $\$15\text{ USD/tháng}$).
+\end{enumerate}
 
 \paragraph{Lời giải Bài B1 (Tính Băng thông Bộ nhớ)}:
 \begin{itemize}
@@ -407,6 +577,24 @@ Trong pha Decode, vector đầu vào chỉ có kích thước $[1 \times d]$. S�
   Chỉ sau chưa đầy 7 ngày vận hành, giải pháp tự host đã bù đắp toàn bộ chi phí thuê hạ tầng cả tháng, giúp doanh nghiệp tiết kiệm hơn $\$8.400\text{ USD}$ mỗi tháng tiếp theo!
 \end{itemize}
 
+\paragraph{Lời giải Bài B3 (Tác động của Utilization Factor $\eta$)}:
+\begin{itemize}
+  \item[a)] Khi $\eta = 1.0$:
+  Số tokens sinh ra trong 1 giờ: $3.600 \times 500 \times 1.0 = 1.800.000\text{ tokens}$.
+  \begin{equation*}
+  C_{1k} = \frac{\$3.00}{1.800.000} \times 1.000 = \$0.001667\text{ USD / 1k tokens} \quad (\approx \$1.67\text{ / 1M tokens})
+  \end{equation*}
+  \item[b)] Khi $\eta = 0.15$:
+  Số tokens sinh ra trong 1 giờ: $3.600 \times 500 \times 0.15 = 270.000\text{ tokens}$.
+  \begin{equation*}
+  C_{1k} = \frac{\$3.00}{270.000} \times 1.000 = \$0.011111\text{ USD / 1k tokens} \quad (\approx \$11.11\text{ / 1M tokens})
+  \end{equation*}
+  Chi phí tăng vọt gần 7 lần! Đây là lý do tại sao các kiến trúc sư phải áp dụng cơ chế tự động co giãn (\textit{Autoscaling}) hoặc tắt máy chủ nhàn rỗi.
+\end{itemize}
+
+\paragraph{Lời giải Bài C1 (Streaming Latency Tracker)}:
+Mã nguồn triển khai hoàn chỉnh được cung cấp trong khối lệnh Mục~\ref{sec:implementation-finops} và kiểm thử tự động trong tệp \code{tests/test_ch01_finops.py}.
+
 \paragraph{Lời giải Bài D1 (Giải mã sự cố OOM do KV Cache)}:
 Mặc dù trọng số mô hình chỉ chiếm $140\text{ GB}$, nhưng khi có 50 người dùng đồng thời với ngữ cảnh dài $4.000$ tokens, bộ nhớ đệm Khóa-Giá trị (\textbf{KV Cache}) đã bùng nổ theo công thức:
 \begin{equation*}
@@ -420,3 +608,13 @@ Với 50 users $\times$ 4.000 tokens $= 200.000\text{ tokens}$:
 &= 204\text{ GB} > 160\text{ GB (Tổng VRAM của 2 GPU A100)}
 \end{align*}
 Hệ quả là hệ thống sụp đổ tức thì do thiếu hụt $44\text{ GB}$ bộ nhớ. Giải pháp kiến trúc bắt buộc phải là triển khai PagedAttention (vLLM) và thiết lập cơ chế giới hạn kích thước ngữ cảnh đồng thời hoặc áp dụng kỹ thuật Chunked Prefill.
+
+\paragraph{Lời giải Bài D2 (Post-Mortem: Sự cố Đội Chi Phí và Circuit Breaker Ngân Sách)}:
+\begin{itemize}
+  \item \textbf{Nguyên nhân}: Thiếu giới hạn tối đa số bước chạy (\code{max_iterations}) trong vòng lặp ReAct của Agent và thiếu cơ chế Rate Limiting ngân sách ở tầng Gateway.
+  \item \textbf{Khắc phục}:
+    \begin{enumerate}
+      \item Ép buộc tham số \code{max_iterations = 10} ở mức Agent runtime.
+      \item Triển khai tầng Redis Token Bucket kiểm soát ngân sách: Mỗi người dùng hoặc phòng ban có một hạn mức ngân sách hàng ngày (\textit{Daily Budget Quota}). Nếu tổng chi phí vượt quá ngưỡng (ví dụ: $\$50\text{ USD/ngày}$), Gateway tự động ngắt kết nối và trả về mã lỗi \code{HTTP 429 Quota Exceeded}.
+    \end{enumerate}
+\end{itemize}

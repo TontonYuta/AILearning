@@ -1,5 +1,5 @@
 % ==============================================================================
-% CH05_MACHINE_LEARNING.TEX — CHƯƠNG 5: MACHINE LEARNING & DEEP LEARNING
+% CH05_MACHINE_LEARNING.TEX — CHƯƠNG 5: MACHINE LEARNING & DEEP LEARNING TỪ BẢN CHẤT
 % ==============================================================================
 % Định dạng: Sách chuyên khảo kinh điển (Classic Engineering Monograph)
 % Chuẩn mực: Không dùng hộp đóng khung 4 phía, toán học 5 bước, bài tập đa tầng
@@ -8,58 +8,62 @@
 \chapter{Machine Learning \& Deep Learning Từ Bản Chất Thuần Túy}
 \label{ch:machine-learning-deepdive}
 
-Trí tuệ nhân tạo hiện đại không bắt đầu từ các mô hình hàng tỷ tham số. Nó được xây dựng dựa trên những nguyên lý nền tảng của học máy thống kê (\textit{Statistical Machine Learning}) và kiến trúc mạng nơ-ron nhiều tầng. Một kỹ sư AI nếu chỉ biết gọi các API có sẵn của OpenAI hay Anthropic mà không hiểu cơ chế cực tiểu hóa rủi ro thực nghiệm, sự đánh đổi Bias-Variance, hay hành vi của bộ tối ưu AdamW sẽ không bao giờ có thể tự tinh chỉnh mô hình (Fine-tuning), khắc phục hiện tượng Overfitting, hoặc thiết kế các hệ thống phân loại dữ liệu bảng hiệu năng cao trong doanh nghiệp.
+Trí tuệ nhân tạo hiện đại không bắt đầu từ các mô hình nền tảng khổng lồ với hàng tỷ tham số. Nó được xây dựng vững chắc dựa trên những nguyên lý nền tảng của học máy thống kê (\textit{Statistical Machine Learning}) và kiến trúc mạng nơ-ron sâu (\textit{Deep Learning}). Một kỹ sư AI nếu chỉ biết gọi các API có sẵn của OpenAI hay Anthropic mà không hiểu cơ chế cực tiểu hóa rủi ro thực nghiệm, sự đánh đổi Bias-Variance, hay hành vi của bộ tối ưu AdamW sẽ không bao giờ có thể tự tinh chỉnh mô hình (Fine-tuning), khắc phục hiện tượng Overfitting, hoặc thiết kế các hệ thống phân loại dữ liệu bảng hiệu năng cao trong môi trường doanh nghiệp.
+
+Chương này trang bị toàn diện nền tảng từ học máy cổ điển đến học sâu hiện đại, giải thích cặn kẽ nguồn gốc toán học của các thuật toán và cung cấp bộ công cụ đánh giá chuẩn mực cấp doanh nghiệp.
 
 ---
 
 \section{Nền Tảng Học Máy Thống Kê \& Bản Chất Tối Ưu Hóa}
 \label{sec:statistical-ml-foundations}
 
-\subsection{Bài Toán Học Có Giám Sát (Supervised Learning) \& Cực Tiểu Hóa Rủi Ro}
-
-Trong học máy có giám sát, chúng ta được cung cấp một tập dữ liệu huấn luyện gồm $N$ cặp quan sát:
+\subsection{Bài Toán Học Có Giám Sát \& Cực Tiểu Hóa Rủi Ro Thực Nghiệm}
+Trong học máy có giám sát (Supervised Learning), chúng ta được cung cấp một tập dữ liệu huấn luyện gồm $N$ cặp quan sát độc lập cùng phân phối (i.i.d.):
 \begin{equation}
 \mathcal{D} = \{(\mathbf{x}_1, y_1), (\mathbf{x}_2, y_2), \dots, (\mathbf{x}_N, y_N)\} \subset \mathcal{X} \times \mathcal{Y}
 \end{equation}
 Trong đó $\mathbf{x}_i \in \mathbb{R}^D$ là véc-tơ đặc trưng đầu vào và $y_i$ là nhãn mục tiêu ($y_i \in \mathbb{R}$ trong bài toán hồi quy, hoặc $y_i \in \{1, \dots, C\}$ trong bài toán phân loại).
 
-Mục tiêu của thuật toán học máy là tìm kiếm một hàm giả thuyết $f^* \in \mathcal{H}$ sao cho sai số kỳ vọng trên toàn bộ phân phối dữ liệu thực tế $P(\mathbf{x}, y)$ đạt giá trị nhỏ nhất:
+Mục tiêu tối thượng của thuật toán học máy là tìm kiếm một hàm giả thuyết $f^* \in \mathcal{H}$ sao cho sai số kỳ vọng trên toàn bộ phân phối dữ liệu thực tế $P(\mathbf{x}, y)$ đạt giá trị nhỏ nhất:
 \begin{equation}
 R(f) = \mathbb{E}_{(\mathbf{x}, y) \sim P}[\mathcal{L}(f(\mathbf{x}), y)] = \int_{\mathcal{X} \times \mathcal{Y}} \mathcal{L}(f(\mathbf{x}), y) \, dP(\mathbf{x}, y)
 \label{eq:true-risk-def}
 \end{equation}
 Đại lượng $R(f)$ được gọi là **Rủi ro Thực tế (True Risk / Generalization Error)**. Tuy nhiên, vì phân phối xác suất thực tế $P(\mathbf{x}, y)$ của tự nhiên là không thể biết trước, chúng ta không thể tính toán trực tiếp $R(f)$. 
 
-Thay vào đó, nguyên lý nền tảng của toàn bộ ngành học máy là **Cực Tiểu Hóa Rủi Ro Thực Nghiệm (Empirical Risk Minimization -- ERM)** trên tập dữ liệu hữu hạn có sẵn:
+Do đó, nguyên lý nền tảng của toàn bộ ngành học máy là **Cực Tiểu Hóa Rủi Ro Thực Nghiệm (Empirical Risk Minimization -- ERM)** trên tập dữ liệu hữu hạn có sẵn:
 \begin{equation}
 f_{\text{ERM}} = \arg\min_{f \in \mathcal{H}} R_{\text{emp}}(f) = \arg\min_{f \in \mathcal{H}} \frac{1}{N} \sum_{i=1}^N \mathcal{L}(f(\mathbf{x}_i), y_i)
 \label{eq:erm-def}
 \end{equation}
 
-\subsection{Chứng Minh Phân Rã Sai Số Bias-Variance (Độ Chệch - Phương Sai)}
+\paragraph{Cực tiểu hóa Rủi ro Cấu trúc (Structural Risk Minimization -- SRM)}:
+Nếu không gian giả thuyết $\mathcal{H}$ quá rộng (mô hình có quá nhiều tham số), hàm $f_{\text{ERM}}$ có thể đạt sai số thực nghiệm bằng 0 ($R_{\text{emp}} = 0$) nhưng lại có sai số thực tế rất lớn ($R(f) \gg 0$) -- đây chính là hiện tượng Quá khớp (\textbf{Overfitting}). Để kiểm soát, lý thuyết Vapnik-Chervonenkis (VC) đưa vào số hạng phạt độ phức tạp mô hình $\Omega(f)$:
+\begin{equation}
+f_{\text{SRM}} = \arg\min_{f \in \mathcal{H}} \left[ \frac{1}{N} \sum_{i=1}^N \mathcal{L}(f(\mathbf{x}_i), y_i) + \lambda \Omega(f) \right]
+\end{equation}
+Đây chính là cơ sở toán học của kỹ thuật **Điều hòa (Regularization)** trong học máy.
 
-Khi huấn luyện một mô hình, nguyên nhân nào dẫn tới sai số dự đoán trên dữ liệu chưa từng thấy? Giả sử dữ liệu thực tế được sinh ra từ quy luật:
+\subsection{Chứng Minh Phân Rã Sai Số Bias-Variance (Độ Chệch - Phương Sai)}
+Giả sử dữ liệu thực tế được sinh ra từ quy luật:
 \begin{equation}
 y = f(\mathbf{x}) + \epsilon, \quad \text{với } \mathbb{E}[\epsilon] = 0, \quad \text{Var}(\epsilon) = \sigma^2
 \end{equation}
 Trong đó $\epsilon$ là nhiễu ngẫu nhiên không thể triệt tiêu (\textit{Irreducible Noise}).
 
-Xét mô hình ước lượng $\hat{f}(\mathbf{x})$ được huấn luyện trên một tập dữ liệu ngẫu nhiên $\mathcal{D}$. Kỳ vọng sai số bình phương trung bình trên một điểm kiểm thử $\mathbf{x}$ được phân rã toán học như sau:
+Xét mô hình ước lượng $\hat{f}(\mathbf{x})$ được huấn luyện trên một tập dữ liệu ngẫu nhiên $\mathcal{D}$. Kỳ vọng sai số bình phương trung bình trên một điểm kiểm thử $\mathbf{x}$ được phân rã toán học:
 \begin{align}
-\mathbb{E}_{\mathcal{D}, \epsilon}[(y - \hat{f}(\mathbf{x}))^2] &= \mathbb{E}[(f(\mathbf{x}) + \epsilon - \hat{f}(\mathbf{x}))^2] \nonumber \\
-&= \mathbb{E}[( (f(\mathbf{x}) - \hat{f}(\mathbf{x})) + \epsilon )^2] \nonumber \\
+\mathbb{E}_{\mathcal{D}, \epsilon}[(y - \hat{f}(\mathbf{x}))^2] &= \mathbb{E}[( (f(\mathbf{x}) - \hat{f}(\mathbf{x})) + \epsilon )^2] \nonumber \\
 &= \mathbb{E}[(f(\mathbf{x}) - \hat{f}(\mathbf{x}))^2] + 2 \mathbb{E}[(f(\mathbf{x}) - \hat{f}(\mathbf{x}))\epsilon] + \mathbb{E}[\epsilon^2]
 \end{align}
 Vì nhiễu $\epsilon$ độc lập với mô hình và có kỳ vọng bằng 0, số hạng chéo bằng 0, và $\mathbb{E}[\epsilon^2] = \sigma^2$:
 \begin{equation}
 \mathbb{E}[(y - \hat{f}(\mathbf{x}))^2] = \mathbb{E}[(f(\mathbf{x}) - \hat{f}(\mathbf{x}))^2] + \sigma^2
-\label{eq:bias-var-step1}
 \end{equation}
-
-Thêm và bớt đại lượng kỳ vọng dự đoán $\mathbb{E}[\hat{f}(\mathbf{x})]$ vào biểu thức đầu tiên:
+Thêm và bớt đại lượng kỳ vọng dự đoán $\mathbb{E}[\hat{f}(\mathbf{x})]$ vào biểu thức sai số mô hình:
 \begin{align}
 \mathbb{E}[(f(\mathbf{x}) - \hat{f}(\mathbf{x}))^2] &= \mathbb{E}[ ( (f(\mathbf{x}) - \mathbb{E}[\hat{f}(\mathbf{x})]) + (\mathbb{E}[\hat{f}(\mathbf{x})] - \hat{f}(\mathbf{x})) )^2 ] \nonumber \\
-&= (f(\mathbf{x}) - \mathbb{E}[\hat{f}(\mathbf{x})])^2 + \mathbb{E}[(\hat{f}(\mathbf{x}) - \mathbb{E}[\hat{f}(\mathbf{x})])^2] + 0 \nonumber \\
+&= (f(\mathbf{x}) - \mathbb{E}[\hat{f}(\mathbf{x})])^2 + \mathbb{E}[(\hat{f}(\mathbf{x}) - \mathbb{E}[\hat{f}(\mathbf{x})])^2] \nonumber \\
 &= \text{Bias}^2(\hat{f}(\mathbf{x})) + \text{Var}(\hat{f}(\mathbf{x}))
 \end{align}
 
@@ -71,11 +75,10 @@ Tổng sai số kỳ vọng của một mô hình học máy trên dữ liệu m
 \end{equation}
 \end{theorem}
 
-\paragraph{Ý nghĩa trực giác kỹ nghệ}:
 \begin{itemize}
-  \item **Bias (Độ chệch)**: Đại diện cho mức độ sai lệch giữa dự đoán trung bình của mô hình so với chân lý thực tế. Bias cao xảy ra khi mô hình quá đơn giản (ví dụ dùng đường thẳng để xấp xỉ đường cong phi tuyến phức tạp) $\longrightarrow$ Hiện tượng **Underfitting** (Chưa khớp).
-  \item **Variance (Phương sai)**: Đại diện cho độ nhạy cảm của mô hình đối với sự biến động ngẫu nhiên của tập dữ liệu huấn luyện. Variance cao xảy ra khi mô hình học thuộc lòng cả các điểm nhiễu ngẫu nhiên $\longrightarrow$ Hiện tượng **Overfitting** (Quá khớp).
-  \item **Sự đánh đổi (Trade-off)**: Khi tăng độ phức tạp của mô hình (tăng số tham số, tăng số tầng mạng nơ-ron), Bias giảm xuống nhưng Variance tăng lên. Nhiệm vụ của Kỹ sư AI là tìm điểm cân bằng tối ưu tại đáy của đường cong sai số tổng.
+  \item **Bias (Độ chệch)**: Sai lệch giữa dự đoán trung bình của mô hình so với quy luật thực tế. Bias cao xảy ra khi mô hình quá thô sơ (Underfitting).
+  \item **Variance (Phương sai)**: Độ nhạy cảm của mô hình đối với sự biến động ngẫu nhiên của tập dữ liệu huấn luyện. Variance cao xảy ra khi mô hình học thuộc lòng cả nhiễu ngẫu nhiên (Overfitting).
+  \item **Trade-off**: Khi tăng dung lượng tham số của mô hình, Bias giảm xuống nhưng Variance tăng lên. Mục tiêu là tìm điểm cực tiểu của đường cong sai số tổng.
 \end{itemize}
 
 ---
@@ -84,8 +87,7 @@ Tổng sai số kỳ vọng của một mô hình học máy trên dữ liệu m
 \label{sec:classical-algorithms}
 
 \subsection{Hồi Quy Tuyến Tính (Linear Regression) \& Nghiệm Dạng Đóng Normal Equation}
-
-Giả sử mô hình có dạng tuyến tính: $\hat{y} = \mathbf{w}^T \mathbf{x} + b$. Bằng cách thêm số $1$ vào đầu véc-tơ $\mathbf{x}$ ($\mathbf{x} \gets [1, \mathbf{x}^T]^T$), ta gộp bias $b$ vào véc-tơ trọng số $\mathbf{w} \in \mathbb{R}^{D+1}$.
+Xét mô hình hồi quy tuyến tính: $\hat{y} = \mathbf{w}^T \mathbf{x} + b$. Bằng cách thêm số $1$ vào đầu véc-tơ $\mathbf{x}$ ($\mathbf{x} \gets [1, \mathbf{x}^T]^T$), ta gộp bias $b$ vào véc-tơ trọng số $\mathbf{w} \in \mathbb{R}^{D+1}$.
 
 Dưới dạng ma trận cho toàn bộ $N$ mẫu dữ liệu, ma trận đặc trưng $\mathbf{X} \in \mathbb{R}^{N \times (D+1)}$ và véc-tơ nhãn $\mathbf{y} \in \mathbb{R}^N$:
 \begin{equation}
@@ -95,120 +97,144 @@ Hàm mất mát tổng bình phương sai số:
 \begin{equation}
 L(\mathbf{w}) = \frac{1}{2N} \|\mathbf{X} \mathbf{w} - \mathbf{y}\|_2^2 = \frac{1}{2N} (\mathbf{X} \mathbf{w} - \mathbf{y})^T (\mathbf{X} \mathbf{w} - \mathbf{y})
 \end{equation}
-
-Khai triển đại số ma trận:
-\begin{equation}
-L(\mathbf{w}) = \frac{1}{2N} \left[ \mathbf{w}^T \mathbf{X}^T \mathbf{X} \mathbf{w} - 2 \mathbf{y}^T \mathbf{X} \mathbf{w} + \mathbf{y}^T \mathbf{y} \right]
-\end{equation}
 Lấy đạo hàm ma trận theo véc-tơ trọng số $\mathbf{w}$ và cho bằng $0$:
 \begin{equation}
-\nabla_\mathbf{w} L = \frac{1}{N} \left( \mathbf{X}^T \mathbf{X} \mathbf{w} - \mathbf{X}^T \mathbf{y} \right) = 0 \implies \mathbf{X}^T \mathbf{X} \mathbf{w} = \mathbf{X}^T \mathbf{y}
+\nabla_\mathbf{w} L = \frac{1}{N} \left( \mathbf{X}^T \mathbf{X} \mathbf{w} - \mathbf{X}^T \mathbf{y} \right) = \mathbf{0} \implies \mathbf{X}^T \mathbf{X} \mathbf{w} = \mathbf{X}^T \mathbf{y}
 \end{equation}
-
-Nếu ma trận Gram $\mathbf{X}^T \mathbf{X}$ khả nghịch, ta thu được nghiệm giải tích dạng đóng duy nhất:
+Nếu ma trận Gram $\mathbf{X}^T \mathbf{X}$ khả nghịch, ta thu được nghiệm giải tích dạng đóng duy nhất (\textbf{Normal Equation}):
 \begin{equation}
 \mathbf{w}^* = (\mathbf{X}^T \mathbf{X})^{-1} \mathbf{X}^T \mathbf{y}
 \label{eq:normal-equation}
 \end{equation}
-Phương trình~\eqref{eq:normal-equation} được gọi là **Phương Trình Chuẩn (Normal Equation)**.
 
-\paragraph{Phân tích độ phức tạp thuật toán và điểm gãy quy mô}:
-Phép nhân ma trận $\mathbf{X}^T \mathbf{X}$ tốn $O(N \cdot D^2)$ phép tính. Phép tính nghịch đảo ma trận $(\mathbf{X}^T \mathbf{X})^{-1}$ tốn $O(D^3)$ phép tính.
-\begin{itemize}
-  \item Khi số chiều đặc trưng nhỏ ($D < 1.000$): Normal Equation là giải pháp hoàn hảo vì tìm ra nghiệm chính xác tuyệt đối sau đúng một bước tính toán, không cần chọn tốc độ học $\eta$ hay lặp lại nhiều vòng.
-  \item Khi số chiều đặc trưng lớn ($D = 100.000$ hoặc $D = 10^6$ như trong biểu diễn Bag-of-Words hay LLM embeddings): Phép nghịch đảo ma trận $D^3 \approx 10^{15}$ phép tính sẽ làm cạn kiệt bộ nhớ RAM và đóng băng máy chủ. Lúc này, phương pháp xấp xỉ số học bằng **Hạ Gradient (Gradient Descent)** với độ phức tạp mỗi bước chỉ là $O(N \cdot D)$ là giải pháp bắt buộc duy nhất!
-\end{itemize}
+\paragraph{Vấn đề Đa Cộng Tuyến (Multicollinearity) \& Hồi quy Ridge}:
+Khi các đặc trưng đầu vào có mối tương quan mạnh lẫn nhau, định thức $\det(\mathbf{X}^T \mathbf{X}) \approx 0$, ma trận gần như kỳ dị. Phép nghịch đảo $(\mathbf{X}^T \mathbf{X})^{-1}$ trở nên cực kỳ bất ổn định: một dao động nhiễu nhỏ trong dữ liệu sẽ khiến trọng số $\mathbf{w}^*$ bùng nổ biên độ dữ dội.
 
-\subsection{Cây Quyết Định (Decision Trees) \& Thuật Toán Tăng Cường Gradient (GBDT)}
+Hồi quy Ridge (điều hòa $L_2$) giải quyết triệt để vấn đề này bằng cách cộng thêm $\lambda \mathbf{I}$ vào ma trận Gram:
+\begin{equation}
+\mathbf{w}_{\text{Ridge}}^* = (\mathbf{X}^T \mathbf{X} + \lambda \mathbf{I})^{-1} \mathbf{X}^T \mathbf{y}
+\label{eq:ridge-solution}
+\end{equation}
+Vì $\lambda > 0$, ma trận $(\mathbf{X}^T \mathbf{X} + \lambda \mathbf{I})$ luôn là ma trận đối xứng xác định dương, bảo đảm luôn khả nghịch và triệt tiêu hoàn toàn sự bùng nổ phương sai!
 
-Trong khi mạng nơ-ron học sâu thống trị các bài toán dữ liệu phi cấu trúc (văn bản, giọng nói, hình ảnh), thì trên **dữ liệu bảng có cấu trúc (Tabular Data)** trong tài chính, ngân hàng và thương mại điện tử, các mô hình học cây quyết định kết hợp (\textit{Tree Ensembles}) vẫn duy trì vị thế số một về độ chính xác và khả năng giải thích.
+\subsection{Hồi Quy Logistic (Logistic Regression)}
+Đối với bài toán phân loại nhị phân ($y \in \{0, 1\}$), mô hình ước lượng xác suất hậu nghiệm thông qua hàm Sigmoid:
+\begin{equation}
+P(y=1 \mid \mathbf{x}) = \sigma(\mathbf{w}^T \mathbf{x}) = \frac{1}{1 + e^{-\mathbf{w}^T \mathbf{x}}}
+\end{equation}
+Hàm log-odds (Logit) có mối quan hệ tuyến tính đẹp đẽ:
+\begin{equation}
+\ln \left( \frac{P(y=1 \mid \mathbf{x})}{1 - P(y=1 \mid \mathbf{x})} \right) = \mathbf{w}^T \mathbf{x}
+\end{equation}
+Hàm mất mát Binary Cross-Entropy (BCE) được suy ra trực tiếp từ nguyên lý Ước lượng Hợp lý Cực đại (MLE):
+\begin{equation}
+\mathcal{L}_{\text{BCE}}(\mathbf{w}) = -\frac{1}{N} \sum_{i=1}^N \left[ y_i \ln \sigma(\mathbf{w}^T \mathbf{x}_i) + (1 - y_i) \ln(1 - \sigma(\mathbf{w}^T \mathbf{x}_i)) \right]
+\end{equation}
 
-\paragraph{Chỉ số Tạp chất Gini (Gini Impurity)}:
-Tại mỗi nút phân nhánh của cây quyết định, thuật toán tìm điểm phân chia trên đặc trưng $j$ sao cho chỉ số tạp chất suy giảm nhiều nhất:
+\subsection{Cây Quyết Định (Decision Trees) \& Gradient Boosting (GBDT)}
+Trên dữ liệu bảng có cấu trúc (Tabular Data) trong tài chính, ngân hàng và phân tích nhật ký mạng, các mô hình học cây quyết định kết hợp (\textit{Tree Ensembles}) vẫn duy trì vị thế số một về độ chính xác và khả năng diễn giải.
+
+\paragraph{1. Chỉ số Tạp chất Gini (Gini Impurity) \& Entropy}:
+Tại mỗi nút phân nhánh, thuật toán tìm điểm phân chia trên đặc trưng $j$ sao cho chỉ số tạp chất suy giảm nhiều nhất:
 \begin{equation}
 G = 1 - \sum_{k=1}^C p_k^2
 \label{eq:gini-impurity-def}
 \end{equation}
-Trong đó $p_k$ là tỷ lệ mẫu thuộc lớp $k$ tại nút đó. Nếu một nút hoàn toàn thuần khiết (chỉ chứa một lớp duy nhất), $G = 1 - 1^2 = 0$.
-
-\paragraph{Nguyên lý Gradient Boosting (XGBoost / LightGBM)}:
-Khác với Random Forest (xây dựng các cây độc lập song song rồi lấy biểu quyết trung bình -- Bagging), Gradient Boosting xây dựng các cây theo **chuỗi tuần hoàn kế tiếp (Boosting)**:
-Cây thứ $m$ không cố gắng dự đoán nhãn $y$, mà được huấn luyện để **dự đoán phần dư sai số (Residual / Pseudo-residuals)** của cụm cây trước đó:
 \begin{equation}
-r_{im} = - \left[ \frac{\partial \mathcal{L}(y_i, f(\mathbf{x}_i))}{\partial f(\mathbf{x}_i)} \right]_{f = f_{(m-1)}}
-\label{eq:gradient-boosting-residuals}
+H = -\sum_{k=1}^C p_k \log_2 p_k \quad (\text{Entropy})
 \end{equation}
-Mỗi cây mới bổ sung là một bước hạ gradient trong không gian hàm số, giúp hệ thống xấp xỉ những biên quyết định phi tuyến phức tạp nhất.
+Độ tăng thông tin (Information Gain) khi phân chia nút cha $D$ thành hai nút con $D_L, D_R$:
+\begin{equation}
+\Delta G = G(D) - \left( \frac{|D_L|}{|D|} G(D_L) + \frac{|D_R|}{|D|} G(D_R) \right)
+\end{equation}
+
+\paragraph{2. Nguyên lý Toán học của Gradient Boosting (XGBoost / LightGBM)}:
+Gradient Boosting xây dựng chuỗi các cây tuần hoàn kế tiếp nhau. Xét hàm mục tiêu tại bước $t$:
+\begin{equation}
+\mathcal{L}^{(t)} = \sum_{i=1}^N \mathcal{L}(y_i, \hat{y}_i^{(t-1)} + f_t(\mathbf{x}_i)) + \Omega(f_t)
+\end{equation}
+Áp dụng khai triển Taylor bậc hai của hàm mất mát xung quanh giá trị dự đoán trước đó $\hat{y}_i^{(t-1)}$:
+\begin{equation}
+\mathcal{L}^{(t)} \approx \sum_{i=1}^N \left[ \mathcal{L}(y_i, \hat{y}_i^{(t-1)}) + g_i f_t(\mathbf{x}_i) + \frac{1}{2} h_i f_t^2(\mathbf{x}_i) \right] + \Omega(f_t)
+\end{equation}
+Trong đó $g_i = \left[\frac{\partial \mathcal{L}(y_i, \hat{y})}{\partial \hat{y}}\right]_{\hat{y}^{(t-1)}}$ là đạo hàm bậc 1, và $h_i = \left[\frac{\partial^2 \mathcal{L}(y_i, \hat{y})}{\partial \hat{y}^2}\right]_{\hat{y}^{(t-1)}}$ là đạo hàm bậc 2 (Hessian).
+
+Với cấu trúc cây gồm $T$ lá, hàm phạt $\Omega(f_t) = \gamma T + \frac{1}{2} \lambda \sum_{j=1}^T w_j^2$. Trọng số tối ưu tại mỗi lá $j$ được tính trực tiếp bằng nghiệm giải tích:
+\begin{equation}
+w_j^* = -\frac{\sum_{i \in I_j} g_i}{\sum_{i \in I_j} h_i + \lambda}
+\label{eq:xgboost-leaf-weight}
+\end{equation}
+Chất lượng phân chia của một nhánh cây được đo lường chính xác qua Gain:
+\begin{equation}
+\text{Gain} = \frac{1}{2} \left[ \frac{\left(\sum_{i \in I_L} g_i\right)^2}{\sum_{i \in I_L} h_i + \lambda} + \frac{\left(\sum_{i \in I_R} g_i\right)^2}{\sum_{i \in I_R} h_i + \lambda} - \frac{\left(\sum_{i \in I} g_i\right)^2}{\sum_{i \in I} h_i + \lambda} \right] - \gamma
+\end{equation}
+Nhờ tận dụng thông tin đạo hàm bậc hai $h_i$, XGBoost hội tụ nhanh hơn và kiểm soát quá khớp vượt trội hơn hẳn các phương pháp tăng cường gradient bậc một truyền thống!
+
+\subsection{Phân Cụm K-Means (Unsupervised Clustering)}
+K-Means phân chia $N$ điểm dữ liệu vào $K$ cụm sao cho tổng khoảng cách bình phương từ mỗi điểm đến tâm cụm tương ứng (\textit{Inertia}) là nhỏ nhất:
+\begin{equation}
+J = \sum_{k=1}^K \sum_{\mathbf{x} \in C_k} \|\mathbf{x} - \boldsymbol{\mu}_k\|_2^2
+\end{equation}
+Thuật toán Lloyd lặp lại hai bước cho đến khi hội tụ:
+\begin{enumerate}
+  \item **Bước gán cụm (Assignment Step)**: Gán mỗi điểm $\mathbf{x}_i$ vào cụm có tâm gần nhất:
+  \begin{equation}
+  c_i = \arg\min_{k \in \{1, \dots, K\}} \|\mathbf{x}_i - \boldsymbol{\mu}_k\|_2^2
+  \end{equation}
+  \item **Bước cập nhật tâm (Update Step)**: Tính lại tọa độ tâm cụm bằng giá trị trung bình số học:
+  \begin{equation}
+  \boldsymbol{\mu}_k = \frac{1}{|C_k|} \sum_{\mathbf{x} \in C_k} \mathbf{x}
+  \end{equation}
+\end{enumerate}
 
 ---
 
 \section{Nền Tảng Deep Learning \& Các Kỹ Thuật Tối Ưu Mạng Sâu}
 \label{sec:deep-learning-foundations}
 
-\subsection{Từ Perceptron Đến Mạng Nhiều Tầng (MLP)}
-
-Mô hình Perceptron của Frank Rosenblatt (1958) chỉ có khả năng phân tách các tập dữ liệu phân tách tuyến tính (\textit{Linearly Separable}). Khi Marvin Minsky và Seymour Papert chứng minh trong cuốn sách kinh điển năm 1969 rằng một Perceptron đơn lẻ không thể giải quyết được cổng logic **XOR (Exclusive OR)**, toàn bộ ngành nghiên cứu mạng nơ-ron đã bị đình trệ trong hơn một thập kỷ.
-
-Bước đột phá chỉ diễn ra khi mạng nơ-ron được xếp chồng thành nhiều tầng (\textbf{Multilayer Perceptron -- MLP}) kết hợp các hàm kích hoạt phi tuyến. Theo **Định lý Xấp xỉ Phổ quát (Universal Approximation Theorem)** của Cybenko (1989) và Hornik (1991): Một mạng nơ-ron tiến chỉ cần đúng một tầng ẩn với số lượng nơ-ron hữu hạn và hàm kích hoạt phi tuyến liên tục có thể xấp xỉ bất kỳ hàm số liên tục nào trên một tập compact trong $\mathbb{R}^D$ với độ chính xác tùy ý!
-
-\subsection{Giải Quyết Vấn Đề Triệt Tiêu Gradient: Khởi Tạo Trọng Số \& Residual Connections}
-
-Khi mạng nơ-ron sâu tới hàng chục hoặc hàng trăm tầng (như ResNet-152 hay Llama-3-70B gồm 80 Transformer blocks), tín hiệu gradient lan truyền ngược từ tầng cuối cùng về tầng đầu tiên liên tục bị nhân qua chuỗi các ma trận trọng số $\mathbf{W}_l$:
+\subsection{Giải Quyết Triệt Tiêu Gradient: Khởi Tạo Trọng Số \& Residual Highway}
+Khi mạng nơ-ron sâu tới hàng chục hoặc hàng trăm tầng, tín hiệu gradient lan truyền ngược liên tục bị nhân qua chuỗi các ma trận trọng số $\mathbf{W}_l$:
 \begin{equation}
 \frac{\partial L}{\partial \mathbf{z}_1} = \frac{\partial L}{\partial \mathbf{z}_L} \prod_{l=2}^L \left( \mathbf{W}_l^T \operatorname{diag}(\sigma'(\mathbf{z}_{l-1})) \right)
 \end{equation}
+Để ngăn chặn phương sai kích hoạt bùng nổ hoặc triệt tiêu, các quy chuẩn khởi tạo được áp dụng:
 \begin{itemize}
-  \item Nếu các giá trị riêng lớn nhất của ma trận nhỏ hơn $1$: Tích chuỗi suy giảm về $0$ theo hàm số mũ $\implies$ **Triệt tiêu Gradient (Vanishing Gradient)**. Các tầng đầu tiên ngừng cập nhật trọng số.
-  \item Nếu các giá trị riêng lớn hơn $1$: Tích chuỗi bùng nổ tới vô cực $\implies$ **Bùng nổ Gradient (Exploding Gradient)**, sinh ra lỗi \code{NaN Loss}.
+  \item \textbf{Khởi tạo Xavier / Glorot} (dành cho Sigmoid/Tanh): $\text{Var}(W) = \frac{2}{d_{\text{in}} + d_{\text{out}}}$.
+  \item \textbf{Khởi tạo He / Kaiming} (dành cho ReLU/LeakyReLU): $\text{Var}(W) = \frac{2}{d_{\text{in}}}$.
 \end{itemize}
 
-\paragraph{Giải pháp kiến trúc: Kết Nối Tàn Dư (Residual / Skip Connections)}
-He et al. (2015) đề xuất bổ sung đường tắt bỏ qua tầng biến đổi phi tuyến:
+\paragraph{Xa Lộ Gradient Trong Kết Nối Tàn Dư (Residual Connections)}:
+Kiến trúc ResNet (He et al., 2015) và Transformer bổ sung đường kết nối tắt:
 \begin{equation}
 \mathbf{x}_{l+1} = \mathbf{x}_l + \mathcal{F}(\mathbf{x}_l, \mathbf{W}_l)
-\label{eq:residual-connection-def}
 \end{equation}
 Khi tính đạo hàm lan truyền ngược:
 \begin{equation}
-\frac{\partial L}{\partial \mathbf{x}_l} = \frac{\partial L}{\partial \mathbf{x}_{l+1}} \frac{\partial \mathbf{x}_{l+1}}{\partial \mathbf{x}_l} = \frac{\partial L}{\partial \mathbf{x}_{l+1}} \left( \mathbf{I} + \frac{\partial \mathcal{F}}{\partial \mathbf{x}_l} \right) = \frac{\partial L}{\partial \mathbf{x}_{l+1}} + \frac{\partial L}{\partial \mathbf{x}_{l+1}} \frac{\partial \mathcal{F}}{\partial \mathbf{x}_l}
-\label{eq:residual-gradient-highway}
+\frac{\partial L}{\partial \mathbf{x}_l} = \frac{\partial L}{\partial \mathbf{x}_{l+1}} \left( \mathbf{I} + \frac{\partial \mathcal{F}}{\partial \mathbf{x}_l} \right) = \frac{\partial L}{\partial \mathbf{x}_{l+1}} + \frac{\partial L}{\partial \mathbf{x}_{l+1}} \frac{\partial \mathcal{F}}{\partial \mathbf{x}_l}
 \end{equation}
+Nhờ số hạng ma trận đơn vị $\mathbf{I}$, tín hiệu gradient có thể truyền thẳng qua hàng trăm tầng mạng mà không bị suy giảm theo hàm mũ, cho phép huấn luyện ổn định các mô hình Transformer khổng lồ!
 
-\begin{theorem}[Xa Lộ Gradient Bất Biến -- Gradient Highway]
-Nhờ số hạng ma trận đơn vị $\mathbf{I}$, tín hiệu gradient $\frac{\partial L}{\partial \mathbf{x}_{l+1}}$ có một đường truyền trực tiếp nguyên vẹn ngược về tầng $\mathbf{x}_l$ mà không bị suy giảm theo hàm mũ bởi các ma trận trọng số $\mathbf{W}_l$. Đây là cơ chế giải phẫu cho phép các mạng Transformer sâu hàng trăm tầng huấn luyện ổn định mà không bị triệt tiêu gradient.
-\end{theorem}
-
-\subsection{Các Bộ Tối Ưu Hóa Nâng Cao: Tại Sao Chọn AdamW Thay Vì Adam Cổ Điển?}
-
-Thuật toán Adam cổ điển (Kingma \& Ba, 2014) kết hợp Động lượng (Momentum) và Tốc độ học thích ứng theo từng tham số:
-\begin{equation}
-\mathbf{m}_t = \beta_1 \mathbf{m}_{t-1} + (1 - \beta_1) \mathbf{g}_t, \qquad \mathbf{v}_t = \beta_2 \mathbf{v}_{t-1} + (1 - \beta_2) \mathbf{g}_t^2
-\end{equation}
-\begin{equation}
-\hat{\mathbf{m}}_t = \frac{\mathbf{m}_t}{1 - \beta_1^t}, \qquad \hat{\mathbf{v}}_t = \frac{\mathbf{v}_t}{1 - \beta_2^t}
-\end{equation}
-
-Trong hầu hết các thư viện deep learning trước đây, phương pháp phạt chuẩn $L_2$ (\textit{Weight Decay}) được cài đặt bằng cách cộng trực tiếp đạo hàm $\lambda \mathbf{w}_t$ vào véc-tơ gradient $\mathbf{g}_t$:
-\begin{equation}
-\mathbf{g}_t \gets \nabla L(\mathbf{w}_t) + \lambda \mathbf{w}_t
-\end{equation}
-\textbf{Lỗi thiết kế toán học}: Khi đưa thành phần phạt vào $\mathbf{g}_t$, nó bị chia cho đại lượng căn bậc hai phương sai thích ứng $\sqrt{\hat{\mathbf{v}}_t}$. Kết quả là: Những tham số có gradient lịch sử lớn bị phạt ít hơn, trong khi những tham số có gradient nhỏ lại bị phạt nặng hơn! Điều này phá vỡ hoàn toàn bản chất ban đầu của điều hòa chuẩn $L_2$.
-
-Loshchilov \& Hutter (2017) đã sửa chữa sai lầm này với thuật toán **AdamW (Decoupled Weight Decay)**: Tách rời hoàn toàn bước suy giảm trọng số ra khỏi bước cập nhật gradient:
-\begin{equation}
-\mathbf{w}_{t+1} = \mathbf{w}_t - \eta_t \lambda \mathbf{w}_t - \frac{\eta_t}{\sqrt{\hat{\mathbf{v}}_t} + \epsilon} \hat{\mathbf{m}}_t
-\label{eq:adamw-update-rule}
-\end{equation}
-Tất cả các mô hình Transformer hiện đại (từ GPT-4, Llama-3 đến Claude) đều bắt buộc phải được huấn luyện bằng AdamW để đảm bảo khả năng tổng quát hóa tối ưu.
+\subsection{Chuẩn Hóa Mạng: BatchNorm vs LayerNorm vs RMSNorm}
+\begin{itemize}
+  \item \textbf{Batch Normalization (BatchNorm)}: Chuẩn hóa trên chiều Batch cho từng kênh đặc trưng. Phụ thuộc vào kích thước lô dữ liệu (Batch Size), không thể hoạt động tốt khi batch size nhỏ hoặc khi xử lý chuỗi văn bản có độ dài biến thiên.
+  \item \textbf{Layer Normalization (LayerNorm)}: Chuẩn hóa độc lập trên toàn bộ không gian đặc trưng của từng token:
+  \begin{equation}
+  \text{LayerNorm}(\mathbf{x}) = \frac{\mathbf{x} - \mu}{\sqrt{\sigma^2 + \epsilon}} \odot \boldsymbol{\gamma} + \boldsymbol{\beta}
+  \end{equation}
+  Không phụ thuộc vào batch size, là chuẩn mực bắt buộc cho xử lý ngôn ngữ tự nhiên.
+  \item \textbf{RMSNorm (Root Mean Square Normalization)}: Nhận thấy việc định tâm trung bình $\mu=0$ không đem lại lợi ích biểu diễn đáng kể, RMSNorm loại bỏ phép tính trung bình $\mu$, chỉ chuẩn hóa theo giá trị hiệu dụng căn bậc hai:
+  \begin{equation}
+  \text{RMSNorm}(\mathbf{x}) = \frac{\mathbf{x}}{\text{RMS}(\mathbf{x})} \odot \boldsymbol{\gamma}, \quad \text{với } \text{RMS}(\mathbf{x}) = \sqrt{\frac{1}{d} \sum_{i=1}^d x_i^2 + \epsilon}
+  \end{equation}
+  Giúp tiết kiệm $10\% - 15\%$ thời gian tính toán nhân CUDA, là lựa chọn tiêu chuẩn của Llama-2, Llama-3 và Mistral!
+\end{itemize}
 
 ---
 
 \section{Ma Trận Nhầm Lẫn \& Các Thước Đo Đánh Giá Cấp Doanh Nghiệp}
 \label{sec:evaluation-metrics}
 
-Trong các bài toán thực tế, tỷ lệ chính xác tổng thể (\textit{Accuracy} = $\frac{\text{Số dự đoán đúng}}{\text{Tổng số mẫu}}$) là thước đo nguy hiểm nhất. Ví dụ trong bài toán phát hiện gian lận thẻ tín dụng, chỉ có $0.1\%$ giao dịch là gian lận. Một mô hình ngớ ngẩn luôn đoán ``Giao dịch hợp lệ'' sẽ đạt Accuracy lên tới $99.9\%$, nhưng hoàn toàn vô dụng vì bỏ lọt $100\%$ các vụ tấn công!
-
-Một kỹ sư AI bắt buộc phải phân rã hiệu năng dựa trên **Ma Trận Nhầm Lẫn (Confusion Matrix)**:
+Trong các bài toán thực tế, tỷ lệ chính xác tổng thể (\textit{Accuracy}) là thước đo nguy hiểm nhất. Ví dụ trong bài toán phát hiện gian lận thẻ tín dụng hoặc xâm nhập mạng, chỉ có $0.1\%$ giao dịch là gian lận. Một mô hình ngớ ngẩn luôn đoán ``Bình thường'' sẽ đạt Accuracy lên tới $99.9\%$, nhưng hoàn toàn vô dụng vì bỏ lọt $100\%$ các vụ tấn công!
 
 \begin{table}[htbp]
 \centering
@@ -221,30 +247,20 @@ Một kỹ sư AI bắt buộc phải phân rã hiệu năng dựa trên **Ma Tr
 \multirow{2}{*}{\textbf{Thực Tế}} & \textbf{Dương Tính (Positive)} & \textbf{TP} (True Positive) & \textbf{FN} (False Negative) \\
 & \textbf{Âm Tính (Negative)} & \textbf{FP} (False Positive) & \textbf{TN} (True Negative) \\
 \end{tabular}
-\caption{Cấu trúc ma trận nhầm lẫn chuẩn trong phân loại nhị phân}
+\caption{Cấu trúc ma trận nhầm lẫn chuẩn trong phân loại nhị phân.}
 \label{tbl:confusion-matrix-layout}
 \end{table}
 
-Từ ma trận nhầm lẫn, chúng ta định nghĩa các thước đo then chốt:
-
-\paragraph{1. Độ Chính Xác Dự Đoán (Precision)}:
-\begin{equation}
-\text{Precision} = \frac{\text{TP}}{\text{TP} + \text{FP}}
-\end{equation}
-*Ý nghĩa*: Trong số những trường hợp mô hình khẳng định là Dương tính, có bao nhiêu phần trăm là đúng thực tế? Cần tối ưu Precision khi **chi phí của False Positive là rất lớn** (ví dụ: Bộ lọc spam tự động xóa nhầm email hợp đồng triệu đô của khách hàng).
-
-\paragraph{2. Độ Nhạy / Khả Năng Bao Phủ (Recall / Sensitivity)}:
-\begin{equation}
-\text{Recall} = \frac{\text{TP}}{\text{TP} + \text{FN}}
-\end{equation}
-*Ý nghĩa*: Trong số tất cả các trường hợp Dương tính thực tế ngoài đời, mô hình đã bắt được bao nhiêu phần trăm? Cần tối ưu Recall khi **chi phí của False Negative là chết người** (ví dụ: Bỏ sót một vụ xâm nhập mã độc vào mạng nội bộ, hoặc bỏ sót bệnh nhân ung thư).
-
-\paragraph{3. Điểm F1 (F1-Score)}:
-Trung bình điều hòa giữa Precision và Recall:
-\begin{equation}
-F_1 = 2 \times \frac{\text{Precision} \times \text{Recall}}{\text{Precision} + \text{Recall}} = \frac{2\text{TP}}{2\text{TP} + \text{FP} + \text{FN}}
-\label{eq:f1-score-def}
-\end{equation}
+\begin{itemize}
+  \item \textbf{Precision} = $\frac{\text{TP}}{\text{TP} + \text{FP}}$: Trong số trường hợp mô hình khẳng định là Dương tính, bao nhiêu phần trăm là đúng? Cần tối ưu khi chi phí của False Positive rất đắt (ví dụ: bộ lọc spam xóa nhầm email quan trọng).
+  \item \textbf{Recall} = $\frac{\text{TP}}{\text{TP} + \text{FN}}$: Trong số trường hợp Dương tính thực tế, mô hình bắt được bao nhiêu phần trăm? Cần tối ưu khi chi phí của False Negative là chết người (ví dụ: phát hiện mã độc, chẩn đoán ung thư).
+  \item \textbf{F1-Score} = $\frac{2 \cdot \text{Precision} \cdot \text{Recall}}{\text{Precision} + \text{Recall}}$: Trung bình điều hòa cân bằng giữa Precision và Recall.
+  \item \textbf{Focal Loss cho dữ liệu mất cân bằng nghiêm trọng}:
+  \begin{equation}
+  \mathcal{L}_{\text{Focal}} = -\alpha_t (1 - p_t)^\gamma \ln(p_t)
+  \end{equation}
+  Thừa số điều biến $(1 - p_t)^\gamma$ tự động triệt tiêu gradient của các mẫu dễ phân loại và tập trung sức mạnh mô hình vào các mẫu hiếm khó đoán!
+\end{itemize}
 
 ---
 
@@ -252,89 +268,151 @@ F_1 = 2 \times \frac{\text{Precision} \times \text{Recall}}{\text{Precision} + \
 \label{sec:ch05-numerical-walkthrough}
 
 \begin{example}[Tính Toán Ma Trận Nhầm Lẫn Cho Hệ Thống SOC Alert Triage]
-Một hệ thống AI được triển khai trong Trung tâm Điều hành An ninh Mạng (SOC) để tự động phân loại các cảnh báo an ninh. Hệ thống được đánh giá trên một tập kiểm thử gồm $N = 10.000$ cảnh báo mạng, trong đó chỉ có $100$ cảnh báo là cuộc tấn công xâm nhập thực tế (Lớp Positive), và $9.900$ cảnh báo là hoạt động bình thường (Lớp Negative).
-
-Kết quả kiểm thử của mô hình như sau:
-\begin{itemize}
-  \item Phát hiện chính xác $90$ cuộc tấn công thực tế ($\text{TP} = 90$).
-  \item Bỏ sót $10$ cuộc tấn công thực tế ($\text{FN} = 10$).
-  \item Báo động nhầm $180$ hoạt động bình thường thành tấn công ($\text{FP} = 180$).
-  \item Xác định đúng $9.720$ hoạt động bình thường ($\text{TN} = 9.720$).
-\end{itemize}
-
-\paragraph{1. Tính toán Độ chính xác tổng thể (Accuracy)}:
-\begin{equation*}
-\text{Accuracy} = \frac{\text{TP} + \text{TN}}{\text{Tổng số mẫu}} = \frac{90 + 9.720}{10.000} = \frac{9.810}{10.000} = 98.10\%
-\end{equation*}
-
-\paragraph{2. Tính toán Precision}:
-\begin{equation*}
-\text{Precision} = \frac{\text{TP}}{\text{TP} + \text{FP}} = \frac{90}{90 + 180} = \frac{90}{270} \approx 0.3333 = 33.33\%
-\end{equation*}
-*Phân tích*: Khi hệ thống AI bắn chuông báo động, chỉ có $33.33\%$ khả năng đó là cuộc tấn công thật, còn $66.67\%$ trường hợp là báo động giả.
-
-\paragraph{3. Tính toán Recall}:
-\begin{equation*}
-\text{Recall} = \frac{\text{TP}}{\text{TP} + \text{FN}} = \frac{90}{90 + 10} = \frac{90}{100} = 90.00\%
-\end{equation*}
-*Phân tích*: Hệ thống đã bao phủ và bắt được $90\%$ các cuộc tấn công thực tế.
-
-\paragraph{4. Tính toán F1-Score}:
-\begin{equation*}
-F_1 = 2 \times \frac{0.3333 \times 0.9000}{0.3333 + 0.9000} = 2 \times \frac{0.3000}{1.2333} \approx 0.4865 = 48.65\%
-\end{equation*}
-*Kết luận*: Mặc dù Accuracy đạt tới $98.10\%$ (nghe rất ấn tượng trên báo cáo marketing), nhưng điểm $F_1$ thực tế chỉ đạt $48.65\%$. Một kỹ sư AI nếu chỉ nhìn vào Accuracy sẽ đưa ra những quyết định triển khai sai lầm nghiêm trọng!
+Hệ thống AI phân loại cảnh báo an ninh mạng được kiểm thử trên $N = 10.000$ cảnh báo mạng, trong đó có $100$ cuộc tấn công thật (Positive) và $9.900$ hoạt động bình thường (Negative).
+Kết quả thu được: $\text{TP} = 90$, $\text{FN} = 10$, $\text{FP} = 180$, $\text{TN} = 9.720$.
+Hãy tính Accuracy, Precision, Recall và F1-Score.
 \end{example}
+
+\paragraph{Lời giải chi tiết}:
+\begin{itemize}
+  \item[1)] **Accuracy**:
+  \begin{equation*}
+  \text{Accuracy} = \frac{90 + 9.720}{10.000} = \frac{9.810}{10.000} = 98.10\%
+  \end{equation*}
+  \item[2)] **Precision**:
+  \begin{equation*}
+  \text{Precision} = \frac{90}{90 + 180} = \frac{90}{270} \approx 33.33\%
+  \end{equation*}
+  \item[3)] **Recall**:
+  \begin{equation*}
+  \text{Recall} = \frac{90}{90 + 10} = \frac{90}{100} = 90.00\%
+  \end{equation*}
+  \item[4)] **F1-Score**:
+  \begin{equation*}
+  F_1 = 2 \times \frac{0.3333 \times 0.9000}{0.3333 + 0.9000} = 2 \times \frac{0.3000}{1.2333} \approx 48.65\%
+  \end{equation*}
+  \textit{Nhận xét}: Mặc dù Accuracy đạt tới $98.10\%$, điểm F1 thực tế chỉ đạt $48.65\%$, phản ánh chính xác tình trạng $66.7\%$ chuông báo động là cảnh báo giả!
+\end{itemize}
 
 ---
 
-\section{Hiện Thực Hóa: Bộ Phân Tích Đánh Giá Mô Hình \& Linear Regression}
+\begin{example}[Giải Nghiệm Normal Equation Bằng Tay]
+Cho tập dữ liệu 1 chiều gồm 3 điểm quan sát: $(1, 2)$, $(2, 3)$, và $(3, 5)$.
+Hãy tìm nghiệm tối ưu dạng đóng $\mathbf{w}^* = [b, w]^T$ cho mô hình $\hat{y} = w x + b$.
+\end{example}
+
+\paragraph{Lời giải chi tiết}:
+\begin{itemize}
+  \item[1)] Ma trận thiết kế bổ sung cột bias:
+  \begin{equation*}
+  \mathbf{X}_b = \begin{bmatrix} 1 & 1 \\ 1 & 2 \\ 1 & 3 \end{bmatrix}, \qquad \mathbf{y} = \begin{bmatrix} 2 \\ 3 \\ 5 \end{bmatrix}
+  \end{equation*}
+  \item[2)] Tính ma trận Gram $\mathbf{X}_b^T \mathbf{X}_b$ và nghịch đảo:
+  \begin{equation*}
+  \mathbf{X}_b^T \mathbf{X}_b = \begin{bmatrix} 1 & 1 & 1 \\ 1 & 2 & 3 \end{bmatrix} \begin{bmatrix} 1 & 1 \\ 1 & 2 \\ 1 & 3 \end{bmatrix} = \begin{bmatrix} 3 & 6 \\ 6 & 14 \end{bmatrix}
+  \end{equation*}
+  $\det = (3 \times 14) - (6 \times 6) = 42 - 36 = 6$.
+  \begin{equation*}
+  (\mathbf{X}_b^T \mathbf{X}_b)^{-1} = \frac{1}{6} \begin{bmatrix} 14 & -6 \\ -6 & 3 \end{bmatrix} = \begin{bmatrix} 7/3 & -1 \\ -1 & 1/2 \end{bmatrix}
+  \end{equation*}
+  \item[3)] Tính tích $\mathbf{X}_b^T \mathbf{y}$:
+  \begin{equation*}
+  \mathbf{X}_b^T \mathbf{y} = \begin{bmatrix} 1 & 1 & 1 \\ 1 & 2 & 3 \end{bmatrix} \begin{bmatrix} 2 \\ 3 \\ 5 \end{bmatrix} = \begin{bmatrix} 10 \\ 23 \end{bmatrix}
+  \end{equation*}
+  Nghiệm tối ưu:
+  \begin{equation*}
+  \mathbf{w}^* = \begin{bmatrix} 7/3 & -1 \\ -1 & 1/2 \end{bmatrix} \begin{bmatrix} 10 \\ 23 \end{bmatrix} = \begin{bmatrix} 70/3 - 23 \\ -10 + 23/2 \end{bmatrix} = \begin{bmatrix} 1/3 \\ 3/2 \end{bmatrix} \approx \begin{bmatrix} 0.3333 \\ 1.5000 \end{bmatrix}
+  \end{equation*}
+  Đường thẳng hồi quy tối ưu là: $\hat{y} = 1.5 x + 0.3333$.
+\end{itemize}
+
+---
+
+\begin{example}[Tính Trọng Số Lá Tối Ưu Trong Cây XGBoost Bằng Tay]
+Xét một nút lá của cây XGBoost chứa 4 mẫu dữ liệu với các giá trị đạo hàm bậc 1 $g_i$ và bậc 2 $h_i$ (giả sử hàm mất mát MSE):
+\begin{itemize}
+  \item Mẫu 1: $g_1 = -0.8$, $h_1 = 1.0$
+  \item Mẫu 2: $g_2 = -0.6$, $h_2 = 1.0$
+  \item Mẫu 3: $g_3 = 0.2$, $h_3 = 1.0$
+  \item Mẫu 4: $g_4 = 0.4$, $h_4 = 1.0$
+\end{itemize}
+Hệ số điều hòa $\lambda = 1.0$. Hãy tính trọng số tối ưu $w^*$ của lá này và điểm số Score của nút lá.
+\end{example}
+
+\paragraph{Lời giải chi tiết}:
+\begin{itemize}
+  \item[1)] Tổng đạo hàm bậc 1: $G = \sum g_i = (-0.8) + (-0.6) + 0.2 + 0.4 = -0.8$.
+  \item[2)] Tổng đạo hàm bậc 2: $H = \sum h_i = 1.0 + 1.0 + 1.0 + 1.0 = 4.0$.
+  \item[3)] Áp dụng công thức trọng số lá tối ưu:
+  \begin{equation*}
+  w^* = -\frac{G}{H + \lambda} = -\frac{-0.8}{4.0 + 1.0} = \frac{0.8}{5.0} = +0.16
+  \end{equation*}
+  \item[4)] Điểm số chất lượng của nút lá:
+  \begin{equation*}
+  \text{Score} = \frac{1}{2} \frac{G^2}{H + \lambda} = \frac{1}{2} \frac{(-0.8)^2}{5.0} = \frac{1}{2} \frac{0.64}{5.0} = \frac{0.32}{5.0} = 0.064
+  \end{equation*}
+\end{itemize}
+
+---
+
+\section{Hiện Thực Hóa: Mã Nguồn Python Chuẩn Kỹ Nghệ}
 \label{sec:ch05-implementation}
 
-Dưới đây là một mô đun Python hoàn chỉnh cài đặt thuật toán Hồi quy tuyến tính giải tích bằng Normal Equation kết hợp lớp thẩm định hiệu năng phân loại toàn diện:
+Dưới đây là các module Python thuần chuẩn mực, tự chứa và không phụ thuộc vào thư viện ngoài, hiện thực hóa bộ giải hồi quy tuyến tính (Normal Equation \& Ridge), bộ thẩm định hiệu năng phân loại, và thuật toán tính Focal Loss:
 
-\begin{lstlisting}[language=Python]
+\begin{lstlisting}[language=Python, caption={Bộ giải hồi quy tuyến tính giải tích OLS và Ridge Regression.}]
 import numpy as np
-from typing import Dict, Any, Tuple
 
 class AnalyticalLinearRegression:
-    """Hoi quy tuyen tinh giai tich su dung Normal Equation."""
-    
-    def __init__(self):
+    """Hoi quy tuyen tinh giai tich ho tro ca OLS va Ridge Regularization."""
+    def __init__(self, l2_lambda: float = 0.0):
+        self.l2_lambda = l2_lambda
         self.weights: np.ndarray = np.array([])
 
     def fit(self, X: np.ndarray, y: np.ndarray) -> np.ndarray:
-        # Them cot 1 vao dau de hoc he so bias b
         N = X.shape[0]
+        # Them cot 1 vao dau de hoc he so bias b
         X_b = np.hstack([np.ones((N, 1)), X])
-        
-        # Ap dung cong thuc Normal Equation: w = (X^T * X)^(-1) * X^T * y
+        D_plus_1 = X_b.shape[1]
+
         XT_X = np.dot(X_b.T, X_b)
         XT_y = np.dot(X_b.T, y)
-        self.weights = np.linalg.solve(XT_X, XT_y)
+
+        if self.l2_lambda > 0.0:
+            # Khong dieu hoa he so bias tai vi tri (0, 0)
+            reg_matrix = self.l2_lambda * np.eye(D_plus_1)
+            reg_matrix[0, 0] = 0.0
+            self.weights = np.linalg.solve(XT_X + reg_matrix, XT_y)
+        else:
+            self.weights = np.linalg.solve(XT_X, XT_y)
+
         return self.weights
 
     def predict(self, X: np.ndarray) -> np.ndarray:
         N = X.shape[0]
         X_b = np.hstack([np.ones((N, 1)), X])
         return np.dot(X_b, self.weights)
+\end{lstlisting}
+
+\begin{lstlisting}[language=Python, caption={Bộ đánh giá ma trận nhầm lẫn và các chỉ số đo lường hiệu năng phân loại.}]
+from typing import Dict, Any
+import numpy as np
 
 class BinaryClassificationMetrics:
     """Tinh toan ma tran nham lan va cac chi so Precision, Recall, F1-Score."""
-    
     @staticmethod
     def calculate_metrics(y_true: np.ndarray, y_pred_binary: np.ndarray) -> Dict[str, Any]:
         TP = int(np.sum((y_true == 1) & (y_pred_binary == 1)))
         TN = int(np.sum((y_true == 0) & (y_pred_binary == 0)))
         FP = int(np.sum((y_true == 0) & (y_pred_binary == 1)))
         FN = int(np.sum((y_true == 1) & (y_pred_binary == 0)))
-        
+
         total = TP + TN + FP + FN
         accuracy = (TP + TN) / total if total > 0 else 0.0
         precision = TP / (TP + FP) if (TP + FP) > 0 else 0.0
         recall = TP / (TP + FN) if (TP + FN) > 0 else 0.0
         f1 = (2 * precision * recall) / (precision + recall) if (precision + recall) > 0 else 0.0
-        
+
         return {
             "TP": TP, "TN": TN, "FP": FP, "FN": FN,
             "accuracy": round(float(accuracy), 4),
@@ -344,40 +422,71 @@ class BinaryClassificationMetrics:
         }
 \end{lstlisting}
 
+\begin{lstlisting}[language=Python, caption={Hàm tính toán Focal Loss hỗ trợ xử lý dữ liệu mất cân bằng nặng.}]
+class FocalLossCalculator:
+    """Tinh toan Focal Loss: L = -alpha_t * (1 - p_t)^gamma * log(p_t)."""
+    @staticmethod
+    def compute(y_true: np.ndarray, y_probs: np.ndarray, gamma: float = 2.0, alpha: float = 0.25) -> float:
+        eps = 1e-15
+        p = np.clip(y_probs, eps, 1.0 - eps)
+
+        # p_t: xac suat du doan cho lop dung thuc te
+        p_t = np.where(y_true == 1, p, 1.0 - p)
+        alpha_t = np.where(y_true == 1, alpha, 1.0 - alpha)
+
+        modulating_factor = (1.0 - p_t) ** gamma
+        focal_losses = -alpha_t * modulating_factor * np.log(p_t)
+        return float(np.mean(focal_losses))
+\end{lstlisting}
+
 ---
 
 \section{Hệ Thống Bài Tập \& Câu Hỏi Tư Duy Đa Tầng}
 \label{sec:ch05-exercises}
 
 \subsection{Nhóm A: Câu Hỏi Tư Duy Bản Chất (Conceptual Reasoning)}
-
-\begin{enumerate}[label=\textbf{A\arabic*.}]
-  \item \textbf{Phân rã Bias-Variance trong Kỹ nghệ Prompting}: Khi một kỹ sư AI chuyển từ việc dùng Zero-Shot Prompting sang Few-Shot Prompting (cung cấp thêm 5 ví dụ minh họa trong ngữ cảnh), thành phần nào trong phương trình Bias-Variance đã được cải thiện? Nếu tăng số ví dụ lên 100 ví dụ phức tạp, rủi ro nào về Variance có thể phát sinh?
-  \item \textbf{Data Leakage Trong Tiền Xử Lý Dữ Liệu}: Một nhà khoa học dữ liệu thực hiện chuẩn hóa dữ liệu (\textit{Standard Scaling}: $z = \frac{x - \mu}{\sigma}$) trên toàn bộ tập dữ liệu trước khi chia thành tập Train ($80\%$) và Test ($20\%$). Giải thích tại sao quy trình này bị coi là lỗi rò rỉ dữ liệu (\textit{Data Leakage}) nghiêm trọng và làm thế nào để khắc phục chuẩn xác?
-  \item \textbf{Bản chất toán học của AdamW}: Tại sao việc tách rời Weight Decay ra khỏi gradient trong AdamW lại giúp mô hình Transformer có khả năng tổng quát hóa tốt hơn hẳn Adam truyền thống?
+\begin{enumerate}
+  \item \textbf{Câu A.1}: Phân tích sự đánh đổi Bias-Variance trong kỹ nghệ Prompting. Khi chuyển từ Zero-Shot sang Few-Shot (cung cấp 5 ví dụ), thành phần nào trong sai số được giảm thiểu? Nếu tăng lên 100 ví dụ phức tạp, rủi ro gì về mặt Variance có thể phát sinh?
+  \item \textbf{Câu A.2}: Giải thích hiện tượng Rò rỉ Dữ liệu (Data Leakage) khi một kỹ sư thực hiện chuẩn hóa dữ liệu (\textit{StandardScaler}) trên toàn bộ tập dữ liệu trước khi chia tách thành Train và Test. Quy trình chuẩn mực để tránh lỗi này là gì?
+  \item \textbf{Câu A.3}: Tại sao thuật toán XGBoost sử dụng cả đạo hàm bậc một và đạo hàm bậc hai (Hessian) của hàm mất mát, trong khi Gradient Boosting truyền thống chỉ sử dụng đạo hàm bậc một?
+  \item \textbf{Câu A.4}: Trong bài toán phát hiện giao dịch gian lận với tỷ lệ gian lận $0.1\%$, giải thích tại sao đường cong Precision-Recall (PR Curve) lại phản ánh năng lực mô hình trung thực hơn nhiều so với đường cong ROC Curve.
+  \item \textbf{Câu A.5}: Tại sao hầu hết các mô hình ngôn ngữ lớn hiện đại (như Llama-3) lại sử dụng RMSNorm thay vì LayerNorm tiêu chuẩn?
 \end{enumerate}
 
 \subsection{Nhóm B: Bài Toán Tính Toán Giải Tích Bằng Tay (Analytical Problems)}
-
-\begin{enumerate}[label=\textbf{B\arabic*.}]
-  \item \textbf{Giải Nghiệm Normal Equation Bằng Tay}: Cho tập dữ liệu 1 chiều gồm 3 điểm quan sát: $(x_1, y_1) = (1, 2)$, $(x_2, y_2) = (2, 3)$, và $(x_3, y_3) = (3, 5)$.
+\begin{enumerate}
+  \item \textbf{Bài B.1 (Tính Toán Ridge Regression Bằng Tay)}: \\
+  Cho tập dữ liệu gồm 2 điểm: $(x_1, y_1) = (1, 1)$ và $(x_2, y_2) = (3, 3)$.
+  Hãy tính nghiệm trọng số $w^*$ (giả sử không có bias) cho:
   \begin{itemize}
-    \item[a)] Viết tường minh ma trận thiết kế $\mathbf{X}_b \in \mathbb{R}^{3 \times 2}$ và véc-tơ $\mathbf{y} \in \mathbb{R}^3$.
-    \item[b)] Tính toán ma trận $\mathbf{X}_b^T \mathbf{X}_b$ và nghịch đảo của nó.
-    \item[c)] Xác định nghiệm giải tích véc-tơ trọng số $\mathbf{w}^* = [b, w]^T$ và viết phương trình đường thẳng hồi quy tối ưu.
+    \item[a)] Hồi quy tuyến tính chuẩn OLS ($\lambda = 0$).
+    \item[b)] Hồi quy Ridge với hệ số điều hòa $\lambda = 2.0$. So sánh sự suy giảm độ lớn của trọng số.
   \end{itemize}
+
+  \item \textbf{Bài B.2 (Tính Toán Chỉ Số Gini Impurity Khi Phân Chia Cây)}: \\
+  Một nút cha chứa 10 mẫu (6 mẫu thuộc lớp A và 4 mẫu thuộc lớp B).
+  Thuật toán phân chia nút này thành hai nút con:
+  Nút trái chứa 5 mẫu (4 mẫu lớp A, 1 mẫu lớp B).
+  Nút phải chứa 5 mẫu (2 mẫu lớp A, 3 mẫu lớp B).
+  Tính chỉ số Gini của nút cha, hai nút con, và độ tăng thông tin Gini Gain của phép phân chia này.
 \end{enumerate}
 
 \subsection{Nhóm C: Thực Hành Kỹ Nghệ \& Lập Trình (Implementation Labs)}
+\begin{enumerate}
+  \item \textbf{Bài C.1 (Bộ Thẩm Định Ma Trận Nhầm Lẫn Đa Ngưỡng)}: \\
+  Xây dựng lớp Python \code{ThresholdOptimizer} nhận vào nhãn thực tế và xác suất dự đoán, quét qua 100 ngưỡng từ $0.01$ đến $0.99$, và tự động tìm ngưỡng quyết định tối ưu hóa điểm F1-Score trên tập dữ liệu mất cân bằng.
 
-\begin{enumerate}[label=\textbf{C\arabic*.}]
-  \item \textbf{Cài Đặt SGD With Momentum Từ Số 0}: Viết một lớp Python triển khai thuật toán Stochastic Gradient Descent kết hợp Momentum ($\beta = 0.9$) để tối ưu hàm số Rosenbrock $f(x, y) = (1 - x)^2 + 100(y - x^2)^2$. Vẽ biểu đồ đường đi hội tụ so sánh giữa SGD thuần và SGD with Momentum.
+  \item \textbf{Bài C.2 (Cài Đặt Focal Loss Module)}: \\
+  Hiện thực hóa hàm \code{FocalLossCalculator.compute} có hỗ trợ tham số $\alpha$ và $\gamma$, viết unit test kiểm tra rằng khi $\gamma=0$ và $\alpha=0.5$, Focal Loss quy về đúng một nửa của Binary Cross-Entropy Loss.
 \end{enumerate}
 
 \subsection{Nhóm D: Phân Tích Thất Bại \& Debugging Thực Tế (Post-Mortem Analysis)}
+\begin{enumerate}
+  \item \textbf{Tình huống sự cố 1 (Thảm họa sập Recall trên dữ liệu mất cân bằng)}: \\
+  Một ngân hàng triển khai mô hình phân loại gian lận giao dịch với báo cáo đạt $\text{Accuracy} = 99.5\%$. Sau 1 tháng, ngân hàng bị tổn thất 2 triệu USD do các cuộc gian lận lọt lưới. Khi kiểm tra ma trận nhầm lẫn, tỷ lệ phát hiện $\text{Recall}$ chỉ đạt $12\%$. Hãy giải thích nguyên nhân và đề xuất phương án điều chỉnh ngưỡng quyết định kết hợp kỹ thuật Focal Loss để cứu vãn hệ thống.
 
-\begin{enumerate}[label=\textbf{D\arabic*.}]
-  \item \textbf{Thảm Họa Triển Khai Mô Hình Gian Lận Với Imbalanced Data}: Một ngân hàng triển khai mô hình học máy phân loại gian lận giao dịch với báo cáo đạt $\text{Accuracy} = 99.5\%$. Tuy nhiên, sau 1 tháng vận hành, ngân hàng bị tổn thất 2 triệu USD do các cuộc gian lận lọt lưới. Khi kiểm tra ma trận nhầm lẫn, người ta phát hiện $\text{Recall} = 12\%$. Hãy giải thích nguyên nhân và đề xuất phương án điều chỉnh ngưỡng quyết định (\textit{Threshold Tuning}) kết hợp kỹ thuật lấy mẫu (SMOTE/Focal Loss) để cứu vãn hệ thống.
+  \item \textbf{Tình huống sự cố 2 (Chết Nơ-ron Trong Mạng Sâu Với Hàm ReLU)}: \\
+  Sau khi huấn luyện một mạng nơ-ron sâu với hàm kích hoạt ReLU và tốc độ học lớn $\eta = 0.1$, kỹ sư nhận thấy hơn $80\%$ nơ-ron ở tầng ẩn thứ 3 luôn cho đầu ra bằng $0$ trên mọi mẫu dữ liệu kiểm thử (hiện tượng Dying ReLU). Hãy giải thích nguyên nhân toán học và đề xuất 2 giải pháp thay thế.
 \end{enumerate}
 
 ---
@@ -385,41 +494,81 @@ class BinaryClassificationMetrics:
 \section{Hướng Dẫn Lời Giải \& Bình Luận Kỹ Thuật Chi Tiết}
 \label{sec:ch05-solutions}
 
-\paragraph{Lời giải Bài B1 (Giải nghiệm Normal Equation bằng tay)}:
+\subsection{Lời Giải Nhóm A: Câu Hỏi Tư Duy Bản Chất}
 \begin{itemize}
-  \item[a)] Ma trận thiết kế bổ sung cột bias:
-  \begin{equation*}
-  \mathbf{X}_b = \begin{bmatrix} 1 & 1 \\ 1 & 2 \\ 1 & 3 \end{bmatrix}, \qquad \mathbf{y} = \begin{bmatrix} 2 \\ 3 \\ 5 \end{bmatrix}
-  \end{equation*}
-  \item[b)] Tính ma trận Gram:
-  \begin{equation*}
-  \mathbf{X}_b^T \mathbf{X}_b = \begin{bmatrix} 1 & 1 & 1 \\ 1 & 2 & 3 \end{bmatrix} \begin{bmatrix} 1 & 1 \\ 1 & 2 \\ 1 & 3 \end{bmatrix} = \begin{bmatrix} 3 & 6 \\ 6 & 14 \end{bmatrix}
-  \end{equation*}
-  Định thức: $\det(\mathbf{X}_b^T \mathbf{X}_b) = (3 \times 14) - (6 \times 6) = 42 - 36 = 6$.
-  Nghịch đảo ma trận $2 \times 2$:
-  \begin{equation*}
-  (\mathbf{X}_b^T \mathbf{X}_b)^{-1} = \frac{1}{6} \begin{bmatrix} 14 & -6 \\ -6 & 3 \end{bmatrix} = \begin{bmatrix} 7/3 & -1 \\ -1 & 1/2 \end{bmatrix}
-  \end{equation*}
-  \item[c)] Tính tích $\mathbf{X}_b^T \mathbf{y}$:
-  \begin{equation*}
-  \mathbf{X}_b^T \mathbf{y} = \begin{bmatrix} 1 & 1 & 1 \\ 1 & 2 & 3 \end{bmatrix} \begin{bmatrix} 2 \\ 3 \\ 5 \end{bmatrix} = \begin{bmatrix} 10 \\ 23 \end{bmatrix}
-  \end{equation*}
-  Nghiệm tối ưu:
-  \begin{equation*}
-  \mathbf{w}^* = \begin{bmatrix} 7/3 & -1 \\ -1 & 1/2 \end{bmatrix} \begin{bmatrix} 10 \\ 23 \end{bmatrix} = \begin{bmatrix} \frac{70}{3} - 23 \\ -10 + \frac{23}{2} \end{bmatrix} = \begin{bmatrix} 1/3 \\ 3/2 \end{bmatrix} \approx \begin{bmatrix} 0.3333 \\ 1.5000 \end{bmatrix}
-  \end{equation*}
-  Phương trình đường thẳng hồi quy tối ưu là: $\hat{y} = 1.5 x + 0.3333$.
+  \item \textbf{Lời giải Câu A.1}:
+  Zero-Shot Prompting buộc mô hình phải dựa hoàn toàn vào kiến thức tiền huấn luyện tổng quát, thường có Bias cao đối với định dạng đầu ra mong muốn. Cung cấp 5 ví dụ mẫu trong Few-Shot giúp neo chặt phong cách và cấu trúc dữ liệu, làm giảm Bias đáng kể. Tuy nhiên, nếu cung cấp 100 ví dụ phức tạp, mô hình có thể bị quá khớp vào ngữ cảnh cụ thể của các ví dụ đó (In-context Overfitting), làm tăng Variance và khiến mô hình mất khả năng xử lý các trường hợp ngoại biên mới.
+
+  \item \textbf{Lời giải Câu A.2}:
+  Khi chuẩn hóa trên toàn bộ dữ liệu trước khi chia Train/Test, các đại lượng thống kê toàn cục ($\mu_{\text{all}}, \sigma_{\text{all}}$) đã hấp thụ thông tin phân phối của tập Test. Mô hình được huấn luyện trên tập Train đã gián tiếp nhìn thấy trước đặc trưng của tập Test, khiến điểm đánh giá cao giả tạo. Quy trình chuẩn mực là: Chia tách Train/Test trước, chỉ tính $\mu_{\text{train}}, \sigma_{\text{train}}$ trên tập Train, sau đó áp dụng chính các tham số này để chuẩn hóa tập Test.
+
+  \item \textbf{Lời giải Câu A.3}:
+  Gradient Boosting cổ điển chỉ dùng đạo hàm bậc 1 $g_i$, tương đương với phương pháp hạ gradient bậc nhất (First-order Gradient Descent). XGBoost sử dụng thêm đạo hàm bậc hai $h_i$ (Hessian), tương đương với phương pháp tối ưu Newton-Raphson bậc hai, cho phép ước lượng chính xác độ cong của hàm mất mát để xác định bước nhảy tối ưu $w^*$ cho mỗi lá, giúp tăng tốc độ hội tụ và độ chính xác phân loại.
+
+  \item \textbf{Lời giải Câu A.4}:
+  ROC Curve vẽ đồ thị TPR theo FPR = $\frac{\text{FP}}{\text{FP} + \text{TN}}$. Khi số lượng mẫu âm tính $\text{TN}$ khổng lồ (ví dụ 999.000 mẫu), ngay cả khi $\text{FP} = 1.000$ (rất tệ đối với gian lận), tỷ số FPR vẫn chỉ là $\frac{1000}{1000 + 999000} \approx 0.001$, khiến đường cong ROC trông rất đẹp (AUC $> 0.99$). Ngược lại, PR Curve sử dụng Precision = $\frac{\text{TP}}{\text{TP} + \text{FP}}$, không bị ảnh hưởng bởi đại lượng $\text{TN}$ khổng lồ, phản ánh trung thực mức độ báo động giả của mô hình.
+
+  \item \textbf{Lời giải Câu A.5}:
+  LayerNorm phải tính cả giá trị trung bình $\mu$ và phương sai $\sigma^2$, đòi hỏi hai lượt duyệt qua tensor kích hoạt. RMSNorm chỉ tính căn bậc hai trung bình bình phương (RMS), không cần trừ trung bình. Phép tính này đơn giản hơn, tiết kiệm được các phép toán cộng trừ số học và giảm bớt thao tác truy xuất bộ nhớ GPU, giúp tăng tốc độ suy luận khoảng $10\% - 15\%$ mà không làm suy giảm chất lượng biểu diễn.
 \end{itemize}
 
-\paragraph{Lời giải Bài D1 (Xử lý dữ liệu mất cân bằng trong gian lận)}:
-Do tập dữ liệu có tỷ lệ gian lận cực thấp ($< 0.5\%$), mô hình tối ưu theo hàm mất mát Cross-Entropy truyền thống bị chi phối hoàn toàn bởi các mẫu âm tính thông thường. Kết quả là ngưỡng phân loại mặc định $0.5$ khiến mô hình thiên lệch về phía đoán Negative, dẫn tới $\text{FN}$ cực cao và $\text{Recall}$ rơi xuống $12\%$.
+\subsection{Lời Giải Nhóm B: Bài Toán Tính Toán Giải Tích Bằng Tay}
 
-\textbf{Các bước khắc phục}:
-\begin{enumerate}
-  \item **Hạ ngưỡng quyết định (Threshold Tuning)**: Giảm ngưỡng kích hoạt từ $0.5$ xuống $0.15$ hoặc $0.08$. Bất kỳ giao dịch nào có xác suất gian lận $> 8\%$ đều bị đưa vào diện thẩm vấn. Điều này có thể làm tăng nhẹ False Positives nhưng sẽ đẩy Recall lên trên $95\%$, chặn đứng thiệt hại tài chính.
-  \item **Sử dụng Focal Loss**: Thay thế Cross-Entropy bằng Focal Loss:
+\paragraph{Lời giải Bài B.1}:
+\begin{itemize}
+  \item[a)] Với mô hình không bias: $\hat{y} = w x$.
+  Ma trận đặc trưng $\mathbf{X} = \begin{bmatrix} 1 \\ 3 \end{bmatrix}$, véc-tơ $\mathbf{y} = \begin{bmatrix} 1 \\ 3 \end{bmatrix}$.
+  $\mathbf{X}^T \mathbf{X} = 1^2 + 3^2 = 10$. $\mathbf{X}^T \mathbf{y} = 1 \times 1 + 3 \times 3 = 10$.
+  Nghiệm OLS chuẩn ($\lambda = 0$):
   \begin{equation*}
-  L_{\text{Focal}} = - \alpha_t (1 - p_t)^\gamma \ln(p_t)
+  w_{\text{OLS}}^* = \frac{10}{10} = 1.0
   \end{equation*}
-  Với $\gamma = 2$, đại lượng $(1 - p_t)^2$ sẽ tự động triệt tiêu gradient của hàng triệu giao dịch dễ phân loại và tập trung toàn bộ năng lực học của mô hình vào các trường hợp gian lận khó phân biệt.
+
+  \item[b)] Với hồi quy Ridge ($\lambda = 2.0$):
+  \begin{equation*}
+  w_{\text{Ridge}}^* = \frac{\mathbf{X}^T \mathbf{y}}{\mathbf{X}^T \mathbf{X} + \lambda} = \frac{10}{10 + 2.0} = \frac{10}{12} \approx 0.8333
+  \end{equation*}
+  Hệ số điều hòa $\lambda$ đã co nhỏ độ lớn của trọng số từ $1.0$ xuống $0.8333$, giảm phương sai của mô hình.
+\end{itemize}
+
+\paragraph{Lời giải Bài B.2}:
+\begin{itemize}
+  \item[1)] Chỉ số Gini của nút cha (6 mẫu A, 4 mẫu B):
+  \begin{equation*}
+  G(D) = 1 - \left( \left(\frac{6}{10}\right)^2 + \left(\frac{4}{10}\right)^2 \right) = 1 - (0.36 + 0.16) = 1 - 0.52 = 0.48
+  \end{equation*}
+  \item[2)] Gini của nút con trái (4 mẫu A, 1 mẫu B, tổng 5 mẫu):
+  \begin{equation*}
+  G(D_L) = 1 - \left( \left(\frac{4}{5}\right)^2 + \left(\frac{1}{5}\right)^2 \right) = 1 - (0.64 + 0.04) = 1 - 0.68 = 0.32
+  \end{equation*}
+  \item[3)] Gini của nút con phải (2 mẫu A, 3 mẫu B, tổng 5 mẫu):
+  \begin{equation*}
+  G(D_R) = 1 - \left( \left(\frac{2}{5}\right)^2 + \left(\frac{3}{5}\right)^2 \right) = 1 - (0.16 + 0.36) = 1 - 0.52 = 0.48
+  \end{equation*}
+  \item[4)] Độ tăng thông tin Gini Gain:
+  \begin{equation*}
+  \Delta G = 0.48 - \left( \frac{5}{10} \times 0.32 + \frac{5}{10} \times 0.48 \right) = 0.48 - (0.16 + 0.24) = 0.48 - 0.40 = 0.08
+  \end{equation*}
+  Phép phân chia này làm giảm độ tạp chất đi $0.08$.
+\end{itemize}
+
+\subsection{Lời Giải Nhóm C: Thực Hành Kỹ Nghệ \& Lập Trình}
+Mã nguồn cho các thuật toán hồi quy, thẩm định phân loại và Focal Loss đã được trình bày chi tiết trong Mục~\ref{sec:ch05-implementation}.
+
+\subsection{Lời Giải Nhóm D: Phân Tích Thất Bại \& Debugging Thực Tế}
+
+\paragraph{Lời giải Sự cố 1 (Thảm họa sập Recall trên dữ liệu mất cân bằng)}:
+Nguyên nhân gốc rễ là hàm mất mát Cross-Entropy với ngưỡng phân loại mặc định $0.5$ bị áp đảo bởi $99.5\%$ các mẫu âm tính thông thường.
+Giải pháp:
+\begin{enumerate}
+  \item Hạ ngưỡng quyết định từ $0.5$ xuống $0.10 - 0.15$. Mọi giao dịch có xác suất gian lận $> 10\%$ đều được đưa vào hàng đợi kiểm tra thủ công, đẩy Recall từ $12\%$ lên trên $95\%$.
+  \item Áp dụng Focal Loss với $\gamma = 2.0$ để tự động giảm trọng số phạt của các giao dịch bình thường dễ đoán, tập trung cập nhật gradient cho các mẫu gian lận khó.
+\end{enumerate}
+
+\paragraph{Lời giải Sự cố 2 (Hiện tượng Dying ReLU)}:
+Khi tốc độ học $\eta$ quá lớn, một bước cập nhật gradient khổng lồ có thể kéo toàn bộ trọng số nối vào một nơ-ron về giá trị âm sâu. Khi đó, với mọi mẫu đầu vào trong tương lai, giá trị $z = \mathbf{w}^T \mathbf{x} + b < 0$, dẫn đến $\text{ReLU}(z) = 0$ và đạo hàm $\text{ReLU}'(z) = 0$. Nơ-ron này vĩnh viễn không bao giờ có thể cập nhật trọng số lại được nữa.
+Giải pháp:
+\begin{enumerate}
+  \item Chuyển sang sử dụng **LeakyReLU** ($\max(0.01x, x)$) hoặc **GELU/SwiGLU** có đạo hàm khác 0 ở miền âm.
+  \item Giảm tốc độ học và áp dụng kỹ thuật chuẩn hóa LayerNorm/BatchNorm trước hàm kích hoạt để giữ giá trị $z$ quanh mốc $0$.
 \end{enumerate}

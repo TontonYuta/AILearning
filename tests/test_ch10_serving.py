@@ -1,11 +1,15 @@
 """
-Tests for Chapter 10: Docker Packaging, Model Serving with vLLM & GPU Infrastructure
+Tests for Chapter 10: Docker Packaging, Model Serving with vLLM, Triton & GPU Infrastructure
 Covers:
 - Mathematical equivalence of Column-Parallel and Row-Parallel linear layers (Tensor Parallelism)
 - All-Reduce communication volume calculation
-- GPU memory headroom and IPC shared memory calculations
+- DynamicBatchScheduler timeout and batch size dispatch logic
+- KEDAAutoscalingCalculator pod sizing based on queued and active requests
 """
 
+import math
+import time
+from typing import Any, List, Tuple
 import numpy as np
 import pytest
 
@@ -26,9 +30,8 @@ def simulate_tensor_parallelism_linear(
     split_size = d_mid // tp_size
 
     # 1. Column-Parallel: Split W along column axis
-    # Each GPU holds W_splits[i] of shape (d_in, split_size)
     w_splits = [w[:, i * split_size:(i + 1) * split_size] for i in range(tp_size)]
-    
+
     # Forward pass on each GPU
     local_outputs = [np.matmul(x, w_i) for w_i in w_splits]
 
@@ -55,6 +58,61 @@ def calculate_tp_allreduce_bytes(
     return int(multiplier * tensor_bytes)
 
 
+class DynamicBatchScheduler:
+    """
+    Simulates dynamic batching logic (similar to Triton Dynamic Batcher):
+    Dispatches when queue size reaches max_batch_size OR oldest request exceeds max_delay_ms.
+    """
+    def __init__(self, max_batch_size: int = 8, max_delay_ms: float = 10.0):
+        self.max_batch_size = max_batch_size
+        self.max_delay_ms = max_delay_ms
+        self.queue: List[Tuple[Any, float]] = []
+
+    def enqueue(self, item: Any, arrival_time: float = None):
+        if arrival_time is None:
+            arrival_time = time.time()
+        self.queue.append((item, arrival_time))
+
+    def should_dispatch(self, current_time: float = None) -> bool:
+        if not self.queue:
+            return False
+        if len(self.queue) >= self.max_batch_size:
+            return True
+        if current_time is None:
+            current_time = time.time()
+        oldest_arrival = self.queue[0][1]
+        elapsed_ms = (current_time - oldest_arrival) * 1000.0
+        return elapsed_ms >= self.max_delay_ms
+
+    def dispatch_batch(self) -> List[Any]:
+        batch_count = min(len(self.queue), self.max_batch_size)
+        dispatched = [self.queue[i][0] for i in range(batch_count)]
+        self.queue = self.queue[batch_count:]
+        return dispatched
+
+
+class KEDAAutoscalingCalculator:
+    """
+    Calculates target pod replicas based on active + queued requests and pod capacity.
+    """
+    def __init__(self, min_replicas: int = 1, max_replicas: int = 10, pod_capacity: int = 32):
+        self.min_replicas = min_replicas
+        self.max_replicas = max_replicas
+        self.pod_capacity = pod_capacity
+
+    def compute_replicas(self, waiting_requests: int, active_requests: int) -> int:
+        total_load = waiting_requests + active_requests
+        if total_load == 0:
+            return self.min_replicas
+
+        desired = math.ceil(total_load / self.pod_capacity)
+        return max(self.min_replicas, min(self.max_replicas, desired))
+
+
+# ==============================================================================
+# TESTS
+# ==============================================================================
+
 def test_tensor_parallelism_simulation():
     rng = np.random.default_rng(42)
     batch_size = 4
@@ -65,20 +123,13 @@ def test_tensor_parallelism_simulation():
     x = rng.standard_normal((batch_size, d_in))
     w = rng.standard_normal((d_in, d_out))
 
-    # Standard forward
     y_true = np.matmul(x, w)
-
-    # Tensor Parallelism simulation
     y_tp = simulate_tensor_parallelism_linear(x, w, tp_size=tp_size)
-
     np.testing.assert_allclose(y_tp, y_true, rtol=1e-5)
 
 
 def test_allreduce_communication_math():
     # Llama-3-70B: hidden_dim = 8192, batch_size = 32, FP16 (2 bytes), TP = 4
-    # Multiplier = 2 * (4 - 1) / 4 = 1.5
-    # Message size = 32 * 8192 * 2 = 524,288 bytes = 512 KiB
-    # AllReduce volume per GPU = 1.5 * 524,288 = 786,432 bytes = 768 KiB
     comm_bytes = calculate_tp_allreduce_bytes(
         batch_size=32,
         hidden_dim=8192,
@@ -88,3 +139,58 @@ def test_allreduce_communication_math():
     expected = int(1.5 * 32 * 8192 * 2)
     assert comm_bytes == expected
     assert comm_bytes == 786432
+
+
+def test_dynamic_batch_scheduler_size_trigger():
+    scheduler = DynamicBatchScheduler(max_batch_size=4, max_delay_ms=100.0)
+
+    # Empty queue should not dispatch
+    assert not scheduler.should_dispatch(current_time=1000.0)
+
+    # Enqueue 3 items at t=1000.0s (under max_batch_size and under timeout)
+    for i in range(3):
+        scheduler.enqueue(f"req_{i}", arrival_time=1000.0)
+    assert not scheduler.should_dispatch(current_time=1000.02)  # 20ms elapsed < 100ms
+
+    # Enqueue 4th item -> reaches max_batch_size, must dispatch immediately
+    scheduler.enqueue("req_3", arrival_time=1000.02)
+    assert scheduler.should_dispatch(current_time=1000.02)
+
+    batch = scheduler.dispatch_batch()
+    assert len(batch) == 4
+    assert batch == ["req_0", "req_1", "req_2", "req_3"]
+    assert len(scheduler.queue) == 0
+
+
+def test_dynamic_batch_scheduler_timeout_trigger():
+    scheduler = DynamicBatchScheduler(max_batch_size=8, max_delay_ms=10.0)
+
+    # Enqueue 2 items at t=0.0
+    scheduler.enqueue("item_a", arrival_time=100.000)
+    scheduler.enqueue("item_b", arrival_time=100.002)
+
+    # At t=100.005 (5ms elapsed), timeout not reached
+    assert not scheduler.should_dispatch(current_time=100.005)
+
+    # At t=100.012 (12ms elapsed >= 10ms), timeout reached!
+    assert scheduler.should_dispatch(current_time=100.012)
+
+    batch = scheduler.dispatch_batch()
+    assert batch == ["item_a", "item_b"]
+    assert len(scheduler.queue) == 0
+
+
+def test_keda_autoscaling_calculator():
+    calc = KEDAAutoscalingCalculator(min_replicas=2, max_replicas=50, pod_capacity=40)
+
+    # Zero load returns min_replicas
+    assert calc.compute_replicas(0, 0) == 2
+
+    # Worked example: 1200 concurrent requests / 40 capacity = 30 pods
+    assert calc.compute_replicas(waiting_requests=400, active_requests=800) == 30
+
+    # Overload clamp to max_replicas
+    assert calc.compute_replicas(waiting_requests=3000, active_requests=500) == 50
+
+    # Small load clamped to min_replicas
+    assert calc.compute_replicas(waiting_requests=5, active_requests=10) == 2

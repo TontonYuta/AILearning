@@ -8,59 +8,148 @@
 \chapter{Đóng Gói Docker, Model Serving vLLM, Triton \& Hạ Tầng GPU}
 \label{ch:docker-serving-triton}
 
-Một mô hình AI xuất sắc trong sổ tay Jupyter Notebook (Jupyter Lab) hoàn toàn vô giá trị nếu nó không thể được đóng gói thành một dịch vụ có thể mở rộng (Scalable Service), kiểm soát được tài nguyên phần cứng, và duy trì chỉ số cam kết chất lượng dịch vụ (SLA) ổn định trước hàng nghìn lượt truy cập đồng thời.
+Một mô hình AI sở hữu năng lực suy luận phi thường trong sổ tay nghiên cứu (Jupyter Notebook) hoàn toàn vô giá trị nếu nó không thể được đóng gói thành một dịch vụ có thể mở rộng (Scalable Service), kiểm soát được tài nguyên phần cứng, và duy trì cam kết chất lượng dịch vụ (SLA) ổn định trước hàng nghìn lượt truy cập đồng thời.
 
-Đưa mô hình AI vào môi trường sản xuất không đơn thuần là bọc một hàm dự đoán bên trong framework FastAPI. Bạn phải làm chủ các tầng trừu tượng sâu nhất của hệ thống: Từ cơ chế ảo hóa nhân GPU của \textbf{NVIDIA Container Toolkit}, kỹ thuật tối ưu hóa ảnh Docker nhiều tầng (Multi-stage Builds), giải phẫu các động cơ phục vụ suy luận chuyên dụng như \textbf{vLLM} và \textbf{Triton Inference Server}, đến chiến lược phân rã ma trận \textbf{Tensor Parallelism (TP)} qua cầu nối siêu tốc \textbf{NVLink} khi mô hình vượt quá dung lượng VRAM của một GPU đơn lẻ.
+Đưa mô hình AI vào môi trường sản xuất không đơn thuần là bọc một hàm dự đoán bên trong framework FastAPI. Người Kỹ sư AI hiện đại bắt buộc phải làm chủ các tầng trừu tượng sâu nhất của hệ thống: Từ các cơ chế cô lập của nhân Linux (\textbf{Namespaces}, \textbf{cgroups}, \textbf{OverlayFS}), kiến trúc ảo hóa nhân GPU của \textbf{NVIDIA Container Toolkit}, giải phẫu các động cơ phục vụ suy luận chuyên dụng như \textbf{vLLM} và \textbf{Triton Inference Server}, đến chiến lược phân rã ma trận \textbf{Tensor Parallelism (TP)} qua cầu nối siêu tốc \textbf{NVLink} và cơ chế tự động co giãn cụm (\textbf{Autoscaling}) trên Kubernetes dựa trên các số liệu đo lường thời gian thực.
 
 ---
 
-\section{Ảo Tượng Container \& Bản Chất Ảo Hóa GPU}
-\label{sec:gpu-container-virtualization}
+\section{Bản Chất Hệ Điều Hành Của Container: Namespaces, Cgroups \& OverlayFS}
+\label{sec:linux-container-internals}
 
-\subsection{Tại Sao Docker Mặc Định Không Thể Nhìn Thấy GPU?}
-Trong thế giới phần mềm truyền thống, Docker Container chia sẻ chung nhân hệ điều hành Linux (Linux Kernel) với máy chủ vật lý (Host OS). Tuy nhiên, card đồ họa GPU không phải là một tài nguyên chuẩn của hệ điều hành như CPU hay RAM. Nó là một thiết bị ngoại vi chuyên dụng kết nối qua khe cắm PCIe.
+Trong tư duy của nhiều người mới bắt đầu, container thường bị hiểu lầm là một ``máy ảo siêu nhẹ''. Đây là một nhận thức sai lầm tai hại. \textbf{Container không phải là một máy ảo}. Bên trong container không có nhân hệ điều hành riêng, không có BIOS ảo, và không có phần cứng ảo hóa. Một container thực chất chỉ là \textbf{một tiến trình Linux thông thường} đang chạy trực tiếp trên nhân của máy chủ chủ (Host Kernel), nhưng được hệ điều hành áp đặt hai cơ chế kiểm soát tối cao: \textbf{Linux Namespaces} (để cô lập tầm nhìn) và \textbf{Control Groups -- cgroups} (để giới hạn tài nguyên).
 
-Khi một tiến trình chạy lệnh \code{docker run}, nhân Linux cô lập hoàn toàn tiến trình đó trong các Namespace và cgroups riêng biệt. Container không có quyền truy cập vào các tệp thiết bị ký tự đặc biệt của NVIDIA nằm trong thư mục \code{/dev/}:
+\subsection{Hệ Thống Linux Namespaces: Ảo Ảnh Không Gian Riêng Biệt}
+Linux Namespaces tạo ra ảo ảnh rằng tiến trình đang sở hữu toàn bộ hệ điều hành bằng cách giới hạn những gì tiến trình đó có thể nhìn thấy:
+
+\begin{table}[ht]
+\centering
+\small
+\caption{Các không gian tên (Namespaces) cốt lõi của Linux định hình nên Container.}
+\label{tab:linux-namespaces}
+\begin{tabular}{lll}
+\toprule
+\textbf{Namespace} & \textbf{Cờ khởi tạo} & \textbf{Tài nguyên được cô lập} \\
+\midrule
+\textbf{PID} & \code{CLONE_NEWPID} & Cây tiến trình. Tiến trình chính nhìn thấy mình là PID 1. \\
+\textbf{NET} & \code{CLONE_NEWNET} & Giao diện mạng, bảng định tuyến, iptables, cổng socket riêng. \\
+\textbf{MNT} & \code{CLONE_NEWNS}  & Cây thư mục hệ thống tệp và các điểm gắn kết (Mount points). \\
+\textbf{IPC} & \code{CLONE_NEWIPC} & Hàng đợi tin nhắn POSIX/SysV, bộ nhớ chia sẻ (\code{/dev/shm}). \\
+\textbf{UTS} & \code{CLONE_NEWUTS} & Tên máy chủ (Hostname) và miền NIS. \\
+\textbf{USER}& \code{CLONE_NEWUSER}& Ánh xạ định danh người dùng (UID/GID) trong và ngoài host. \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+Khi một dịch vụ suy luận AI chạy bên trong container, nó có \code{NET Namespace} riêng biệt với cổng mạng độc lập, và \code{PID Namespace} riêng nơi tiến trình máy chủ web đóng vai trò PID 1. Nếu tiến trình PID 1 bị sập (Crash) hoặc nhận tín hiệu dừng (\code{SIGTERM}), nhân Linux sẽ tự động quét dọn và tiêu diệt toàn bộ các tiến trình con bên trong namespace đó.
+
+\subsection{Control Groups (cgroups v1 vs v2): Cương Tỏa Tài Nguyên Phần Cứng}
+Trong khi Namespaces quyết định tiến trình \textbf{nhìn thấy gì}, thì cgroups quyết định tiến trình \textbf{được phép dùng bao nhiêu tài nguyên}.
+
+\paragraph{1. Giới hạn bộ nhớ và cơ chế OOM Killer}:
+Bộ điều khiển bộ nhớ (\code{memory controller}) giám sát tổng dung lượng RAM (RSS + Page Cache) của tất cả các tiến trình trong container. Trong cgroups v2, ngưỡng giới hạn tối đa được định nghĩa tại tệp \code{memory.max}. Khi mô hình ngôn ngữ lớn nạp trọng số hoặc phình to bộ nhớ kích hoạt vượt quá ngưỡng này, nhân Linux kích hoạt cơ chế \textbf{Out-Of-Memory (OOM) Killer}: nó tìm kiếm tiến trình có điểm \code{oom_score} cao nhất bên trong cgroup và gửi tín hiệu \code{SIGKILL} (mã thoát 137) để tiêu diệt tiến trình ngay lập tức nhằm bảo vệ an toàn cho máy chủ vật lý.
+
+\paragraph{2. Giới hạn CPU và thảm họa CPU Throttling}:
+Bộ điều khiển CPU quản lý thời gian sử dụng nhân vi xử lý thông qua thuật toán lập lịch công bằng \textbf{Completely Fair Scheduler (CFS)}. Hai tham số cốt tử:
 \begin{itemize}
-  \item \code{/dev/nvidia0}, \code{/dev/nvidia1}, ... : Các tệp đại diện cho từng chip GPU vật lý.
-  \item \code{/dev/nvidiactl} : Tệp điều khiển tổng thể trình điều khiển GPU.
-  \item \code{/dev/nvidia-uvm} : Mô-đun quản lý bộ nhớ hợp nhất (Unified Virtual Memory).
+  \item \code{cpu.cfs_period_us}: Chu kỳ tính toán quota (thường mặc định là $100.000\text{ }\mu\text{s} = 100\text{ ms}$).
+  \item \code{cpu.cfs_quota_us}: Tổng thời gian CPU mà các luồng trong container được phép chạy trong mỗi chu kỳ.
+\end{itemize}
+Ví dụ: Nếu ta cấu hình Docker \code{--cpus="2.0"}, nhân Linux sẽ thiết lập \code{quota = 200.000} trên \code{period = 100.000}.
+\begin{note}
+\textbf{Thảm họa CPU Throttling trong dịch vụ AI}: Một máy chủ web bất đồng bộ như FastAPI / Uvicorn xử lý hàng trăm kết nối đồng thời qua Event Loop. Nếu các luồng worker tiêu thụ hết toàn bộ hạn mức $200\text{ ms}$ chỉ trong $30\text{ ms}$ đầu tiên của chu kỳ, nhân Linux sẽ \textbf{cưỡng chế đóng băng (Throttle)} toàn bộ container trong $70\text{ ms}$ còn lại! Hậu quả là độ trễ P99 của API tăng vọt hàng trăm mili-giây một cách bí ẩn, dù mức sử dụng CPU trung bình theo dõi qua lệnh \code{top} có vẻ rất thấp.
+\end{note}
+
+\subsection{Hệ Thống Tệp Nhiều Tầng OverlayFS \& Hiệu Ứng Copy-on-Write}
+Docker sử dụng trình điều khiển lưu trữ \textbf{OverlayFS} để xếp chồng các lớp ảnh (Image Layers) lên nhau:
+\begin{itemize}
+  \item \textbf{LowerDir}: Các tầng ảnh chỉ đọc (Read-Only Layers), chứa hệ điều hành cơ sở (Ubuntu), thư viện CUDA và mã nguồn ứng dụng. Các container khác nhau có thể dùng chung các tầng này mà không tốn thêm dung lượng đĩa.
+  \item \textbf{UpperDir}: Tầng ghi chép của riêng từng container (Read-Write Container Layer). Mọi tệp mới được tạo ra hoặc chỉnh sửa sẽ lưu tại đây.
+  \item \textbf{MergedDir}: Thư mục thống nhất (Union Mount) hiển thị cấu trúc thư mục hoàn chỉnh cho tiến trình bên trong container.
 \end{itemize}
 
-\subsection{Kiến Trúc NVIDIA Container Toolkit}
-Để cho phép ứng dụng bên trong container có thể giao tiếp với phần cứng GPU mà không làm mất đi tính cô lập an toàn, NVIDIA phát triển bộ công cụ \textbf{NVIDIA Container Toolkit (nvidia-ctk)}:
+\begin{figure}[ht]
+\centering
+\small
+\begin{verbatim}
++--------------------------------------------------------------------------+
+| MergedDir: /app (Góc nhìn thống nhất của ứng dụng AI)                     |
++--------------------------------------------------------------------------+
+| UpperDir: /var/lib/docker/overlay2/.../diff (Tầng Ghi/Đọc của Container) |
++--------------------------------------------------------------------------+
+| LowerDir: Layer 3 - PyTorch & vLLM Packages (Read-Only)                  |
+|           Layer 2 - CUDA Runtime & CuDNN (Read-Only)                     |
+|           Layer 1 - Ubuntu 22.04 Base Image (Read-Only)                  |
++--------------------------------------------------------------------------+
+\end{verbatim}
+\caption{Cấu trúc phân tầng lưu trữ của hệ thống tệp OverlayFS.}
+\label{fig:overlayfs-layers}
+\end{figure}
+
+\paragraph{Cơ chế Sao chép khi Ghi (Copy-on-Write -- CoW)}:
+Nếu một tiến trình cố gắng sửa đổi một tệp tồn tại ở \code{LowerDir}, nhân Linux trước hết phải thực hiện thao tác sao chép toàn bộ tệp đó từ \code{LowerDir} lên \code{UpperDir} rồi mới thực hiện phép ghi.
+\textit{Cạm bẫy kỹ nghệ}: Nếu kỹ sư vô tình tải tệp trọng số mô hình lớn ($20\text{ GB}$) vào tầng của container thay vì gắn qua thư mục ngoài (\textbf{Mounted Volume}), thao tác CoW sẽ làm tiêu tốn gấp đôi dung lượng đĩa và làm nghẽn toàn bộ bus I/O của máy chủ, khiến container bị sập ổ đĩa (\code{No space left on device})!
+
+---
+
+\section{Ảo Hóa Phần Cứng GPU \& Kiến Trúc NVIDIA Container Toolkit}
+\label{sec:gpu-container-virtualization}
+
+\subsection{Tại Sao Docker Mặc Định Hoàn Toàn Bị Mù Trước GPU?}
+Nhân Linux tiêu chuẩn quản lý card đồ họa như một thiết bị ngoại vi đặc biệt kết nối qua bus PCIe. Mọi hoạt động giao tiếp phần cứng phải đi qua các tệp ký tự đặc biệt (Device Character Nodes) trong thư mục \code{/dev/}:
+\begin{itemize}
+  \item \code{/dev/nvidia0}, \code{/dev/nvidia1}, ... : Các chip xử lý GPU vật lý.
+  \item \code{/dev/nvidiactl} : Tệp điều khiển tổng thể driver.
+  \item \code{/dev/nvidia-uvm} : Mô-đun quản lý bộ nhớ ảo hợp nhất (Unified Virtual Memory).
+\end{itemize}
+Khi Docker tạo ra một container mới, \code{Device Cgroup} của container mặc định chặn đứng quyền truy cập vào tất cả các tệp thiết bị ký tự ngoại vi này. Do đó, nếu bạn chạy lệnh \code{nvidia-smi} bên trong một container Docker tiêu chuẩn, hệ thống sẽ báo lỗi kinh điển: \code{Failed to initialize NVML: Unknown Error}.
+
+\subsection{Kiến Trúc Phân Tầng Của NVIDIA Container Toolkit}
+Để giải quyết bài toán cấp phát phần cứng an toàn, NVIDIA phát triển bộ công cụ \textbf{NVIDIA Container Toolkit} gồm ba thành phần kiến trúc phối hợp:
 
 \begin{figure}[ht]
 \centering
 \footnotesize
 \begin{verbatim}
 +--------------------------------------------------------------------------+
-| CONTAINER (User Space)                                                   |
-| Application (vLLM / PyTorch) ---> libcuda.so.1 (CUDA Driver Stub)        |
+| USER-SPACE CONTAINER                                                     |
+| PyTorch / vLLM Application                                               |
+|   | (Goi ham CUDA Runtime API)                                           |
+| cudart64.so (Dóng gói sẵn bên trong Docker Image)                        |
+|   | (Goi ham CUDA Driver API)                                            |
+| libcuda.so.1 (Driver Stub - Ánh xạ động từ Host vào)                     |
 +--------------------------------------------------------------------------+
-                                    | (Giao tiếp qua syscalls)
+                                    | (Giao tiếp qua POSIX ioctl syscalls)
 +--------------------------------------------------------------------------+
-| NVIDIA CONTAINER TOOLKIT (Hook / OCI Prestart)                           |
-| - Tự động mount các thư viện driver từ Host vào Container                |
-| - Tự động tạo các device nodes: /dev/nvidia* và cấu hình cgroups         |
+| NVIDIA CONTAINER TOOLKIT (OCI Prestart Hook / CDI)                       |
+| 1. Ánh xạ các device nodes: /dev/nvidia* và /dev/nvidia-uvm              |
+| 2. Cấu hình Device Cgroup cho phép tiến trình truy cập GPU               |
+| 3. Bind-mount các thư viện driver từ Host vào Container (/usr/lib/...)   |
 +--------------------------------------------------------------------------+
                                     |
 +--------------------------------------------------------------------------+
-| HOST LINUX KERNEL (Kernel Space)                                         |
-| nvidia.ko (NVIDIA Kernel Module) ---> Phần cứng GPU vật lý (A100 / H100) |
+| HOST KERNEL SPACE                                                        |
+| nvidia.ko (Kernel Driver Module) ---> Phần cứng GPU vật lý (A100 / H100) |
 +--------------------------------------------------------------------------+
 \end{verbatim}
-\caption{Kiến trúc phân tầng trừu tượng của NVIDIA Container Toolkit.}
-\label{fig:nvidia-docker-arch}
+\caption{Kiến trúc phân tầng tương tác phần cứng của NVIDIA Container Toolkit.}
+\label{fig:nvidia-toolkit-architecture}
 \end{figure}
 
+\begin{enumerate}
+  \item \textbf{Cơ chế OCI Prestart Hook}: Khi khởi tạo container với cờ \code{--gpus all}, cấu hình OCI kích hoạt hook tiền khởi động. Công cụ \code{nvidia-container-cli} sẽ cấu hình Device Cgroup và tự động gắn kết các thư viện driver từ máy chủ vào container.
+  \item \textbf{Tính di động của Docker Image}: Ảnh Docker của ứng dụng AI \textbf{tuyệt đối không chứa NVIDIA Driver}, mà chỉ chứa \textbf{CUDA Toolkit / CUDA Runtime}. Các thư viện driver tầng thấp (\code{libcuda.so}, \code{libnvidia-ml.so}) được nạp động từ máy chủ khi container khởi chạy, bảo đảm tính tương thích cao.
+\end{enumerate}
+
+\paragraph{Phân biệt CUDA Driver Version và CUDA Runtime Version}:
+Nhiều kỹ sư thắc mắc khi lệnh \code{nvidia-smi} trên máy chủ báo CUDA Version 12.6, trong khi PyTorch lại in ra giá trị phiên bản \code{12.1}:
 \begin{itemize}
-  \item \textbf{Cơ chế OCI Hook}: Khi Docker khởi tạo container có cờ \code{--gpus all}, một hook tiền khởi động (Prestart Hook) của NVIDIA Container Toolkit được kích hoạt.
-  \item Hook này tự động ánh xạ (Bind-mount) các tệp thư viện liên kết động của Driver từ máy chủ chủ vào container (ví dụ: \code{libcuda.so}, \code{libnvidia-ml.so}) và cấp quyền truy cập vào các tệp \code{/dev/nvidia*}.
-  \item Nhờ cơ chế này, hình ảnh Docker (Docker Image) không bao giờ được phép đóng gói sẵn NVIDIA Driver! Docker Image chỉ chứa \textbf{CUDA Toolkit / Runtime} (tương thích ở tầng User-space), đảm bảo tính di động trên mọi máy chủ có phiên bản Driver tương thích.
+  \item \textbf{CUDA Driver}: Do gói cài đặt driver của máy chủ quyết định. Nó quy định phiên bản CUDA tối đa mà phần cứng và driver có thể hỗ trợ.
+  \item \textbf{CUDA Runtime}: Là thư viện được biên dịch kèm theo ứng dụng (hoặc gói PyTorch wheel).
+  \item \textbf{Nguyên lý tương thích tiến (Forward Compatibility)}: Ứng dụng chạy an toàn và ổn định khi và chỉ khi $\text{CUDA Runtime Version} \le \text{CUDA Driver Version}$.
 \end{itemize}
 
-\begin{debugbox}[Cạm Bẫy Sập Bộ Nhớ Chia Sẻ IPC /dev/shm]
+\subsection{Cạm Bẫy Sập Bộ Nhớ Chia Sẻ IPC /dev/shm}
 Lỗi phổ biến nhất khiến các container huấn luyện hoặc phục vụ suy luận LLM bị sập với lỗi \code{SIGBUS} (Bus error) là do \textbf{dung lượng bộ nhớ chia sẻ IPC (Shared Memory) mặc định của Docker quá nhỏ}:
 \begin{itemize}
   \item Mặc định, Docker chỉ cấp phát đúng \textbf{$64\text{ MB}$} cho phân vùng \code{/dev/shm}.
@@ -68,36 +157,77 @@ Lỗi phổ biến nhất khiến các container huấn luyện hoặc phục v�
   \item Bộ đệm $64\text{ MB}$ bị tràn ngay lập tức trong vài mili-giây đầu tiên, khiến hệ điều hành gửi tín hiệu \code{SIGBUS} giết chết tiến trình ngay lập tức.
   \item \textbf{Biện pháp khắc phục bắt buộc}: Luôn khởi chạy container AI với tham số \code{--shm-size=16g} (hoặc \code{--ipc=host})!
 \end{itemize}
-\end{debugbox}
 
 ---
 
-\section{Giải Phẫu Các Động Cơ Phục Vụ Suy Luận (Inference Serving Engines)}
-\label{sec:serving-engines-comparison}
+\section{Động Cơ Phục Vụ Suy Luận: vLLM vs Triton Inference Server}
+\label{sec:serving-engines-deepdive}
 
-Nhiều kỹ sư mới bắt đầu thường viết một ứng dụng FastAPI đơn giản, nạp mô hình qua Hugging Face \code{AutoModelForCausalLM}, và gọi hàm \code{model.generate()} trong một API endpoint. Đây là một thảm họa hiệu năng vì:
-\begin{enumerate}
-  \item Không hỗ trợ Continuous Batching: Mỗi request phải xếp hàng chờ request trước đó sinh xong toàn bộ câu trả lời.
-  \item Phân mảnh bộ nhớ khủng khiếp: Hugging Face cấp phát bộ nhớ tĩnh cho KV Cache, dẫn tới sập OOM khi có vài người dùng đồng thời.
-  \item Không hỗ trợ PagedAttention và không có tối ưu hóa nhân CUDA (CUDA Kernels).
-\end{enumerate}
+Việc sử dụng các framework web thông thường (FastAPI, Flask) để bọc mô hình học sâu qua thư viện Hugging Face \code{transformers} là một sai lầm chết người trong sản xuất. Do hạn chế của Python GIL (Global Interpreter Lock), thiếu cơ chế quản lý bộ đệm thông minh, và không hỗ trợ ghép lô động, hệ thống sẽ nhanh chóng rơi vào tình trạng tắc nghẽn hàng đợi và sập OOM khi có tải đồng thời.
 
-Để phục vụ hàng triệu người dùng trong sản xuất, chúng ta sử dụng các động cơ chuyên dụng:
+Để phục vụ hàng nghìn người dùng với độ trễ thấp nhất, ngành công nghiệp sử dụng hai trường phái động cơ phục vụ suy luận chuyên dụng:
 
 \begin{table}[ht]
 \centering
 \small
-\begin{tabular}{p{2.8cm}p{3.8cm}p{4.2cm}p{3.8cm}}
-\hline
-\textbf{Động cơ} & \textbf{Trường hợp Tối ưu} & \textbf{Ưu điểm Cốt lõi} & \textbf{Hạn chế} \\ \hline
-\textbf{vLLM} & Phục vụ LLMs quy mô lớn, dịch vụ đàm thoại, API OpenAI chuẩn & PagedAttention, Continuous Batching, Tensor Parallelism cực mạnh, tích hợp Ray & Chỉ chuyên phục vụ LLMs văn bản, không phục vụ mô hình cổ điển \\
-\textbf{Triton Inference Server} & Doanh nghiệp lớn, pipeline đa mô hình (Audio + Vision + LLM) & Model Repository, Dynamic Batching, hỗ trợ ONNX/TensorRT/PyTorch, C++ backend & Cấu hình phức tạp, đòi hỏi viết file config sâu \\
-\textbf{TGI (Text Gen Inference)} & Hệ sinh thái Hugging Face, cụm Kubernetes nội bộ & FlashAttention-2, Paged Attention, hỗ trợ nhiều kiến trúc mới của HF nhanh nhất & Khả năng tùy biến thấp hơn vLLM đối với Agent \\
-\textbf{Ollama} & Máy trạm cá nhân, máy chủ biên (Edge Computing) & Đóng gói 1 file thực thi, định dạng GGUF nén sâu, dễ dùng cho nhà phát triển & Không tối ưu cho thông lượng lớn (High Concurrency) \\ \hline
+\caption{So sánh chuyên sâu giữa vLLM và Triton Inference Server.}
+\label{tab:vllm-vs-triton}
+\begin{tabular}{p{3.2cm}p{5.5cm}p{5.5cm}}
+\toprule
+\textbf{Tiêu chí} & \textbf{vLLM} & \textbf{Triton Inference Server} \\
+\midrule
+\textbf{Trọng tâm kiến trúc} & Tối ưu hóa chuyên sâu cho Large Language Models (LLMs) & Phục vụ đa mô hình doanh nghiệp (Vision, Audio, NLP, LLM, GNN) \\
+\textbf{Quản lý bộ nhớ} & PagedAttention (cấp phát theo trang 16 token, zero-waste) & Dynamic Allocator, chia sẻ bộ nhớ IPC giữa các tiến trình \\
+\textbf{Cơ chế ghép lô} & Continuous Batching (Iteration-level Scheduling) & Dynamic Batching (Request-level với timeout) \\
+\textbf{Backend hỗ trợ} & PyTorch, FlashAttention, vLLM CUDA Kernels & TensorRT, ONNX Runtime, OpenVINO, PyTorch C++, Python \\
+\textbf{Xâu chuỗi Pipeline} & Hạn chế (chủ yếu phục vụ đơn mô hình tạo sinh) & BLS (Business Logic Scripting) và Ensemble Scheduler cực mạnh \\
+\textbf{Độ phức tạp triển khai}& Rất thấp (chạy dòng lệnh hoặc image Docker có sẵn) & Cao (đòi hỏi định nghĩa cấu hình \code{config.pbtxt} chi tiết) \\
+\bottomrule
 \end{tabular}
-\caption{So sánh toàn diện các động cơ phục vụ suy luận hàng đầu hiện nay.}
-\label{tab:serving-engines}
 \end{table}
+
+\subsection{Kiến Trúc Triton Inference Server: Quản Trị Pipeline Doanh Nghiệp}
+Triton Inference Server (NVIDIA) tổ chức hệ thống theo cấu trúc \textbf{Kho Mô Hình (Model Repository)}:
+\begin{verbatim}
+model_repository/
+|-- audio_preprocess/
+|   |-- config.pbtxt
+|   \-- 1/model.py (Python Backend)
+|-- whisper_encoder/
+|   |-- config.pbtxt
+|   \-- 1/model.plan (TensorRT Engine)
+\-- llm_orchestrator/
+    |-- config.pbtxt (Ensemble Pipeline lien ket cac stage)
+    \-- 1/
+\end{verbatim}
+
+\paragraph{1. Cơ chế Ghép Lô Động (Dynamic Batching)}:
+Trong Triton, dynamic batching được điều khiển bởi hai tham số trọng yếu trong tệp \code{config.pbtxt}:
+\begin{itemize}
+  \item \code{max_batch_size}: Kích thước lô tối đa mà GPU có thể xử lý trong một lần tính toán.
+  \item \code{max_queue_delay_microseconds}: Thời gian tối đa mà Triton cho phép giữ request trong hàng đợi để chờ các request khác đến gom thành một lô lớn hơn.
+\end{itemize}
+Nếu trong khoảng thời gian timeout này số lượng request đạt \code{max_batch_size}, lô được gửi ngay lập tức vào GPU. Nếu hết thời gian timeout mà chưa đủ lô, Triton vẫn gửi số request hiện có đi xử lý để đảm bảo không vi phạm ràng buộc độ trễ (Latency SLA).
+
+\paragraph{2. Thực Thi Đồng Thời Đa Mô Hình (Concurrent Model Execution)}:
+Triton cho phép cấu hình tham số \code{instance_group} để khởi tạo nhiều phiên bản (instances) của cùng một mô hình trên một hoặc nhiều GPU:
+\begin{lstlisting}[language=bash]
+instance_group [
+  {
+    count: 2
+    kind: KIND_GPU
+    gpus: [ 0, 1 ]
+  }
+]
+\end{lstlisting}
+Cấu hình trên tạo ra 2 thực thể suy luận trên GPU 0 và 2 thực thể trên GPU 1, cho phép xử lý đồng thời 4 luồng dự đoán độc lập mà không bị chặn bởi tiến trình khác!
+
+\paragraph{3. Business Logic Scripting (BLS) \& Pipeline Ensemble}:
+Trong các hệ thống AI thực tế, dữ liệu thô (như văn bản chưa tách từ, file âm thanh WAV hoặc ảnh JPEG) cần trải qua nhiều bước tiền xử lý trước khi đưa vào mô hình chính. Thay vì gửi dữ liệu qua lại giữa các microservices qua mạng HTTP làm phát sinh độ trễ khổng lồ, Triton cho phép xâu chuỗi các mô hình trực tiếp trong bộ nhớ chia sẻ máy chủ thông qua \textbf{BLS (Business Logic Scripting)}:
+\begin{equation}
+\text{Audio RAW} \xrightarrow[\text{Zero-Copy Memory}]{\text{Python Preprocess}} \text{Spectrogram} \xrightarrow[\text{TensorRT GPU}]{\text{Whisper}} \text{Tokens} \xrightarrow[\text{vLLM Engine}]{\text{Llama-3}} \text{Response}
+\end{equation}
+Toàn bộ chuỗi xử lý diễn ra trên cùng một không gian bộ nhớ máy chủ với độ trễ chuyển giao tiệm cận $0\text{ ms}$!
 
 ---
 
@@ -161,39 +291,104 @@ Nếu một cụm máy chủ gồm nhiều node mạng và mô hình quá khổn
 
 ---
 
-\section{Số Liệu Đo Lường \& Giám Sát Hệ Thống (Observability \& Metrics)}
-\label{sec:serving-metrics}
+\section{Vận Hành Sản Xuất: Dockerfile Đa Tầng \& Tự Động Co Giãn KEDA Kubernetes}
+\label{sec:production-docker-keda}
 
-Một dịch vụ AI trong sản xuất không thể vận hành như một chiếc hộp đen. Bạn bắt buộc phải cấu hình xuất dữ liệu đo lường (Prometheus Metrics) và theo dõi trên Grafana:
+\subsection{Kỹ Nghệ Tối Ưu Hóa Dockerfile Đa Tầng Cho Dịch Vụ AI}
+Một image Docker phục vụ sản xuất phải thỏa mãn ba tiêu chí khắt khe: Kích thước nhỏ nhất có thể, thời gian khởi động nhanh nhất, và bảo mật tuyệt đối không để lộ đặc quyền root.
 
-\begin{figure}[ht]
-\centering
-\footnotesize
-\begin{verbatim}
-+--------------------------------------------------------------------------+
-| CÁC CHỈ SỐ SỐNG CÒN CỦA HỆ THỐNG SERVING AI:                             |
-| 1. TTFT (Time To First Token)        -> Đo lường hiệu năng pha Prefill   |
-| 2. TPOT (Time Per Output Token)      -> Đo lường hiệu năng pha Decode    |
-| 3. vllm:gpu_cache_usage_factor       -> Tỷ lệ chiếm dụng bộ nhớ KV Cache |
-| 4. vllm:num_requests_waiting         -> Số lượng request bị ứ đọng chờ   |
-| 5. vllm:avg_generation_throughput    -> Thông lượng token sinh ra / giây |
-+--------------------------------------------------------------------------+
-\end{verbatim}
-\caption{Năm chỉ số đo lường cốt tử trong vận hành cụm suy luận LLM.}
-\label{fig:serving-metrics}
-\end{figure}
+\begin{lstlisting}[language=bash, caption={Dockerfile đa tầng tối ưu hóa cho dịch vụ phục vụ vLLM production.}]
+# ==============================================================================
+# STAGE 1: Builder - Bien dich thu vien C++/CUDA va cai dat dependencies
+# ==============================================================================
+FROM nvidia/cuda:12.4.1-devel-ubuntu22.04 AS builder
 
+ENV DEBIAN_FRONTEND=noninteractive \
+    PIP_NO_CACHE_DIR=1 \
+    PYTHONUNBUFFERED=1
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    python3.11 \
+    python3.11-dev \
+    python3.11-venv \
+    python3-pip \
+    build-essential \
+    git \
+    && rm -rf /var/lib/apt/lists/*
+
+# Khoi tao moi truong ao cach ly
+RUN python3.11 -m venv /opt/venv
+ENV PATH="/opt/venv/bin:$PATH"
+
+# Sao chep danh sach goi phu thuoc truoc de tan dung Docker Cache Layer
+COPY requirements.txt /tmp/requirements.txt
+RUN pip install --upgrade pip setuptools wheel && \
+    pip install -r /tmp/requirements.txt
+
+# ==============================================================================
+# STAGE 2: Runtime Base - Chi chua CUDA Runtime va thu vien can thiet
+# ==============================================================================
+FROM nvidia/cuda:12.4.1-runtime-ubuntu22.04 AS runtime
+
+ENV DEBIAN_FRONTEND=noninteractive \
+    PYTHONUNBUFFERED=1 \
+    PATH="/opt/venv/bin:$PATH" \
+    HF_HOME=/app/cache/huggingface
+
+WORKDIR /app
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    python3.11 \
+    curl \
+    ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
+
+# Sao chep toan bo thu vien da bien dich tu Builder Stage (Loai bo sach se trinh bien dich)
+COPY --from=builder /opt/venv /opt/venv
+
+# Tao tai khoan non-root voi UID co dinh de bao mat Kubernetes
+RUN useradd -m -u 10001 aiuser && \
+    mkdir -p /app/cache && \
+    chown -R aiuser:aiuser /app
+
+USER aiuser
+EXPOSE 8000
+
+HEALTHCHECK --interval=30s --timeout=5s --start-period=60s --retries=3 \
+  CMD curl -f http://localhost:8000/health || exit 1
+
+ENTRYPOINT ["python3", "-m", "vllm.entrypoints.openai.api_server"]
+CMD ["--model", "meta-llama/Meta-Llama-3-8B-Instruct", "--port", "8000", "--gpu-memory-utilization", "0.90"]
+\end{lstlisting}
+
+\subsection{Autoscaling Cho Tác Vụ AI: Tại Sao HPA Truyền Thống Thất Bại?}
+Trên các cụm Kubernetes thông thường, bộ tự động co giãn ngang (\textbf{Horizontal Pod Autoscaler -- HPA}) điều khiển số lượng bản sao (Replicas) dựa trên mức sử dụng CPU hoặc RAM:
+\begin{equation}
+\text{CPU Utilization} = \frac{\text{Tổng CPU tiêu thụ}}{\text{CPU Request}} > 80\% \implies \text{Scale Up Pod}
+\end{equation}
+Tuy nhiên, đối với dịch vụ phục vụ LLM, HPA truyền thống hoàn toàn bị vô hiệu hóa vì hai lý do cốt tử:
+\begin{enumerate}
+  \item \textbf{VRAM luôn ở mức 90\%--95\% cố định}: Ngay khi vừa khởi động, vLLM đã chiếm dụng trước (Pre-allocate) toàn bộ dung lượng VRAM còn trống cho PagedAttention KV Cache. Do đó, chỉ số sử dụng bộ nhớ luôn chạm ngưỡng $95\%$ ngay cả khi không có người dùng nào gửi request!
+  \item \textbf{CPU thấp trong khi hàng đợi tắc nghẽn}: Khi lưu lượng request tăng đột biến, GPU bị quá tải và hàng trăm request phải xếp hàng chờ trong hàng đợi (\code{waiting queue}). Tuy nhiên, tiến trình CPU chỉ làm nhiệm vụ điều phối nhẹ nên mức sử dụng CPU chỉ dao động $20\% - 30\%$. HPA hiểu lầm hệ thống vẫn đang rảnh rỗi và từ chối mở rộng pod, dẫn tới thảm họa sập dịch vụ!
+\end{enumerate}
+
+\paragraph{Giải pháp cứu cánh: KEDA (Kubernetes Event-driven Autoscaling)}:
+Chúng ta sử dụng KEDA để co giãn pod dựa trên các số liệu đo lường thời gian thực từ endpoint Prometheus của vLLM:
 \begin{itemize}
-  \item \textbf{Cảnh báo quá tải KV Cache}: Khi chỉ số \code{vllm:gpu_cache_usage_factor} vượt quá $0.90$ ($90\%$), bộ lập lịch PagedAttention chuẩn bị cạn kiệt các block rảnh rỗi. Hệ thống sẽ bắt buộc phải kích hoạt cơ chế đình chỉ yêu cầu (Preemption / Swapping) để đẩy tạm một số KV Cache sang RAM máy chủ, gây sụt giảm nghiêm trọng độ trễ. Kỹ sư phải dựa vào chỉ số này để thiết lập chính sách tự động co giãn cụm (Autoscaling).
-  \item \textbf{Phân biệt GPU Utilization vs GPU Memory Utilization}: Trong pha Decode, GPU Memory Utilization luôn ở mức $95\% - 99\%$ (vì trọng số và KV Cache chiếm gần hết VRAM), nhưng GPU Compute Utilization (Tensor Core Activity) có thể chỉ đạt $15\% - 25\%$ vì bị nghẽn băng thông bộ nhớ. Đừng bao giờ nhầm lẫn hai chỉ số này khi báo cáo năng lực phần cứng cho ban giám đốc!
+  \item \textbf{Chỉ số số lượng request đang chờ (\code{vllm:num_requests_waiting})}: Số lượng yêu cầu bị tắc nghẽn trong hàng đợi do thiếu slot KV Cache.
+  \item \textbf{Chỉ số chiếm dụng KV Cache (\code{vllm:gpu_cache_usage_factor})}: Tỷ lệ phần trăm các block bộ nhớ PagedAttention đang được sử dụng.
 \end{itemize}
+
+Công thức xác định số lượng pod mục tiêu theo tải hàng đợi:
+\begin{equation}
+R_{\text{target}} = \max\left( R_{\min}, \min\left( R_{\max}, \left\lceil \frac{Q_{\text{waiting}} + B_{\text{active}}}{C_{\text{pod}}} \right\rceil \right) \right)
+\end{equation}
+Trong đó $Q_{\text{waiting}}$ là tổng số request đang chờ, $B_{\text{active}}$ là số request đang sinh token, và $C_{\text{pod}}$ là dung lượng xử lý đồng thời tối ưu của mỗi pod (Concurrency capacity).
 
 ---
 
 \section{Ví Dụ Giải Mẫu Tính Toán Số Học Bằng Tay}
 \label{sec:serving-worked-examples}
-
-Chúng ta cùng giải quyết một bài toán định lượng băng thông giao tiếp All-Reduce cho Tensor Parallelism để hiểu sâu sắc lý do tại sao phần cứng mạng quyết định sự sống còn của cụm máy chủ AI.
 
 \begin{example}[Bài Toán Băng Thông Giao Tiếp All-Reduce Trong Tensor Parallelism]
 Xét cụm phục vụ mô hình \textbf{Llama-3-70B} sử dụng Tensor Parallelism với $TP = 4$ GPU:
@@ -215,111 +410,87 @@ Hãy tính toán:
 \end{example}
 
 \paragraph{Lời giải chi tiết từng bước}:
-
-\paragraph{Bước 1: Tính kích thước tensor kích hoạt cho mỗi phép All-Reduce}
-Kích thước tensor truyền thông là ma trận kích hoạt trung gian:
-\begin{equation*}
-S = B \times d_{\text{model}} \times b = 32 \times 8.192 \times 2\text{ Bytes} = 524.288\text{ Bytes} = 512\text{ KiB} = 0.5\text{ MiB}
-\end{equation*}
-
-\paragraph{Bước 2: Tính lượng dữ liệu truyền nhận trong thuật toán Ring All-Reduce}
-Trong thuật toán chuẩn Ring All-Reduce với $N$ card GPU ($N = TP = 4$), mỗi GPU truyền và nhận đúng:
-\begin{equation*}
-D_{\text{All-Reduce}} = 2 \times \left( \frac{N - 1}{N} \right) \times S
-\end{equation*}
-(Giai đoạn Reduce-Scatter gửi $\frac{N-1}{N} S$, và giai đoạn All-Gather gửi tiếp $\frac{N-1}{N} S$).
-Với $N = 4$:
-\begin{equation*}
-D_{\text{All-Reduce}} = 2 \times \left( \frac{4 - 1}{4} \right) \times 512\text{ KiB} = 2 \times \frac{3}{4} \times 512\text{ KiB} = 1.5 \times 512\text{ KiB} = 768\text{ KiB}
-\end{equation*}
-Mỗi tầng Transformer có 2 phép All-Reduce, và mô hình có 80 tầng:
-Tổng số lần All-Reduce để sinh ra đúng $1$ token là:
-\begin{equation*}
-N_{\text{ops}} = 80 \times 2 = 160\text{ lần}
-\end{equation*}
-Tổng lượng dữ liệu mỗi GPU phải trao đổi qua bus bộ nhớ cho 1 token là:
-\begin{equation*}
-D_{\text{total}} = 160 \times 768\text{ KiB} = 122.880\text{ KiB} = 120\text{ MiB} \approx 0.1258\text{ GB}
-\end{equation*}
-
-\paragraph{Bước 3: Tính thời gian truyền thông qua NVIDIA NVLink ($900\text{ GB/s}$)}
-\begin{equation*}
-t_{\text{NVLink}} = \frac{0.1258\text{ GB}}{900\text{ GB/s}} \approx 0.0001398\text{ giây} \approx 0.14\text{ ms}
-\end{equation*}
-\textit{Nhận xét}: Thời gian trễ mạng $0.14\text{ ms}$ là cực kỳ nhỏ, chỉ chiếm khoảng $1\%$ tổng thời gian sinh token ($15 - 20\text{ ms}$), đảm bảo hiệu năng phục vụ đạt mức tối ưu tuyệt đối!
-
-\paragraph{Bước 4: Tính thời gian truyền thông qua khe cắm PCIe 4.0 x16 ($32\text{ GB/s}$)}
-\begin{equation*}
-t_{\text{PCIe}} = \frac{0.1258\text{ GB}}{32\text{ GB/s}} \approx 0.003931\text{ giây} \approx 3.93\text{ ms}
-\end{equation*}
-\textit{Bình luận kỹ thuật chấn động}:
 \begin{itemize}
-  \item Khi chuyển từ NVLink sang PCIe, thời gian truyền thông mạng tăng vọt từ $0.14\text{ ms}$ lên gần $4.0\text{ ms}$ (chậm hơn gần \textbf{$28$ lần}!).
-  \item Độ trễ sinh token bị kéo dài thêm gần $4\text{ ms}$ cho mỗi token, làm sụt giảm thông lượng toàn hệ thống nghiêm trọng.
-  \item Đây là bằng chứng toán học chứng minh tại sao các máy chủ đám mây giá rẻ không có NVLink (chỉ có PCIe) là lựa chọn tồi tệ cho việc chạy Tensor Parallelism quy mô lớn!
+  \item[1)] Kích thước tensor truyền thông trong mỗi phép All-Reduce:
+  \begin{equation*}
+  S = B \times d_{\text{model}} \times b = 32 \times 8.192 \times 2\text{ Bytes} = 524.288\text{ Bytes} = 512\text{ KiB} = 0.5\text{ MiB}
+  \end{equation*}
+
+  \item[2)] Trong thuật toán Ring All-Reduce với $N = 4$ GPU, mỗi GPU truyền và nhận đúng:
+  \begin{equation*}
+  D_{\text{All-Reduce}} = 2 \times \left( \frac{N - 1}{N} \right) \times S = 2 \times \frac{3}{4} \times 512\text{ KiB} = 768\text{ KiB}
+  \end{equation*}
+  Tổng số lần All-Reduce để sinh ra đúng $1$ token qua 80 tầng:
+  \begin{equation*}
+  N_{\text{ops}} = 80 \times 2 = 160\text{ lần}
+  \end{equation*}
+  Tổng lượng dữ liệu mỗi GPU trao đổi cho 1 token:
+  \begin{equation*}
+  D_{\text{total}} = 160 \times 768\text{ KiB} = 122.880\text{ KiB} = 120\text{ MiB} \approx 0.1258\text{ GB}
+  \end{equation*}
+
+  \item[3)] Thời gian trễ mạng qua NVIDIA NVLink ($900\text{ GB/s}$):
+  \begin{equation*}
+  t_{\text{NVLink}} = \frac{0.1258\text{ GB}}{900\text{ GB/s}} \approx 0.0001398\text{ giây} \approx 0.14\text{ ms}
+  \end{equation*}
+  Độ trễ $0.14\text{ ms}$ là không đáng kể so với thời gian tính toán sinh token ($15 - 25\text{ ms}$).
+
+  \item[4)] Thời gian trễ mạng qua PCIe 4.0 x16 ($32\text{ GB/s}$):
+  \begin{equation*}
+  t_{\text{PCIe}} = \frac{0.1258\text{ GB}}{32\text{ GB/s}} \approx 0.003931\text{ giây} \approx 3.93\text{ ms}
+  \end{equation*}
+  Thời gian mạng tăng vọt gần \textbf{$28$ lần}! Giao tiếp ngốn gần $4\text{ ms}$ trên mỗi token, làm giảm thông lượng toàn hệ thống nghiêm trọng.
 \end{itemize}
 
 ---
 
-\section{Hiện Thực Hóa: Dockerfile Chuẩn Sản Xuất \& Mô Phỏng Tensor Parallelism}
-\label{sec:docker-tp-implementation}
+\begin{example}[Định Lượng Dynamic Batching \& Tối Ưu Hóa Độ Trễ SLA]
+Một dịch vụ phân loại văn bản AI sử dụng Triton Inference Server với thời gian tính toán trên GPU phụ thuộc tuyến tính vào kích thước lô $b$:
+\begin{equation*}
+T_{\text{compute}}(b) = 4.0 + 0.5 \cdot b \quad (\text{mili-giây})
+\end{equation*}
+Lưu lượng yêu cầu gửi đến tuân theo phân phối Poisson với tốc độ trung bình $\lambda = 40\text{ requests/giây}$ (tương đương $0.04\text{ req/ms}$).
+Hệ thống cấu hình \code{max_batch_size = 16}.
+Cam kết chất lượng dịch vụ (SLA) yêu cầu tổng thời gian xử lý một request không được vượt quá $15.0\text{ ms}$.
+Hãy xác định:
+\begin{enumerate}
+  \item Thời gian tính toán khi chạy đơn lẻ ($b=1$) và khi chạy đầy lô ($b=16$).
+  \item Ngân sách thời gian tối đa cho phép giữ request trong hàng đợi (\code{max_queue_delay_microseconds}) để không vi phạm SLA $15.0\text{ ms}$ ngay cả khi lô đạt kích thước cực đại 16.
+  \item Với thời gian chờ tối đa đó, số lượng request trung bình gom được trong một chu kỳ là bao nhiêu?
+\end{enumerate}
+\end{example}
 
-Dưới đây là một `Dockerfile` chuẩn mực cao dành cho dịch vụ phục vụ vLLM trong môi trường Kubernetes sản xuất, áp dụng triệt để nguyên lý Multi-stage Build, bảo mật Non-root User, và cơ chế kiểm tra sức khỏe hệ thống (Healthcheck).
+\paragraph{Lời giải chi tiết}:
+\begin{itemize}
+  \item[1)] Tính thời gian thực thi:
+  \begin{itemize}
+    \item Khi $b = 1$: $T_{\text{compute}}(1) = 4.0 + 0.5 \times 1 = 4.5\text{ ms}$.
+    \item Khi $b = 16$: $T_{\text{compute}}(16) = 4.0 + 0.5 \times 16 = 4.0 + 8.0 = 12.0\text{ ms}$.
+  \end{itemize}
 
-\begin{lstlisting}[language=bash, caption={Dockerfile đa tầng tối ưu hóa cho dịch vụ phục vụ vLLM production.}]
-# STAGE 1: Runtime Base voi NVIDIA CUDA 12.4
-FROM nvidia/cuda:12.4.1-runtime-ubuntu22.04 AS base
+  \item[2)] Tổng thời gian một request phải trải qua là:
+  \begin{equation*}
+  T_{\text{total}} = T_{\text{wait}} + T_{\text{compute}}(b) \le 15.0\text{ ms}
+  \end{equation*}
+  Trong trường hợp xấu nhất, lô đạt kích thước $b=16$ và tốn $12.0\text{ ms}$ để tính toán. Do đó, thời gian chờ tối đa trong hàng đợi chỉ được phép là:
+  \begin{equation*}
+  T_{\text{wait\_max}} = 15.0 - 12.0 = 3.0\text{ ms} = 3000\text{ }\mu\text{s}
+  \end{equation*}
+  Vậy giá trị tối ưu để cấu hình là \code{max_queue_delay_microseconds: 3000}.
 
-ENV DEBIAN_FRONTEND=noninteractive \
-    PYTHONUNBUFFERED=1 \
-    PIP_NO_CACHE_DIR=1 \
-    HF_HOME=/app/cache/huggingface
+  \item[3)] Với $\lambda = 0.04\text{ req/ms}$ và khoảng thời gian chờ $T_{\text{wait}} = 3.0\text{ ms}$, số lượng request trung bình đến trong khoảng thời gian này là:
+  \begin{equation*}
+  \bar{N} = \lambda \times T_{\text{wait}} = 0.04 \times 3.0 = 0.12\text{ request}
+  \end{equation*}
+  \textit{Nhận xét}: Với lưu lượng $\lambda = 40\text{ req/s}$, hệ thống rất ít khi gom đủ lô 16 trong vòng $3\text{ ms}$. Để tận dụng tối đa GPU, cần có cơ chế cân bằng tải hoặc tăng lưu lượng qua việc phục vụ đa khách hàng.
+\end{itemize}
 
-WORKDIR /app
+---
 
-# Cai dat Python va cac goi phu thuoc he thong co ban
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    python3.11 \
-    python3.11-venv \
-    python3-pip \
-    curl \
-    ca-certificates \
-    && rm -rf /var/lib/apt/lists/*
+\section{Hiện Thực Hóa: Mã Nguồn Python Chuẩn Kỹ Nghệ}
+\label{sec:python-serving-modules}
 
-# Tao moi truong ao Python
-RUN python3.11 -m venv /opt/venv
-ENV PATH="/opt/venv/bin:$PATH"
-
-# STAGE 2: Builder - Cai dat vLLM va dependencies
-FROM base AS builder
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    build-essential \
-    && rm -rf /var/lib/apt/lists/*
-
-RUN pip install --upgrade pip && \
-    pip install vllm==0.5.4 prometheus-client
-
-# STAGE 3: Final Production Image sieu nhe va bao mat
-FROM base AS final
-COPY --from=builder /opt/venv /opt/venv
-
-# Tao nguoi dung non-root de tranh leo thang dac quyen
-RUN useradd -m -u 10001 aiuser && \
-    mkdir -p /app/cache && \
-    chown -R aiuser:aiuser /app
-
-USER aiuser
-EXPOSE 8000
-
-# Kiem tra trang thai song con qua endpoint health
-HEALTHCHECK --interval=30s --timeout=5s --retries=3 \
-  CMD curl -f http://localhost:8000/health || exit 1
-
-ENTRYPOINT ["python3", "-m", "vllm.entrypoints.openai.api_server"]
-CMD ["--model", "meta-llama/Meta-Llama-3-8B-Instruct", "--port", "8000"]
-\end{lstlisting}
-
-Tiếp theo là mã nguồn Python mô phỏng chính xác thuật toán phân rã Tensor Parallelism và kiểm chứng sự tương đương toán học với ma trận gốc:
+Dưới đây là các module Python thuần chuẩn mực, tự chứa và không phụ thuộc vào thư viện ngoài, hiện thực hóa bộ mô phỏng phân rã Tensor Parallelism, bộ lập lịch Dynamic Batching, và công cụ tính toán co giãn pod tự động:
 
 \begin{lstlisting}[language=Python, caption={Mô phỏng phép nhân ma trận Column-Parallel trong Tensor Parallelism.}]
 import numpy as np
@@ -354,6 +525,72 @@ def simulate_tensor_parallelism_linear(
     return full_intermediate
 \end{lstlisting}
 
+\begin{lstlisting}[language=Python, caption={Bộ lập lịch Dynamic Batch Scheduler hỗ trợ timeout và giới hạn lô.}]
+import time
+from typing import List, Any, Tuple
+
+class DynamicBatchScheduler:
+    """
+    Bo lap lich gop lo dong (Dynamic Batch Scheduler):
+    Gom cac request trong hang doi thanh mot batch dua tren max_batch_size
+    hoac khi cham nguong thoi gian cho max_delay_ms.
+    """
+    def __init__(self, max_batch_size: int = 8, max_delay_ms: float = 10.0):
+        self.max_batch_size = max_batch_size
+        self.max_delay_ms = max_delay_ms
+        self.queue: List[Tuple[Any, float]] = []  # (item, arrival_time)
+
+    def enqueue(self, item: Any, arrival_time: float = None):
+        """Dua mot request moi vao hang doi."""
+        if arrival_time is None:
+            arrival_time = time.time()
+        self.queue.append((item, arrival_time))
+
+    def should_dispatch(self, current_time: float = None) -> bool:
+        """Kiem tra xem da den luc ban giao batch di xu ly chua."""
+        if not self.queue:
+            return False
+        if len(self.queue) >= self.max_batch_size:
+            return True
+        if current_time is None:
+            current_time = time.time()
+        oldest_arrival = self.queue[0][1]
+        elapsed_ms = (current_time - oldest_arrival) * 1000.0
+        return elapsed_ms >= self.max_delay_ms
+
+    def dispatch_batch(self) -> List[Any]:
+        """Lay ra mot batch request de xu ly tren GPU."""
+        batch_count = min(len(self.queue), self.max_batch_size)
+        dispatched_items = [self.queue[i][0] for i in range(batch_count)]
+        self.queue = self.queue[batch_count:]
+        return dispatched_items
+\end{lstlisting}
+
+\begin{lstlisting}[language=Python, caption={Động cơ tính toán co giãn Pod tự động KEDA cho AI Serving.}]
+import math
+
+class KEDAAutoscalingCalculator:
+    """
+    Tinh toan so luong Pod can co gian dua tren metrics thoi gian thuc cua vLLM:
+    - waiting_requests: So luong request bi tac nghen trong queue
+    - active_requests: So luong request dang duoc xu ly
+    - pod_capacity: So request dong thoi toi uu ma 1 GPU Pod xu ly duoc
+    """
+    def __init__(self, min_replicas: int = 1, max_replicas: int = 10, pod_capacity: int = 32):
+        self.min_replicas = min_replicas
+        self.max_replicas = max_replicas
+        self.pod_capacity = pod_capacity
+
+    def compute_replicas(self, waiting_requests: int, active_requests: int) -> int:
+        total_load = waiting_requests + active_requests
+        if total_load == 0:
+            return self.min_replicas
+
+        desired_replicas = math.ceil(total_load / self.pod_capacity)
+        clamped_replicas = max(self.min_replicas, min(self.max_replicas, desired_replicas))
+        return clamped_replicas
+\end{lstlisting}
+
 ---
 
 \section{Hệ Thống Bài Tập \& Câu Hỏi Tư Duy Đa Tầng}
@@ -364,11 +601,13 @@ def simulate_tensor_parallelism_linear(
   \item \textbf{Câu A.1}: Tại sao việc chia sẻ dung lượng bộ nhớ IPC (\code{--shm-size}) lại cần thiết cho cụm GPU chạy Tensor Parallelism sử dụng Ray, trong khi một ứng dụng Web API thông thường chỉ cần vài chục megabytes RAM?
   \item \textbf{Câu A.2}: Phân tích nguyên nhân tại sao Pipeline Parallelism (PP) tạo ra hiện tượng ``Bong bóng tính toán'' (Execution Bubbles), và tại sao tăng số lượng Micro-batches lại giúp giảm tỷ lệ phần trăm thời gian chết này.
   \item \textbf{Câu A.3}: Tại sao trong một image Docker phục vụ sản xuất, chúng ta tuyệt đối không nên cài đặt bộ công cụ đầy đủ \code{cuda-toolkit} (chứa trình biên dịch \code{nvcc}), mà chỉ nên cài đặt gói \code{cuda-runtime}?
+  \item \textbf{Câu A.4}: Giải thích tại sao cơ chế Horizontal Pod Autoscaler (HPA) chuẩn của Kubernetes dựa trên mức sử dụng CPU/Memory lại hoàn toàn thất bại khi áp dụng cho các cụm phục vụ vLLM.
+  \item \textbf{Câu A.5}: Phân biệt sự khác nhau giữa Continuous Batching trong vLLM và Dynamic Batching trong Triton Inference Server. Khi nào một hệ thống nên ưu tiên chọn Triton thay vì vLLM?
 \end{enumerate}
 
 \subsection{Nhóm B: Bài Toán Tính Toán Giải Tích Bằng Tay (Analytical Problems)}
 \begin{enumerate}
-  \item \textbf{Bài B.1 (Tính Định Cỡ Băng Thông Phục Vụ Quy Mô 1000 Người Dùng)}:
+  \item \textbf{Bài B.1 (Tính Định Cỡ Băng Thông Phục Vụ Quy Mô 1000 Người Dùng)}: \\
   Hệ thống suy luận phục vụ mô hình Llama-3-8B ($d_{\text{model}} = 4.096$, $n_{\text{layers}} = 32$) sử dụng Tensor Parallelism với $TP = 2$ GPU A100 PCIe.
   Giả sử hệ thống phục vụ tải cực đại $B = 256$ người dùng đồng thời trong pha Decode.
   \begin{itemize}
@@ -376,7 +615,7 @@ def simulate_tensor_parallelism_linear(
     \item[b)] Nếu băng thông PCIe thực tế giữa 2 card là $32\text{ GB/s}$, tính thời gian truyền thông mạng tối thiểu cho mỗi token và đánh giá xem hệ thống có thể duy trì tốc độ $50\text{ tokens/giây}$ cho người dùng hay không.
   \end{itemize}
 
-  \item \textbf{Bài B.2 (Hiệu Suất Pipeline Bubbles Trong 1F1B Scheduling)}:
+  \item \textbf{Bài B.2 (Hiệu Suất Pipeline Bubbles Trong 1F1B Scheduling)}: \\
   Xét một hệ thống Pipeline Parallelism gồm $K = 4$ tầng (4 stages).
   Hệ thống chia lô dữ liệu thành $M$ micro-batches.
   Tỷ lệ thời gian lãng phí do bong bóng Pipeline được tính theo công thức:
@@ -384,24 +623,40 @@ def simulate_tensor_parallelism_linear(
   F_{\text{bubble}} = \frac{K - 1}{M + K - 1}
   \end{equation*}
   Hãy tính tỷ lệ lãng phí $F_{\text{bubble}}$ khi $M = 4$ micro-batches, và khi $M = 32$ micro-batches. Rút ra bài học kỹ thuật khi chọn kích thước batch.
+
+  \item \textbf{Bài B.3 (Định Cỡ KEDA Pod Replica Cho Sự Kiện Lưu Lượng Đỉnh)}: \\
+  Vào ngày Black Friday, một sàn thương mại điện tử ghi nhận $1.200$ yêu cầu phân tích đánh giá sản phẩm đồng thời.
+  Mỗi GPU Pod phục vụ mô hình phân tích có dung lượng xử lý tối ưu là $C_{\text{pod}} = 40$ requests đồng thời.
+  Cấu hình KEDA có giới hạn $R_{\min} = 2$ và $R_{\max} = 50$.
+  Tính số lượng Pod mà KEDA sẽ kích hoạt. Nếu chi phí thuê một máy chủ GPU là $2.5\text{ USD/giờ}$, tính chi phí phần cứng trong 4 giờ cao điểm.
 \end{enumerate}
 
 \subsection{Nhóm C: Thực Hành Kỹ Nghệ \& Lập Trình (Implementation Labs)}
 \begin{enumerate}
-  \item \textbf{Bài C.1 (Xây Dựng Docker Compose Khép Kín Cho Cụm Phục Vụ)}:\\
+  \item \textbf{Bài C.1 (Xây Dựng Cụm Docker Compose Giám Sát vLLM)}: \\
   Viết tệp cấu hình \code{docker-compose.yml} hoàn chỉnh thiết lập cụm dịch vụ:
   \begin{itemize}
     \item Service 1: Khởi chạy \code{vllm-server} nạp mô hình, cấu hình giới hạn GPU qua trường tài nguyên Compose, mở cổng metrics 8000.
     \item Service 2: Khởi chạy \code{prometheus} cào dữ liệu định kỳ 5 giây một lần từ đường dẫn giám sát của vLLM.
     \item Service 3: Khởi chạy \code{grafana} tự động nạp Dashboard theo dõi TTFT và tỷ lệ chiếm dụng bộ nhớ KV Cache.
   \end{itemize}
+
+  \item \textbf{Bài C.2 (Hiện Thực Hóa Bộ Lập Lịch Dynamic Batch Scheduler An Toàn)}: \\
+  Cài đặt hoàn chỉnh lớp Python \code{DynamicBatchScheduler} với đầy đủ cơ chế kiểm tra timeout và kích thước lô cực đại, kèm theo unit test kiểm tra tính chính xác của thứ tự xuất xưởng các request.
+
+  \item \textbf{Bài C.3 (Tự Động Sinh Tệp Cấu Hình Triton config.pbtxt)}: \\
+  Viết một hàm Python tự động nhận vào các thông số kích thước tensor đầu vào, kiểu dữ liệu, và kích thước batch mong muốn, xuất ra nội dung tệp \code{config.pbtxt} chuẩn cú pháp Protobuf của NVIDIA Triton.
 \end{enumerate}
 
 \subsection{Nhóm D: Phân Tích Thất Bại \& Debugging Thực Tế (Post-Mortem Analysis)}
 \begin{enumerate}
-  \item \textbf{Tình huống sự cố}: Kỹ sư triển khai mô hình Llama-3-70B trên máy chủ 8 GPU H100 với tham số \code{--tensor-parallel-size 8}.
+  \item \textbf{Tình huống sự cố 1 (Treo cứng mạng NCCL trong Tensor Parallelism)}: \\
+  Kỹ sư triển khai mô hình Llama-3-70B trên máy chủ 8 GPU H100 với tham số \code{--tensor-parallel-size 8}.
   Khi tiến trình khởi động, log hiển thị việc nạp trọng số thành công $100\%$. Tuy nhiên, ngay tại bước khởi tạo nhóm giao tiếp NCCL (\code{ncclCommInitRank}), toàn bộ 8 tiến trình GPU bị treo cứng vĩnh viễn (Hang/Freeze), mức sử dụng CPU rơi về $0\%$, và không có bất kỳ thông báo lỗi nào xuất hiện.
   Hãy phân tích nguyên nhân gốc rễ (Root Cause) và chỉ ra cách debug giải quyết lỗi treo mạng NCCL này.
+
+  \item \textbf{Tình huống sự cố 2 (Tràn ổ đĩa đệm OverlayFS do ghi đệm mô hình)}: \\
+  Sau 2 ngày chạy dịch vụ vLLM trên cụm Kubernetes, một loạt máy chủ vật lý đồng loạt báo động đỏ: ổ đĩa gốc \code{/} bị chiếm dụng $100\%$ dung lượng ($500\text{ GB}$). Khi kiểm tra, thư mục lưu trữ Docker Overlay2 phình to bất thường vượt tầm kiểm soát. Phân tích nguyên nhân và thiết lập cấu hình chuẩn để ngăn chặn sự cố này tái diễn.
 \end{enumerate}
 
 ---
@@ -419,6 +674,12 @@ def simulate_tensor_parallelism_linear(
 
   \item \textbf{Lời giải Câu A.3}:
   Gói \code{cuda-toolkit} chứa đầy đủ trình biên dịch mã C++ \code{nvcc}, các tệp header (\code{.h}), và các công cụ phát triển chuyên sâu có dung lượng lên tới $4\text{ GB} - 6\text{ GB}$. Trong môi trường sản xuất (Production Runtime), mô hình chỉ cần các thư viện liên kết động (\code{.so}) để thực thi mã máy đã được biên dịch sẵn. Cài đặt toolkit không chỉ làm kích thước Docker Image phình to gấp đôi (làm chậm thời gian kéo ảnh trên cụm Kubernetes), mà còn vi phạm nguyên lý an ninh mạng (tăng bề mặt tấn công khi để sẵn trình biên dịch mã trên máy chủ sản xuất).
+
+  \item \textbf{Lời giải Câu A.4}:
+  vLLM chiếm dụng trước (Pre-allocate) gần như toàn bộ VRAM rảnh rỗi cho bộ đệm PagedAttention ngay khi nạp mô hình để tối ưu hóa bộ nhớ, do đó chỉ số bộ nhớ luôn đạt $\sim 90\%-95\%$ bất kể hệ thống đang rảnh rỗi hay có tải nặng. Đồng thời, CPU chỉ thực hiện nhiệm vụ điều phối luồng bất đồng bộ nhẹ nên mức sử dụng CPU luôn ở mức thấp. HPA chuẩn chỉ nhìn vào hai chỉ số này sẽ hoàn toàn bị mù trước tình trạng ứ đọng hàng trăm request đang xếp hàng chờ.
+
+  \item \textbf{Lời giải Câu A.5}:
+  Continuous Batching của vLLM hoạt động ở cấp độ bước sinh token (Iteration-level): mỗi khi một request sinh xong token kết thúc, nó lập tức được đưa ra khỏi lô và một request mới từ hàng đợi được chèn vào ngay tại bước tiếp theo mà không cần chờ toàn bộ lô hoàn thành. Dynamic Batching của Triton gom các request độc lập theo cửa sổ thời gian timeout. Triton được ưu tiên khi hệ thống cần xây dựng pipeline đa mô hình phức tạp (ví dụ: Speech-to-Text $\to$ LLM $\to$ Rerank) hoặc khi cần phục vụ song song các mô hình học máy truyền thống và thị giác máy tính.
 \end{itemize}
 
 \subsection{Lời Giải Nhóm B: Bài Toán Tính Toán Giải Tích Bằng Tay}
@@ -437,7 +698,6 @@ def simulate_tensor_parallelism_linear(
   \begin{equation*}
   D_{\text{total}} = 32 \times 2 \times 2\text{ MiB} = 128\text{ MiB} \approx 0.1342\text{ GB}
   \end{equation*}
-  Mỗi token sinh ra đòi hỏi truyền nhận $128\text{ MiB}$ dữ liệu giữa 2 GPU.
 
   \item[b)] Thời gian truyền thông tối thiểu qua bus PCIe ($32\text{ GB/s}$):
   \begin{equation*}
@@ -466,66 +726,36 @@ def simulate_tensor_parallelism_linear(
   Tỷ lệ lãng phí giảm xuống dưới $9\%$, hiệu suất sử dụng GPU tăng vọt lên hơn $91\%$.
 \end{itemize}
 
+\paragraph{Lời giải Bài B.3}:
+\begin{itemize}
+  \item Số lượng Pod mong muốn:
+  \begin{equation*}
+  R = \left\lceil \frac{1.200}{40} \right\rceil = 30\text{ Pods}
+  \end{equation*}
+  Vì $R_{\min} = 2 \le 30 \le R_{\max} = 50$, KEDA sẽ kích hoạt đúng $30$ Pods.
+  \item Chi phí phần cứng trong 4 giờ:
+  \begin{equation*}
+  \text{Cost} = 30\text{ Pods} \times 2.5\text{ USD/Pod/giờ} \times 4\text{ giờ} = 300\text{ USD}
+  \end{equation*}
+\end{itemize}
+
 \subsection{Lời Giải Nhóm C: Thực Hành Kỹ Nghệ \& Lập Trình}
-Cấu hình `docker-compose.yml` chuẩn mực:
-
-\begin{lstlisting}[language=bash, caption={Cấu hình docker-compose triển khai cụm vLLM và giám sát Prometheus.}]
-version: '3.8'
-
-services:
-  vllm:
-    image: vllm/vllm-openai:latest
-    container_name: vllm-inference
-    runtime: nvidia
-    shm_size: '16gb'
-    ports:
-      - "8000:8000"
-    environment:
-      - HUGGING_FACE_HUB_TOKEN=${HF_TOKEN}
-    volumes:
-      - ~/.cache/huggingface:/root/.cache/huggingface
-    command: >
-      --model meta-llama/Meta-Llama-3-8B-Instruct
-      --tensor-parallel-size 1
-      --max-model-len 8192
-      --disable-log-requests
-    deploy:
-      resources:
-        reservations:
-          devices:
-            - driver: nvidia
-              count: all
-              capabilities: [gpu]
-
-  prometheus:
-    image: prom/prometheus:latest
-    container_name: prometheus-monitor
-    ports:
-      - "9090:9090"
-    volumes:
-      - ./prometheus.yml:/etc/prometheus/prometheus.yml
-    depends_on:
-      - vllm
-\end{lstlisting}
+Cấu hình `docker-compose.yml` chuẩn mực và mã nguồn Python đã được trình bày chi tiết trong Mục~\ref{sec:production-docker-keda} và Mục~\ref{sec:python-serving-modules}.
 
 \subsection{Lời Giải Nhóm D: Phân Tích Thất Bại \& Debugging Thực Tế}
-\begin{itemize}
-  \item \textbf{Nguyên nhân gốc rễ (Root Cause)}:
-  Hiện tượng treo cứng (Deadlock) ở pha \code{ncclCommInitRank} thường xảy ra do xung đột cấu hình mạng giao tiếp giữa các tiến trình GPU:
-  \begin{enumerate}
-    \item Thư viện giao tiếp NCCL (NVIDIA Collective Communications Library) mặc định quét toàn bộ các card mạng trên máy chủ (bao gồm cả card mạng ảo của Docker như \code{docker0}, card VPN ảo \code{tun0}).
-    \item Một số tiến trình GPU cố gắng bắt tay nhau qua địa chỉ IP của mạng Docker, trong khi các tiến trình khác cố gắng bắt tay qua giao diện mạng vật lý nội bộ (hoặc InfiniBand). Do không tìm thấy nhau, các tiến trình rơi vào trạng thái chờ phản hồi vĩnh viễn (Socket Timeout / Deadlock).
-    \item Thiếu bộ nhớ chia sẻ IPC (\code{--ipc=host}) khiến kênh truyền thông qua RAM bị tắc nghẽn.
-  \end{enumerate}
 
-  \item \textbf{3 Bước chẩn đoán và khắc phục triệt để}:
-  \begin{enumerate}
-    \item \textbf{Bật cờ Debug chuyên sâu của NCCL}: Thiết lập biến môi trường:\\
-    \code{export NCCL_DEBUG=INFO} và \code{export NCCL_DEBUG_SUBSYS=INIT,COLL,ENV}. Log chi tiết sẽ in ra chính xác card mạng nào đang được NCCL lựa chọn.
-    \item \textbf{Khóa cứng card mạng giao tiếp}: Chỉ định rõ ràng giao diện mạng vật lý nội bộ hoặc loại trừ card mạng ảo của Docker qua lệnh shell:
-\begin{lstlisting}[language=bash]
-export NCCL_SOCKET_IFNAME=eth0,en,ib   # hoac: export NCCL_SOCKET_IFNAME=^docker0,tun0
-\end{lstlisting}
-    \item \textbf{Cấu hình chia sẻ bộ nhớ máy chủ}: Luôn chạy container với cờ \code{--ipc=host} và \code{--net=host} khi triển khai các bài toán đa GPU để loại bỏ hoàn toàn các lớp mạng ảo gây nhiễu.
-  \end{enumerate}
+\paragraph{Lời giải Sự cố 1 (Treo cứng mạng NCCL)}:
+\begin{itemize}
+  \item \textbf{Nguyên nhân gốc rễ}: NCCL mặc định quét toàn bộ card mạng và nhầm lẫn chọn card mạng ảo Docker (\code{docker0}) thay vì card mạng vật lý hoặc card InfiniBand, khiến các GPU không thể bắt tay với nhau.
+  \item \textbf{Khắc phục}: Đặt biến môi trường \code{export NCCL_SOCKET_IFNAME=eth0,ib0} và chạy container với \code{--ipc=host --net=host}.
+\end{itemize}
+
+\paragraph{Lời giải Sự cố 2 (Tràn ổ đĩa OverlayFS)}:
+\begin{itemize}
+  \item \textbf{Nguyên nhân gốc rễ}: Tiến trình tải mô hình từ Hugging Face Hub trực tiếp vào thư mục gốc mặc định của container (\code{~/.cache/huggingface/}). Do cơ chế Copy-on-Write của OverlayFS, toàn bộ trọng số được ghi vào tầng tạm \code{UpperDir} của container trên ổ đĩa hệ điều hành, làm cạn kiệt đĩa.
+  \item \textbf{Khắc phục}: Luôn gắn kết một Persistent Volume chuyên dụng vào thư mục cache:
+  \begin{lstlisting}[language=bash]
+docker run -v /mnt/fast_nvme/hf_cache:/app/cache/huggingface \
+           -e HF_HOME=/app/cache/huggingface ...
+  \end{lstlisting}
 \end{itemize}

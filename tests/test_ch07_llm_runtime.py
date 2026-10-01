@@ -230,3 +230,116 @@ def test_paged_kv_cache_manager():
     # Free request 1
     manager.free(1)
     assert len(manager.free_blocks) == 10
+
+
+# ==============================================================================
+# 4. SPECULATIVE DECODING VERIFIER
+# ==============================================================================
+
+class SpeculativeDecoderVerifier:
+    """
+    Simulates Leviathan et al. (2023) Speculative Decoding rejection sampling.
+    Verifies that the target model accepts draft tokens when target_p >= draft_p,
+    and stochastically rejects when target_p < draft_p with probability target_p / draft_p.
+    """
+    @staticmethod
+    def verify_tokens(
+        draft_probs: list[float],
+        target_probs: list[float],
+        random_draws: list[float]
+    ) -> tuple[int, list[int]]:
+        """
+        Returns (num_accepted_tokens, accepted_indices)
+        """
+        assert len(draft_probs) == len(target_probs) == len(random_draws)
+        accepted = []
+        for i, (q, p, u) in enumerate(zip(draft_probs, target_probs, random_draws)):
+            # If target assigns higher probability, unconditionally accept
+            if p >= q:
+                accepted.append(i)
+            # Otherwise, accept with probability p / q
+            elif u < (p / q):
+                accepted.append(i)
+            else:
+                # Rejection encountered, stop accepting subsequent draft tokens
+                break
+        return len(accepted), accepted
+
+
+def test_speculative_decoding_acceptance():
+    # Scenario 1: Target agrees strongly (p >= q for all 3 tokens)
+    draft_p = [0.6, 0.7, 0.5]
+    target_p = [0.8, 0.75, 0.6]
+    draws = [0.5, 0.5, 0.5]
+    count, accepted = SpeculativeDecoderVerifier.verify_tokens(draft_p, target_p, draws)
+    assert count == 3
+    assert accepted == [0, 1, 2]
+
+    # Scenario 2: Target disagrees at token index 1 (p < q and draw > p/q)
+    # Token 0: q=0.8, p=0.9 -> accept
+    # Token 1: q=0.8, p=0.2, ratio=0.25, draw=0.5 -> REJECT!
+    # Token 2: even if p > q, it is skipped because token 1 was rejected
+    draft_p2 = [0.8, 0.8, 0.5]
+    target_p2 = [0.9, 0.2, 0.9]
+    draws2 = [0.1, 0.5, 0.1]
+    count2, accepted2 = SpeculativeDecoderVerifier.verify_tokens(draft_p2, target_p2, draws2)
+    assert count2 == 1
+    assert accepted2 == [0]
+
+
+# ==============================================================================
+# 5. CHUNKED PREFILL SCHEDULER
+# ==============================================================================
+
+class ChunkedPrefillScheduler:
+    """
+    Simulates splitting large prompts into chunks to prevent Head-of-Line blocking
+    and maintain steady Inter-Token Latency (ITL) for ongoing decode requests.
+    """
+    def __init__(self, max_tokens_per_iteration: int = 512):
+        self.max_tokens_budget = max_tokens_per_iteration
+
+    def schedule_iteration(
+        self,
+        active_decode_reqs: list[int],
+        pending_prefill_reqs: list[tuple[int, int]]  # (req_id, remaining_prompt_tokens)
+    ) -> tuple[list[int], list[tuple[int, int]]]:
+        """
+        Returns:
+        - decode_reqs_served: list of req_id
+        - prefill_chunks_served: list of (req_id, tokens_consumed_this_step)
+        """
+        # 1. Prioritize all ongoing decode requests (1 token each)
+        decode_budget = len(active_decode_reqs)
+        decode_served = list(active_decode_reqs)
+        
+        remaining_budget = max(0, self.max_tokens_budget - decode_budget)
+        prefill_served = []
+
+        # 2. Fill the remaining budget with chunks from pending prefill requests
+        for req_id, remaining_tokens in pending_prefill_reqs:
+            if remaining_budget <= 0:
+                break
+            chunk_size = min(remaining_tokens, remaining_budget)
+            prefill_served.append((req_id, chunk_size))
+            remaining_budget -= chunk_size
+
+        return decode_served, prefill_served
+
+
+def test_chunked_prefill_scheduler():
+    scheduler = ChunkedPrefillScheduler(max_tokens_per_iteration=512)
+
+    # 12 active decode users -> takes 12 tokens
+    active_decodes = list(range(12))
+    # 1 new request with a 2048 token prompt
+    pending_prefills = [(100, 2048)]
+
+    decode_served, prefill_served = scheduler.schedule_iteration(active_decodes, pending_prefills)
+    
+    assert len(decode_served) == 12
+    # Prefill gets 512 - 12 = 500 tokens in this iteration
+    assert len(prefill_served) == 1
+    assert prefill_served[0][0] == 100
+    assert prefill_served[0][1] == 500
+

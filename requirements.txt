@@ -1,0 +1,37 @@
+# ==============================================================================
+# APPLIED AI ENGINEER CURRICULUM & REPOSITORY DEPENDENCIES
+# ==============================================================================
+
+# Core LLM Providers & SDKs
+openai>=1.50.0
+google-genai>=2.4.0
+anthropic>=0.36.0
+
+# Structured Outputs & Validation
+pydantic>=2.9.0
+instructor>=1.4.0
+
+# Embeddings & Vector Search
+numpy>=1.26.0
+qdrant-client>=1.11.0
+sentence-transformers>=3.1.0
+
+# Agentic Workflows & Tool Calling
+langgraph>=0.2.30
+langchain-core>=0.3.0
+mcp>=1.1.0
+
+# Evaluation & Testing (Evals)
+pytest>=8.3.0
+pytest-asyncio>=0.24.0
+ragas>=0.2.0
+deepeval>=1.5.0
+
+# Observability, Caching & Utilities
+python-dotenv>=1.0.1
+rich>=13.8.0
+httpx>=0.27.0
+redis>=5.1.0
+fastapi>=0.115.0
+uvicorn>=0.31.0
+tqdm>=4.66.0

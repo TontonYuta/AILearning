@@ -2,27 +2,58 @@
 
 | Chỉ số | Giá trị |
 | :--- | :--- |
-| **Project Version** | 2.0.0 (Phase 6: All-In-One Enterprise AI Engineer Curriculum & Reference Manual, 501 Pages) |
-| **Curriculum Scope** | 16 Chuyên đề kinh điển (Chương 0 đến Chương 15) + 5 Phụ lục Bách khoa toàn thư |
-| **Total Pages** | **501 Trang A4 Chuẩn Xuất Bản Kinh Điển (Classic Monograph)** |
-| **Unit Test Coverage** | **208 passed in 3.05s (100% Passing across all 29 test suites)** |
-| **QA Verification** | **0 Errors, 0 Warnings, 0 Missing Citations, 0 Overfull Hbox (>15pt)** |
-| **Last Build Status** | PASS (Exit code 0, 501 pages PDF via two-pass pdfLaTeX) |
-| **PDF Artifact Path** | `build/pdf/ai_engineer_curriculum.pdf` (~2.5 MB) |
+| **Project Version** | **3.0.0 (Applied AI Engineer Monorepo — Code-First & Project-Driven)** |
+| **Định dạng chuẩn** | **Mã nguồn Python thực chiến + Markdown Guides + Pytest CI/CD** |
+| **Số lượng Modules** | **10 Modules thực hành hoàn chỉnh (Module 01 đến Module 10)** |
+| **Unit Test Coverage** | **41/41 tests passed 100% trong 0.43s (`pytest modules/ -v`)** |
+| **Đồ án kỳ hạm (Capstones)**| **3 Enterprise Capstones (RAG Copilot, Data Analyst MCP, AI Gateway Firewall)** |
+| **Lưu trữ giáo trình cũ** | Đã sao lưu an toàn tại nhánh Git `archive/latex-monograph-v2` và thư mục `legacy/` |
 | **Git Branch** | `main` |
-| **Career & System Design** | Monorepo Showcase Standard, 4 System Design Interview Scenarios (Global AI Code Completion P99 < 80ms, Multi-Modal Agentic Orchestration, Real-Time Video, Architecture Defense), Back-of-the-envelope quantitative estimations (VRAM, Bandwidth, Throughput, TCO, Storage), `BackOfTheEnvelopeEstimator` simulator |
-| **Mathematical Codex** | Linear Algebra, SVD & LoRA low-rank energy preservation, Matrix Calculus, Information Theory & KL/JS divergence, Chinchilla Optimal Scaling Laws, KV Cache sizing, Little's Law, MoE Noisy Top-$k$ Routing & Cauchy-Schwarz proof for Auxiliary Load Balancing Loss, M/G/1-PS queueing theory & Sakata insensitivity, Subexponential P99 tail latency explosion under VRAM saturation |
-| **Cheatsheets & Runbooks** | 10 chuyên đề tra cứu: PyTorch distributed commands, Docker/K8s/Triton configs, vLLM parameters, RoPE math, LoRA configurations, Quantization formats, RAG chunking trade-offs, Agent safety AST whitelists, GPU Hardware Sizing Guide (A100, H100, H200, B200, L40S, L4), PromQL & Grafana SRE monitoring for LLM serving |
-| **Post-Mortem Runbooks** | 10 phân tích mổ xẻ sự cố sản xuất kinh điển: 1. Vector DB Multi-tenant Data Leak, 2. Indirect Prompt Injection RCE, 3. GPU Silent Data Corruption (SDC), 4. Cascading OOM Crash, 5. Triton IPC Memory Leak, 6. Quantization Outlier Collapse, 7. PagedAttention Prefix Cache Thrashing, 8. Anycast BGP Route Flapping & SSE Reset, 9. CUDA IPC Memory Leak & NCCL Watchdog Deadlock, 10. HNSW Graph Islanding under High-Concurrent Tombstoning |
-| **Capstone Workbook** | 8 Đồ án doanh nghiệp hoàn chỉnh từ thiết kế kiến trúc, DDL cơ sở dữ liệu, code triển khai Python và kịch bản bảo vệ: 1. AI-SOC An ninh mạng tự hành, 2. Đối soát & Kiểm toán Báo cáo tài chính đa phương thức (Benford Law & Chi-Square), 3. Trợ lý Chẩn đoán Y khoa Copilot, 4. Nền tảng Gợi ý Sản phẩm Two-Tower MMR, 5. Tường lửa Proxy AI Siêu tốc < 5ms, 6. Khôi phục Thảm họa Tự động Đa vùng (DR Failover), 7. Autonomous SRE & Distributed Tracing RCA, 8. Trợ lý Giám đốc Điều hành (Chief of Staff) |
-| **Large-Scale System Design** | Multi-Region Geo-Distributed GPU Routing ($L_{\text{eff}} = L_{\text{base}}(1 + \text{Load}/\text{Capacity})$), 3-Phase Circuit Breaker (CLOSED/OPEN/HALF-OPEN), Cascading Fallback, Distributed Token Bucket with atomic refill, M/M/c queueing theory with tail latency explosion justifying 70-75% autoscaling thresholds, SLO/SLA Error Budgeting & multi-window Burn Rate with $14.4\times$ Critical Pager threshold |
-| **Quantization & PEFT** | FP8 serving (E4M3 vs E5M2), AWQ with grid search $\mathbf{s} = \mathbf{s}_X^\alpha$, LayerNorm scale folding, DoRA magnitude/direction decoupling with orthogonal projection gradient, QLoRA NF4 quantiles via Gaussian CDF $\Phi^{-1}$, Double Quantization $0.373\text{ bits/param}$ savings, Paged Optimizers on CUDA Unified Memory |
-| **AI Security & Guardrails** | GCG adversarial attack with first-order Taylor approximation $\nabla_e \mathcal{L}(p)$, top-$k$ coordinate search $\mathcal{C}_i$, batch evaluation; Perplexity Filter Defense with sliding window PPL scan; 5-Tier Defense-in-Depth; NVIDIA NeMo Guardrails & Colang 2.0 programmable rails |
-| **Autonomous Agents & Tools** | Reflexion verbal reinforcement loop with episodic memory buffer, AST syntax sandbox (module whitelist, dangerous call blocker, dunder attribute isolation), LangGraph state graphs with checkpointer & state forking, Multi-agent debate engine |
-| **Serving & Infrastructure** | Iteration-level Continuous Batching (Orca/vLLM) with dynamic slot admission & zero-bubble scheduling, Chunked Prefill, Triton Inference Server BLS (Business Logic Scripting) with Zero-Copy IPC Shared Memory, Pipeline Parallelism 1F1B scheduling with analytical bubble fraction $F_{\text{bubble}} = \frac{p-1}{m}$ |
-| **LLM Runtime & Tokenomics** | Lossless Speculative Decoding analytic proof ($P(X=x) \equiv p(x)$ via modified rejection sampling), Medusa multi-head tree attention, SGLang RadixAttention with hierarchical Radix Tree prefix caching, longest prefix matching, dynamic node splitting, and LRU eviction |
-| **Enterprise RAG & Context** | ColBERT Late Interaction ($E_q \cdot E_d^T$ MaxSim token-level soft alignment), ColPali vision patch retrieval without OCR, PLAID fast centroid index, GraphRAG with Leiden hierarchical community clustering (C0/C1/C2) and Map-Reduce global search, Anthropic Contextual Retrieval with prompt caching cost optimization ($90\%$ cut) |
-| **Reasoning & Alignment** | GRPO (DeepSeek-R1 / DeepSeekMath) with Critic-less RL, Group Advantage $\widetilde{A}_i = \frac{r_i - \bar{r}}{\sigma_r + \epsilon}$, Rule-based verifiers (format & SymPy math), System 2 thinking emergence, DPO analytic derivation, ORPO, SimPO, PPO |
-| **Extreme Edge AI** | BitNet b1.58 (Microsoft Research) with ternary weights $\{-1, 0, +1\}$, Shannon capacity $\log_2(3) \approx 1.585\text{ bits}$, bit-packing 5 weights/byte (1.6 bits/weight), elimination of float multipliers via integer addition/subtraction ($>36\times$ energy cut), Apple MLX & GGUF |
-| **Networking & Systems** | RDMA, RoCEv2, InfiniBand 400G, Ring-AllReduce vs Tree-AllReduce analytical models, PFC Headroom buffer sizing, Linux Namespaces, cgroups v2, OverlayFS CoW, NVIDIA Container Toolkit |
-| **Simulations & Prompts** | Interactive Python simulators across all chapters (208 unit tests pass 100%); 60fps Manim CE visual simulation prompts across all 16 chapters and capstone projects |
+
+---
+
+## 🎯 Tổng Hợp 10 Modules Đã Triển Khai Hoàn Chỉnh
+
+1. **Module 01 (Structured Outputs & Schema Validation):**
+   - Pydantic V2 schema enforcement, model validators cho hóa đơn và ticket.
+   - Cơ chế Self-Healing Loop tự động gửi feedback lỗi schema để LLM tự sửa.
+   - Kiểm thử tự động: 4/4 tests passed.
+2. **Module 02 (Embeddings & Vector Search):**
+   - Recursive Character Chunker thông minh bảo toàn ngữ cảnh câu.
+   - Production Vector Store hỗ trợ lọc Multi-Tenant Isolation chống rò rỉ dữ liệu.
+   - Kiểm thử tự động: 4/4 tests passed.
+3. **Module 03 (Production-Grade RAG):**
+   - Sparse BM25 Okapi + Dense Vector Search.
+   - Dung hợp thứ hạng Reciprocal Rank Fusion (RRF $k=60$) + Cross-Encoder Re-ranker.
+   - Bắt buộc dẫn nguồn `[chunk_id]` và kiểm định Groundedness chống ảo giác.
+   - Kiểm thử tự động: 4/4 tests passed.
+4. **Module 04 (LLM Evals & Benchmarking):**
+   - Bộ chỉ số định lượng: Faithfulness, Answer Relevance, Semantic Match.
+   - LLM-as-a-Judge sử dụng Rubric thang điểm 1-5 và cơ chế phát hiện ảo giác.
+   - Báo cáo kết quả chuẩn CI/CD Pass/Fail.
+   - Kiểm thử tự động: 4/4 tests passed.
+5. **Module 05 (Tool Calling & Sandboxed APIs):**
+   - Decorator `@register_tool` tự động trích xuất JSON Schema từ Python Type Hints.
+   - Safe SQL Sandbox (chỉ cho phép SELECT, chặn đứng SQL Injection và từ khóa nguy hiểm).
+   - Kiểm thử tự động: 4/4 tests passed.
+6. **Module 06 (Model Context Protocol - MCP):**
+   - Xây dựng Enterprise MCP Server và Client tuân thủ đặc tả JSON-RPC 2.0 của Anthropic.
+   - Tự động bắt tay khởi tạo (`initialize`), khám phá công cụ (`tools/list`), gọi thực thi từ xa (`tools/call`) và đọc tài nguyên (`resources/read`).
+   - Kiểm thử tự động: 4/4 tests passed.
+7. **Module 07 (Agentic Workflows & LangGraph):**
+   - Động cơ StateGraph hỗ trợ chu trình lặp và conditional routing.
+   - Cổng ngắt Human-in-the-Loop: Tạm dừng đồ thị khi gặp giao dịch nhạy cảm, chờ duyệt rồi tiếp tục.
+   - Kiểm thử tự động: 4/4 tests passed.
+8. **Module 08 (LLMOps, Semantic Caching & Observability):**
+   - Semantic Cache dựa trên cosine similarity: Hạ độ trễ từ 350ms xuống 5ms, chi phí $0 cho request lặp lại.
+   - Distributed Cost & Token Tracer tính toán ngân sách chi tiết cho GPT-4o, Claude 3.5, Gemini 2.0.
+   - Kiểm thử tự động: 4/4 tests passed.
+9. **Module 09 (AI Security & Guardrails):**
+   - Bộ lọc PII Masker tự động che số thẻ tín dụng, email, SĐT, CCCD.
+   - Phát hiện tấn công Prompt Injection / Jailbreak (đa ngôn ngữ Anh - Việt).
+   - Canary Token leak detection bảo vệ System Prompt.
+   - Kiểm thử tự động: 4/4 tests passed.
+10. **Module 10 (Local Serving & LoRA Fine-Tuning):**
+    - Động cơ LoRA $W_0 + \frac{\alpha}{r} (B \cdot A)$ hỗ trợ hoán đổi Adapter động trong RAM.
+    - Cổng OpenAI-compatible Local Server hỗ trợ Server-Sent Events (SSE) Streaming.
+    - Kiểm thử tự động: 5/5 tests passed.

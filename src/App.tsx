@@ -10,7 +10,7 @@ import { AcademyHeader } from './components/academy/AcademyHeader';
 import { LessonView } from './components/academy/LessonView';
 import { QuizChallenge } from './components/academy/QuizChallenge';
 import { CompletionModal } from './components/academy/CompletionModal';
-import { Check } from 'lucide-react';
+import { Check, BookOpen, HelpCircle, Sparkles, ChevronRight, ChevronLeft } from 'lucide-react';
 
 const STORAGE_KEY = 'ai_eng_academy_v2_progress';
 
@@ -33,6 +33,7 @@ export default function App() {
   });
 
   const [showCompletionModal, setShowCompletionModal] = useState<boolean>(false);
+  const [mobileTab, setMobileTab] = useState<'lesson' | 'quiz'>('lesson');
 
   // Sync to localStorage
   useEffect(() => {
@@ -50,6 +51,11 @@ export default function App() {
     CHAPTERS.find((c) => c.id === currentLesson.chapterId) || CHAPTERS[0];
 
   const currentLessonAnswers = progress.quizAnswers[currentLesson.id] || {};
+
+  // Count answered questions in current lesson
+  const currentAnsweredCount = currentLesson.quizzes.filter(
+    (q) => !!currentLessonAnswers[q.id]
+  ).length;
 
   // Handle answering an individual question in the 3-tier challenge
   const handleAnswerQuestion = (questionId: string, optionId: string, isCorrect: boolean) => {
@@ -84,7 +90,7 @@ export default function App() {
         scoreDelta = -1;
       }
 
-      // Check if all 3 questions in this lesson are answered correctly
+      // Check if all questions in this lesson are answered correctly
       const allCorrect = currentLesson.quizzes.every((q) => {
         const chosenId = q.id === questionId ? optionId : lessonAnswers[q.id];
         return q.options.find((o) => o.id === chosenId)?.isCorrect;
@@ -154,6 +160,8 @@ export default function App() {
         ...prev,
         currentLessonId: prev.currentLessonId + 1,
       }));
+      // On mobile, start with lesson view on next lesson
+      setMobileTab('lesson');
     } else {
       setShowCompletionModal(true);
     }
@@ -165,6 +173,7 @@ export default function App() {
         ...prev,
         currentLessonId: prev.currentLessonId - 1,
       }));
+      setMobileTab('lesson');
     }
   };
 
@@ -173,6 +182,7 @@ export default function App() {
       ...prev,
       currentLessonId: id,
     }));
+    setMobileTab('lesson');
   };
 
   const handleSelectChapter = (chapterId: number) => {
@@ -182,24 +192,20 @@ export default function App() {
         ...prev,
         currentLessonId: chapter.lessonIds[0],
       }));
+      setMobileTab('lesson');
     }
   };
 
   const handleResetProgress = () => {
-    if (
-      window.confirm(
-        'Bạn có chắc chắn muốn đặt lại toàn bộ tiến độ 24 bài học và điểm số?'
-      )
-    ) {
-      const resetState: UserProgress = {
-        currentLessonId: 1,
-        completedLessons: [],
-        quizAnswers: {},
-        score: 0,
-      };
-      setProgress(resetState);
-      localStorage.removeItem(STORAGE_KEY);
-    }
+    const resetState: UserProgress = {
+      currentLessonId: 1,
+      completedLessons: [],
+      quizAnswers: {},
+      score: 0,
+    };
+    setProgress(resetState);
+    localStorage.removeItem(STORAGE_KEY);
+    setMobileTab('lesson');
   };
 
   // Lessons belonging to current chapter
@@ -208,8 +214,8 @@ export default function App() {
   );
 
   return (
-    <div className="h-screen w-screen overflow-hidden flex flex-col bg-[#09090b] text-[#f4f4f5]">
-      {/* 1. Fixed Top Header */}
+    <div className="h-screen w-screen overflow-hidden flex flex-col bg-[#090A0F] text-[#F8FAFC]">
+      {/* 1. Top Header */}
       <AcademyHeader
         currentLessonId={progress.currentLessonId}
         totalLessons={LESSONS.length}
@@ -223,12 +229,12 @@ export default function App() {
       />
 
       {/* 2. Chapter Sub-Nav Strip */}
-      <nav className="h-10 border-b border-neutral-800 bg-[#0e0e11] px-4 flex items-center justify-between overflow-x-auto shrink-0 select-none">
-        <div className="flex items-center gap-2">
-          <span className="text-[11px] font-mono text-neutral-400 font-bold uppercase shrink-0">
+      <nav className="h-10.5 border-b border-white/10 bg-[#12131A] px-3 sm:px-4 flex items-center justify-between shrink-0 select-none overflow-x-auto scrollbar-none">
+        <div className="flex items-center gap-2 min-w-0">
+          <span className="text-[11px] font-mono text-zinc-400 font-bold uppercase shrink-0">
             {currentChapter.shortTitle}:
           </span>
-          <div className="flex items-center gap-1.5">
+          <div className="flex items-center gap-1.5 shrink-0">
             {currentChapterLessons.map((l) => {
               const isActive = l.id === progress.currentLessonId;
               const isDone = progress.completedLessons.includes(l.id);
@@ -237,19 +243,19 @@ export default function App() {
                 <button
                   key={l.id}
                   onClick={() => handleSelectLesson(l.id)}
-                  className={`h-7 px-2.5 text-xs font-mono transition-all flex items-center gap-1.5 border whitespace-nowrap ${
+                  className={`h-7 px-2.5 text-xs font-mono rounded-md transition-all flex items-center gap-1.5 border whitespace-nowrap cursor-pointer active:scale-95 ${
                     isActive
-                      ? 'border-blue-500 bg-blue-950/40 text-blue-200 font-bold'
+                      ? 'border-indigo-500/80 bg-indigo-600/20 text-indigo-200 font-bold shadow-sm'
                       : isDone
-                      ? 'border-neutral-800 bg-neutral-900/60 text-emerald-400 hover:border-neutral-700'
-                      : 'border-transparent text-neutral-400 hover:text-neutral-200 hover:bg-neutral-900/40'
+                      ? 'border-white/10 bg-white/5 text-emerald-400 hover:border-white/20'
+                      : 'border-transparent text-zinc-400 hover:text-zinc-200 hover:bg-white/5'
                   }`}
                 >
                   <span>Bài {l.lessonNumber}</span>
-                  <span className="truncate max-w-[130px] hidden md:inline">
+                  <span className="truncate max-w-[120px] hidden md:inline">
                     · {l.title.split(' ')[0]}
                   </span>
-                  {isDone && <Check className="w-3 h-3 text-emerald-400" />}
+                  {isDone && <Check className="w-3 h-3 text-emerald-400 shrink-0" />}
                 </button>
               );
             })}
@@ -257,23 +263,63 @@ export default function App() {
         </div>
 
         {/* Global Progress Indicator */}
-        <div className="text-[11px] font-mono text-neutral-500 hidden sm:block shrink-0 pl-4">
-          Tổng cộng: 24 bài • 8 chuyên đề khoa học
+        <div className="text-[11px] font-mono text-zinc-500 hidden sm:block shrink-0 pl-4">
+          Tổng cộng: 24 bài • 8 chuyên đề
         </div>
       </nav>
 
-      {/* 3. Main Split-Pane Workspace */}
-      <main className="flex-1 overflow-hidden flex flex-col lg:flex-row">
-        {/* Left Column: Lesson Content + Focused Micro-Visualizer */}
-        <section className="flex-1 lg:w-7/12 h-full overflow-y-auto p-4 md:p-6 border-b lg:border-b-0 lg:border-r border-neutral-800">
-          <div className="max-w-2xl mx-auto">
-            <LessonView lesson={currentLesson} />
+      {/* 3. Mobile Segmented Tab Control (< lg) */}
+      <div className="lg:hidden flex items-center border-b border-white/10 bg-[#12131A] p-1.5 shrink-0 gap-1.5">
+        <button
+          onClick={() => setMobileTab('lesson')}
+          className={`flex-1 py-2 px-3 text-xs font-mono font-semibold flex items-center justify-center gap-2 rounded-lg transition-all cursor-pointer ${
+            mobileTab === 'lesson'
+              ? 'bg-indigo-600 text-white shadow-sm'
+              : 'text-zinc-400 hover:text-zinc-200 hover:bg-white/5'
+          }`}
+        >
+          <BookOpen className="w-3.5 h-3.5" />
+          <span>Bài Học & Trực Quan</span>
+        </button>
+        <button
+          onClick={() => setMobileTab('quiz')}
+          className={`flex-1 py-2 px-3 text-xs font-mono font-semibold flex items-center justify-center gap-2 rounded-lg transition-all cursor-pointer ${
+            mobileTab === 'quiz'
+              ? 'bg-indigo-600 text-white shadow-sm'
+              : 'text-zinc-400 hover:text-zinc-200 hover:bg-white/5'
+          }`}
+        >
+          <HelpCircle className="w-3.5 h-3.5 text-amber-300" />
+          <span>Thử Thách Quiz</span>
+          <span className="text-[10px] px-1.5 py-0.5 bg-black/30 rounded-full font-mono text-zinc-200">
+            {currentAnsweredCount}/3
+          </span>
+        </button>
+      </div>
+
+      {/* 4. Main Split-Pane Workspace */}
+      <main className="flex-1 overflow-hidden flex flex-col lg:flex-row relative">
+        {/* Left Column: Lesson Content + Micro-Visualizer */}
+        <section
+          className={`flex-1 lg:w-7/12 h-full overflow-y-auto p-3.5 sm:p-5 md:p-6 border-b lg:border-b-0 lg:border-r border-white/10 ${
+            mobileTab === 'lesson' ? 'block' : 'hidden lg:block'
+          }`}
+        >
+          <div className="max-w-2xl mx-auto pb-16 lg:pb-6">
+            <LessonView
+              lesson={currentLesson}
+              onGoToNext={() => setMobileTab('quiz')}
+            />
           </div>
         </section>
 
         {/* Right Column: Interactive Quiz Challenge */}
-        <section className="flex-1 lg:w-5/12 h-full overflow-y-auto p-4 md:p-6 bg-[#0c0c0e]">
-          <div className="max-w-xl mx-auto h-full flex flex-col justify-start">
+        <section
+          className={`flex-1 lg:w-5/12 h-full overflow-y-auto p-3.5 sm:p-5 md:p-6 bg-[#12131A] ${
+            mobileTab === 'quiz' ? 'block' : 'hidden lg:block'
+          }`}
+        >
+          <div className="max-w-xl mx-auto h-full flex flex-col justify-start pb-16 lg:pb-6">
             <QuizChallenge
               quizzes={currentLesson.quizzes}
               savedAnswers={currentLessonAnswers}
@@ -284,9 +330,47 @@ export default function App() {
             />
           </div>
         </section>
+
+        {/* Mobile Floating Bottom Bar for Thumb Navigation */}
+        <div className="lg:hidden fixed bottom-0 left-0 right-0 z-20 bg-[#12131A]/95 backdrop-blur-md border-t border-white/10 px-3 py-2 flex items-center justify-between pb-safe shadow-lg">
+          <button
+            onClick={handlePrevLesson}
+            disabled={progress.currentLessonId <= 1}
+            className="h-9 px-3 text-xs font-mono text-zinc-200 bg-white/5 hover:bg-white/10 active:scale-95 border border-white/10 rounded-lg flex items-center gap-1.5 disabled:opacity-25 disabled:cursor-not-allowed cursor-pointer"
+          >
+            <ChevronLeft className="w-4 h-4" />
+            <span>Trước</span>
+          </button>
+
+          <button
+            onClick={() => setMobileTab(mobileTab === 'lesson' ? 'quiz' : 'lesson')}
+            className="h-9 px-3 text-xs font-mono font-semibold bg-indigo-600/30 hover:bg-indigo-600/50 border border-indigo-500/50 text-indigo-200 rounded-lg flex items-center gap-1.5 active:scale-95 transition-all cursor-pointer"
+          >
+            {mobileTab === 'lesson' ? (
+              <>
+                <span>Làm Quiz</span>
+                <HelpCircle className="w-3.5 h-3.5 text-amber-300" />
+              </>
+            ) : (
+              <>
+                <BookOpen className="w-3.5 h-3.5" />
+                <span>Xem Bài Học</span>
+              </>
+            )}
+          </button>
+
+          <button
+            onClick={handleNextLesson}
+            disabled={progress.currentLessonId >= LESSONS.length}
+            className="h-9 px-3 text-xs font-mono text-zinc-200 bg-white/5 hover:bg-white/10 active:scale-95 border border-white/10 rounded-lg flex items-center gap-1.5 disabled:opacity-25 disabled:cursor-not-allowed cursor-pointer"
+          >
+            <span>Sau</span>
+            <ChevronRight className="w-4 h-4" />
+          </button>
+        </div>
       </main>
 
-      {/* 4. Graduation / Completion Modal */}
+      {/* 5. Graduation / Completion Modal */}
       <CompletionModal
         isOpen={showCompletionModal}
         score={progress.score}
@@ -300,6 +384,7 @@ export default function App() {
             quizAnswers: {},
             score: 0,
           });
+          setMobileTab('lesson');
         }}
       />
     </div>

@@ -1,0 +1,8 @@
+{
+  "name": "AI Eng Academy — Kỹ Nghệ AI Từ Số 0 Đến Thực Chiến",
+  "description": "Nền tảng học kỹ nghệ AI thực chiến tương tác từng bước: Token, Vector Embedding, Chunking, RAG, AI Agent, Breakpoint HITL, Security Firewall và Self-Healing JSON.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
+
+

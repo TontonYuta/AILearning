@@ -214,7 +214,7 @@ export default function App() {
   );
 
   return (
-    <div className="h-screen w-screen overflow-hidden flex flex-col bg-[#090A0F] text-[#F8FAFC]">
+    <div className="h-screen w-screen overflow-hidden flex flex-col bg-[#090A10] text-[#F8FAFC] ambient-mesh">
       {/* 1. Top Header */}
       <AcademyHeader
         currentLessonId={progress.currentLessonId}
@@ -229,8 +229,8 @@ export default function App() {
       />
 
       {/* 2. Chapter Sub-Nav Strip */}
-      <nav className="h-10.5 border-b border-white/10 bg-[#12131A] px-3 sm:px-4 flex items-center justify-between shrink-0 select-none overflow-x-auto scrollbar-none">
-        <div className="flex items-center gap-2 min-w-0">
+      <nav className="h-11 border-b border-white/[0.06] bg-[#090A10]/70 backdrop-blur-md px-3 sm:px-5 flex items-center justify-between shrink-0 select-none overflow-x-auto scrollbar-none">
+        <div className="flex items-center gap-2.5 min-w-0">
           <span className="text-[11px] font-mono text-zinc-400 font-bold uppercase shrink-0">
             {currentChapter.shortTitle}:
           </span>
@@ -243,12 +243,12 @@ export default function App() {
                 <button
                   key={l.id}
                   onClick={() => handleSelectLesson(l.id)}
-                  className={`h-7 px-2.5 text-xs font-mono rounded-md transition-all flex items-center gap-1.5 border whitespace-nowrap cursor-pointer active:scale-95 ${
+                  className={`h-7 px-3 text-xs font-mono rounded-lg transition-all flex items-center gap-1.5 border whitespace-nowrap cursor-pointer active:scale-95 ${
                     isActive
-                      ? 'border-indigo-500/80 bg-indigo-600/20 text-indigo-200 font-bold shadow-sm'
+                      ? 'border-indigo-500 bg-indigo-600/25 text-white font-bold shadow-sm shadow-indigo-500/20'
                       : isDone
-                      ? 'border-white/10 bg-white/5 text-emerald-400 hover:border-white/20'
-                      : 'border-transparent text-zinc-400 hover:text-zinc-200 hover:bg-white/5'
+                      ? 'border-emerald-500/30 bg-emerald-500/10 text-emerald-300 hover:border-emerald-500/50'
+                      : 'border-white/[0.06] bg-white/[0.02] text-zinc-400 hover:text-white hover:bg-white/[0.06]'
                   }`}
                 >
                   <span>Bài {l.lessonNumber}</span>
@@ -269,13 +269,13 @@ export default function App() {
       </nav>
 
       {/* 3. Mobile Segmented Tab Control (< lg) */}
-      <div className="lg:hidden flex items-center border-b border-white/10 bg-[#12131A] p-1.5 shrink-0 gap-1.5">
+      <div className="lg:hidden flex items-center border-b border-white/[0.06] bg-[#0E101A] p-1.5 shrink-0 gap-1.5">
         <button
           onClick={() => setMobileTab('lesson')}
-          className={`flex-1 py-2 px-3 text-xs font-mono font-semibold flex items-center justify-center gap-2 rounded-lg transition-all cursor-pointer ${
+          className={`flex-1 py-2 px-3 text-xs font-mono font-semibold flex items-center justify-center gap-2 rounded-xl transition-all cursor-pointer ${
             mobileTab === 'lesson'
-              ? 'bg-indigo-600 text-white shadow-sm'
-              : 'text-zinc-400 hover:text-zinc-200 hover:bg-white/5'
+              ? 'bg-indigo-600 text-white shadow-sm shadow-indigo-600/30'
+              : 'text-zinc-400 hover:text-zinc-200 hover:bg-white/[0.04]'
           }`}
         >
           <BookOpen className="w-3.5 h-3.5" />
@@ -283,15 +283,15 @@ export default function App() {
         </button>
         <button
           onClick={() => setMobileTab('quiz')}
-          className={`flex-1 py-2 px-3 text-xs font-mono font-semibold flex items-center justify-center gap-2 rounded-lg transition-all cursor-pointer ${
+          className={`flex-1 py-2 px-3 text-xs font-mono font-semibold flex items-center justify-center gap-2 rounded-xl transition-all cursor-pointer ${
             mobileTab === 'quiz'
-              ? 'bg-indigo-600 text-white shadow-sm'
-              : 'text-zinc-400 hover:text-zinc-200 hover:bg-white/5'
+              ? 'bg-indigo-600 text-white shadow-sm shadow-indigo-600/30'
+              : 'text-zinc-400 hover:text-zinc-200 hover:bg-white/[0.04]'
           }`}
         >
           <HelpCircle className="w-3.5 h-3.5 text-amber-300" />
           <span>Thử Thách Quiz</span>
-          <span className="text-[10px] px-1.5 py-0.5 bg-black/30 rounded-full font-mono text-zinc-200">
+          <span className="text-[10px] px-1.5 py-0.5 bg-black/40 rounded-full font-mono text-zinc-300">
             {currentAnsweredCount}/3
           </span>
         </button>
@@ -301,11 +301,11 @@ export default function App() {
       <main className="flex-1 overflow-hidden flex flex-col lg:flex-row relative">
         {/* Left Column: Lesson Content + Micro-Visualizer */}
         <section
-          className={`flex-1 lg:w-7/12 h-full overflow-y-auto p-3.5 sm:p-5 md:p-6 border-b lg:border-b-0 lg:border-r border-white/10 ${
+          className={`flex-1 lg:w-7/12 h-full overflow-y-auto p-4 sm:p-6 md:p-8 border-b lg:border-b-0 lg:border-r border-white/[0.06] ${
             mobileTab === 'lesson' ? 'block' : 'hidden lg:block'
           }`}
         >
-          <div className="max-w-2xl mx-auto pb-16 lg:pb-6">
+          <div className="max-w-2xl mx-auto pb-20 lg:pb-8">
             <LessonView
               lesson={currentLesson}
               onGoToNext={() => setMobileTab('quiz')}
@@ -315,11 +315,11 @@ export default function App() {
 
         {/* Right Column: Interactive Quiz Challenge */}
         <section
-          className={`flex-1 lg:w-5/12 h-full overflow-y-auto p-3.5 sm:p-5 md:p-6 bg-[#12131A] ${
+          className={`flex-1 lg:w-5/12 h-full overflow-y-auto p-4 sm:p-6 md:p-8 bg-[#0D0F18]/70 backdrop-blur-md ${
             mobileTab === 'quiz' ? 'block' : 'hidden lg:block'
           }`}
         >
-          <div className="max-w-xl mx-auto h-full flex flex-col justify-start pb-16 lg:pb-6">
+          <div className="max-w-xl mx-auto h-full flex flex-col justify-start pb-20 lg:pb-8">
             <QuizChallenge
               quizzes={currentLesson.quizzes}
               savedAnswers={currentLessonAnswers}
@@ -332,11 +332,11 @@ export default function App() {
         </section>
 
         {/* Mobile Floating Bottom Bar for Thumb Navigation */}
-        <div className="lg:hidden fixed bottom-0 left-0 right-0 z-20 bg-[#12131A]/95 backdrop-blur-md border-t border-white/10 px-3 py-2 flex items-center justify-between pb-safe shadow-lg">
+        <div className="lg:hidden fixed bottom-0 left-0 right-0 z-20 bg-[#0E101A]/95 backdrop-blur-xl border-t border-white/[0.08] px-3.5 py-2.5 flex items-center justify-between pb-safe shadow-2xl">
           <button
             onClick={handlePrevLesson}
             disabled={progress.currentLessonId <= 1}
-            className="h-9 px-3 text-xs font-mono text-zinc-200 bg-white/5 hover:bg-white/10 active:scale-95 border border-white/10 rounded-lg flex items-center gap-1.5 disabled:opacity-25 disabled:cursor-not-allowed cursor-pointer"
+            className="h-9 px-3 text-xs font-mono text-zinc-300 bg-white/[0.04] hover:bg-white/[0.08] active:scale-95 border border-white/[0.08] rounded-xl flex items-center gap-1.5 disabled:opacity-25 disabled:cursor-not-allowed cursor-pointer"
           >
             <ChevronLeft className="w-4 h-4" />
             <span>Trước</span>
@@ -344,7 +344,7 @@ export default function App() {
 
           <button
             onClick={() => setMobileTab(mobileTab === 'lesson' ? 'quiz' : 'lesson')}
-            className="h-9 px-3 text-xs font-mono font-semibold bg-indigo-600/30 hover:bg-indigo-600/50 border border-indigo-500/50 text-indigo-200 rounded-lg flex items-center gap-1.5 active:scale-95 transition-all cursor-pointer"
+            className="h-9 px-3.5 text-xs font-mono font-semibold bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl flex items-center gap-1.5 active:scale-95 transition-all cursor-pointer shadow-md shadow-indigo-600/30"
           >
             {mobileTab === 'lesson' ? (
               <>
@@ -362,7 +362,7 @@ export default function App() {
           <button
             onClick={handleNextLesson}
             disabled={progress.currentLessonId >= LESSONS.length}
-            className="h-9 px-3 text-xs font-mono text-zinc-200 bg-white/5 hover:bg-white/10 active:scale-95 border border-white/10 rounded-lg flex items-center gap-1.5 disabled:opacity-25 disabled:cursor-not-allowed cursor-pointer"
+            className="h-9 px-3 text-xs font-mono text-zinc-300 bg-white/[0.04] hover:bg-white/[0.08] active:scale-95 border border-white/[0.08] rounded-xl flex items-center gap-1.5 disabled:opacity-25 disabled:cursor-not-allowed cursor-pointer"
           >
             <span>Sau</span>
             <ChevronRight className="w-4 h-4" />

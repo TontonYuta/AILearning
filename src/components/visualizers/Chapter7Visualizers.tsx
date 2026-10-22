@@ -8,50 +8,58 @@ export const Lesson7_1_SemanticCache: React.FC = () => {
   const [cacheHit, setCacheHit] = useState<boolean>(true);
 
   return (
-    <div className="border border-neutral-800 bg-[#121215] p-4 space-y-3.5 text-xs font-mono">
-      <div className="flex items-center justify-between border-b border-neutral-800 pb-2">
-        <span className="text-neutral-200 font-semibold flex items-center gap-1.5">
-          <Zap className="w-3.5 h-3.5 text-amber-400" />
-          Biểu đồ thác nước độ trễ (Latency Waterfall)
-        </span>
+    <div className="space-y-4 text-xs font-mono">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-3 border-b border-white/[0.08]">
+        <div className="flex items-center gap-2">
+          <div className="w-6 h-6 rounded-lg bg-amber-500/10 border border-amber-500/30 flex items-center justify-center text-amber-400">
+            <Zap className="w-3.5 h-3.5" />
+          </div>
+          <span className="text-white font-semibold font-sans text-xs sm:text-sm">
+            Biểu đồ thác nước độ trễ (Latency Waterfall)
+          </span>
+        </div>
         <button
           onClick={() => setCacheHit(!cacheHit)}
-          className={`px-2 py-0.5 border text-[11px] font-bold ${cacheHit ? 'border-emerald-500 bg-emerald-950/40 text-emerald-300' : 'border-neutral-800 bg-neutral-900 text-neutral-400'}`}
+          className={`px-3 py-1 rounded-full border text-[11px] font-sans font-medium transition-all cursor-pointer self-start sm:self-auto ${
+            cacheHit
+              ? 'border-emerald-500/60 bg-emerald-500/20 text-emerald-200 font-semibold shadow-sm shadow-emerald-500/20'
+              : 'border-white/[0.08] bg-white/[0.02] text-zinc-400 hover:text-white hover:bg-white/[0.06]'
+          }`}
         >
-          {cacheHit ? 'Mô phỏng CACHE HIT' : 'Mô phỏng CACHE MISS'}
+          {cacheHit ? '✓ Mô phỏng CACHE HIT' : 'Mô phỏng CACHE MISS'}
         </button>
       </div>
 
-      <div className="space-y-3 p-3 bg-[#09090b] border border-neutral-800">
-        <div>
-          <div className="flex justify-between text-[11px] text-neutral-400 mb-1">
+      <div className="space-y-3.5 p-4 bg-black/40 border border-white/[0.08] rounded-xl font-sans">
+        <div className="space-y-1.5">
+          <div className="flex justify-between text-xs text-zinc-300">
             <span>LLM Roundtrip qua Internet (OpenAI / Claude API):</span>
-            <span className="text-red-400 font-bold">880 mili-giây</span>
+            <span className="text-rose-400 font-bold font-mono">880 mili-giây</span>
           </div>
-          <div className="h-4 bg-neutral-900 overflow-hidden">
-            <div className="h-full bg-red-600/80 w-[95%]" />
+          <div className="h-3 bg-white/5 rounded-full overflow-hidden p-0.5">
+            <div className="h-full bg-rose-500/80 rounded-full w-[95%] transition-all duration-500" />
           </div>
         </div>
 
-        <div>
-          <div className="flex justify-between text-[11px] text-neutral-400 mb-1">
+        <div className="space-y-1.5">
+          <div className="flex justify-between text-xs text-zinc-300">
             <span>Semantic Cache Hit (Redis In-Memory Vector Search):</span>
-            <span className="text-emerald-400 font-bold">14 mili-giây (Nhanh hơn 98.4%)</span>
+            <span className="text-emerald-400 font-bold font-mono">14 mili-giây (Nhanh hơn 98.4%)</span>
           </div>
-          <div className="h-4 bg-neutral-900 overflow-hidden">
-            <div className="h-full bg-emerald-500 w-[6%]" />
+          <div className="h-3 bg-white/5 rounded-full overflow-hidden p-0.5">
+            <div className="h-full bg-emerald-500 rounded-full w-[6%] transition-all duration-500" />
           </div>
         </div>
       </div>
 
-      <div className="p-2.5 bg-neutral-900 border border-neutral-800 text-[11px]">
+      <div className="p-3 bg-indigo-500/10 border border-indigo-500/20 rounded-xl text-[11px] text-zinc-300 font-sans leading-relaxed">
         {cacheHit ? (
-          <span className="text-emerald-400">
-            ✓ Trả lời khách hàng trong 14ms! Hoàn toàn không tốn token LLM, tiết kiệm 100% chi phí.
+          <span className="text-emerald-300">
+            ✓ Trả lời khách hàng chỉ trong 14ms! Hoàn toàn không tốn token LLM, tiết kiệm 100% chi phí gọi mô hình đám mây.
           </span>
         ) : (
-          <span className="text-neutral-300">
-            Cache Miss: Gọi LLM (880ms) và tự động ghi kết quả vào Semantic Cache cho lần sau.
+          <span className="text-zinc-300">
+            Cache Miss: Gọi LLM đám mây (880ms) và tự động ghi kết quả vào Semantic Cache cho các yêu cầu tương đương kế tiếp.
           </span>
         )}
       </div>
@@ -64,41 +72,47 @@ export const Lesson7_1_SemanticCache: React.FC = () => {
 // ==========================================
 export const Lesson7_2_PagedAttention: React.FC = () => {
   return (
-    <div className="border border-neutral-800 bg-[#121215] p-4 space-y-3.5 text-xs font-mono">
-      <div className="flex items-center justify-between border-b border-neutral-800 pb-2">
-        <span className="text-neutral-200 font-semibold flex items-center gap-1.5">
-          <Cpu className="w-3.5 h-3.5 text-cyan-400" />
-          vLLM PagedAttention: Virtual Memory Block Table (Kwon, 2023)
+    <div className="space-y-4 text-xs font-mono">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-3 border-b border-white/[0.08]">
+        <div className="flex items-center gap-2">
+          <div className="w-6 h-6 rounded-lg bg-cyan-500/10 border border-cyan-500/30 flex items-center justify-center text-cyan-400">
+            <Cpu className="w-3.5 h-3.5" />
+          </div>
+          <span className="text-white font-semibold font-sans text-xs sm:text-sm">
+            vLLM PagedAttention: Virtual Memory Block Table (Kwon, 2023)
+          </span>
+        </div>
+        <span className="text-emerald-400 text-[11px] font-sans font-bold px-2.5 py-0.5 rounded-full bg-emerald-500/10 border border-emerald-500/20 self-start sm:self-auto">
+          0% Lãng phí VRAM
         </span>
-        <span className="text-emerald-400 text-[11px] font-bold">0% Lãng phí VRAM</span>
       </div>
 
-      <div className="grid grid-cols-2 gap-3">
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
         {/* Logical Tokens */}
-        <div className="p-2.5 bg-[#09090b] border border-neutral-800 space-y-1.5">
-          <div className="text-[10px] text-neutral-400 uppercase font-bold">Logical Tokens (Chuỗi liên tục)</div>
-          <div className="flex gap-1 text-[11px]">
-            <span className="p-1 border border-blue-500 bg-blue-950/40 text-blue-200">Tok 0-3</span>
-            <span className="p-1 border border-blue-500 bg-blue-950/40 text-blue-200">Tok 4-7</span>
-            <span className="p-1 border border-blue-500 bg-blue-950/40 text-blue-200">Tok 8-11</span>
+        <div className="p-3.5 bg-black/40 border border-white/[0.08] rounded-xl space-y-2">
+          <div className="text-[10px] text-zinc-400 uppercase font-mono tracking-wider font-semibold">Logical Tokens (Chuỗi liên tục)</div>
+          <div className="flex gap-1.5 text-xs">
+            <span className="px-2.5 py-1 rounded-lg border border-blue-500/40 bg-blue-500/15 text-blue-200 font-mono">Tok 0-3</span>
+            <span className="px-2.5 py-1 rounded-lg border border-blue-500/40 bg-blue-500/15 text-blue-200 font-mono">Tok 4-7</span>
+            <span className="px-2.5 py-1 rounded-lg border border-blue-500/40 bg-blue-500/15 text-blue-200 font-mono">Tok 8-11</span>
           </div>
-          <div className="text-[10px] text-neutral-500 mt-1">Khối trang ảo: Block 0, 1, 2</div>
+          <div className="text-[11px] text-zinc-500 font-sans">Khối trang ảo: Block 0, 1, 2</div>
         </div>
 
         {/* Physical VRAM Blocks */}
-        <div className="p-2.5 bg-[#09090b] border border-neutral-800 space-y-1.5">
-          <div className="text-[10px] text-neutral-400 uppercase font-bold">Physical VRAM GPU (Rời rạc)</div>
-          <div className="flex gap-1 text-[11px]">
-            <span className="p-1 border border-emerald-500 bg-emerald-950/40 text-emerald-200">Phy #7</span>
-            <span className="p-1 border border-emerald-500 bg-emerald-950/40 text-emerald-200">Phy #1</span>
-            <span className="p-1 border border-emerald-500 bg-emerald-950/40 text-emerald-200">Phy #9</span>
+        <div className="p-3.5 bg-black/40 border border-white/[0.08] rounded-xl space-y-2">
+          <div className="text-[10px] text-zinc-400 uppercase font-mono tracking-wider font-semibold">Physical VRAM GPU (Rời rạc)</div>
+          <div className="flex gap-1.5 text-xs">
+            <span className="px-2.5 py-1 rounded-lg border border-emerald-500/40 bg-emerald-500/15 text-emerald-200 font-mono">Phy #7</span>
+            <span className="px-2.5 py-1 rounded-lg border border-emerald-500/40 bg-emerald-500/15 text-emerald-200 font-mono">Phy #1</span>
+            <span className="px-2.5 py-1 rounded-lg border border-emerald-500/40 bg-emerald-500/15 text-emerald-200 font-mono">Phy #9</span>
           </div>
-          <div className="text-[10px] text-emerald-400 mt-1">Ánh xạ linh hoạt, không phân mảnh</div>
+          <div className="text-[11px] text-emerald-400 font-sans">Ánh xạ linh hoạt, chống phân mảnh</div>
         </div>
       </div>
 
-      <div className="p-2.5 bg-neutral-900 border border-neutral-800 text-[11px] text-emerald-400">
-        ✓ Triệt tiêu 80% lãng phí VRAM. Cho phép GPU chạy số lượng request đồng thời (Concurrent Batch Size) tăng gấp 3–4 lần!
+      <div className="p-3 bg-cyan-500/10 border border-cyan-500/20 rounded-xl text-[11px] text-zinc-300 font-sans leading-relaxed">
+        ✓ Triệt tiêu 80% lãng phí VRAM. Cho phép máy chủ tăng số lượng request xử lý song song (Concurrent Batch Size) lên gấp 3–4 lần trên cùng phần cứng!
       </div>
     </div>
   );
@@ -109,31 +123,37 @@ export const Lesson7_2_PagedAttention: React.FC = () => {
 // ==========================================
 export const Lesson7_3_PromptCache: React.FC = () => {
   return (
-    <div className="border border-neutral-800 bg-[#121215] p-4 space-y-3.5 text-xs font-mono">
-      <div className="flex items-center justify-between border-b border-neutral-800 pb-2">
-        <span className="text-neutral-200 font-semibold flex items-center gap-1.5">
-          <Database className="w-3.5 h-3.5 text-blue-400" />
-          Tiết kiệm chi phí với Prefix Prompt Caching (Anthropic/Gemini)
+    <div className="space-y-4 text-xs font-mono">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-3 border-b border-white/[0.08]">
+        <div className="flex items-center gap-2">
+          <div className="w-6 h-6 rounded-lg bg-blue-500/10 border border-blue-500/30 flex items-center justify-center text-blue-400">
+            <Database className="w-3.5 h-3.5" />
+          </div>
+          <span className="text-white font-semibold font-sans text-xs sm:text-sm">
+            Tiết kiệm chi phí với Prefix Prompt Caching (Anthropic/Gemini)
+          </span>
+        </div>
+        <span className="text-emerald-400 text-[11px] font-sans font-bold px-2.5 py-0.5 rounded-full bg-emerald-500/10 border border-emerald-500/20 self-start sm:self-auto">
+          Giảm 90% giá Token
         </span>
-        <span className="text-emerald-400 text-[11px] font-bold">Giảm 90% giá Token</span>
       </div>
 
-      <div className="grid grid-cols-2 gap-3 text-center">
-        <div className="p-3 bg-red-950/20 border border-red-900">
-          <div className="text-[10px] text-red-400 uppercase font-bold">Không bật Prompt Caching</div>
-          <div className="text-base font-bold text-white mt-1">$3.00 / request</div>
-          <div className="text-[10px] text-neutral-400 mt-0.5">Mỗi lần gọi đều tính tiền lại 100k tokens tĩnh</div>
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-center">
+        <div className="p-4 bg-rose-500/10 border border-rose-500/20 rounded-xl">
+          <div className="text-[10px] text-rose-400 uppercase font-mono font-bold tracking-wider">Không bật Prompt Caching</div>
+          <div className="text-xl font-bold text-white mt-1 font-mono">$3.00 / request</div>
+          <div className="text-[11px] text-zinc-400 mt-1 font-sans">Mỗi lần gọi đều tính tiền lại 100k tokens tĩnh</div>
         </div>
 
-        <div className="p-3 bg-emerald-950/20 border border-emerald-800">
-          <div className="text-[10px] text-emerald-400 uppercase font-bold">Có bật Prefix Caching</div>
-          <div className="text-base font-bold text-emerald-300 mt-1">$0.30 / request</div>
-          <div className="text-[10px] text-emerald-400 mt-0.5">Giảm giá 90% cho 100k tokens đã cache sẵn</div>
+        <div className="p-4 bg-emerald-500/10 border border-emerald-500/20 rounded-xl">
+          <div className="text-[10px] text-emerald-400 uppercase font-mono font-bold tracking-wider">Có bật Prefix Caching</div>
+          <div className="text-xl font-bold text-emerald-300 mt-1 font-mono">$0.30 / request</div>
+          <div className="text-[11px] text-emerald-300 mt-1 font-sans">Giảm giá 90% cho 100k tokens đã lưu cache</div>
         </div>
       </div>
 
-      <div className="p-2.5 bg-neutral-900 border border-neutral-800 text-[11px] text-neutral-300">
-        Quy tắc bất biến: Luôn đặt System Prompt dài và tài liệu tĩnh ở đầu; đặt câu hỏi biến thiên của user ở cuối cùng để giữ nguyên chuỗi tiền tố cache.
+      <div className="p-3 bg-indigo-500/10 border border-indigo-500/20 rounded-xl text-[11px] text-zinc-300 font-sans leading-relaxed">
+        <strong className="text-indigo-300">Quy tắc vàng:</strong> Luôn đặt System Prompt dài và tài liệu tĩnh ở đầu; đặt câu hỏi biến thiên của user ở cuối cùng để giữ nguyên chuỗi tiền tố cache.
       </div>
     </div>
   );

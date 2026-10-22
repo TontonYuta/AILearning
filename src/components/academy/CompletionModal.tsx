@@ -20,51 +20,51 @@ export const CompletionModal: React.FC<CompletionModalProps> = ({
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-md flex items-center justify-center p-4">
-      <div className="w-full max-w-xl max-h-[90vh] overflow-y-auto bg-[#0E101A] border border-white/10 rounded-2xl shadow-2xl p-5 sm:p-7 space-y-5 text-zinc-200 font-sans animate-in fade-in zoom-in-95 duration-200">
-        <div className="flex items-center justify-between border-b border-white/[0.08] pb-3.5">
+    <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4">
+      <div className="w-full max-w-xl max-h-[90vh] overflow-y-auto bg-white dark:bg-[#0E101A] border border-slate-200 dark:border-white/10 rounded-2xl shadow-2xl p-5 sm:p-7 space-y-5 text-slate-800 dark:text-zinc-200 font-sans animate-in fade-in zoom-in-95 duration-200">
+        <div className="flex items-center justify-between border-b border-slate-200/80 dark:border-white/[0.08] pb-3.5">
           <div className="flex items-center gap-2.5">
-            <div className="w-7 h-7 rounded-lg bg-emerald-500/10 border border-emerald-500/30 flex items-center justify-center text-emerald-400">
+            <div className="w-7 h-7 rounded-lg bg-emerald-500/10 border border-emerald-500/30 flex items-center justify-center text-emerald-600 dark:text-emerald-400">
               <Award className="w-4 h-4" />
             </div>
-            <h3 className="font-bold text-white font-mono text-xs sm:text-sm uppercase tracking-wide">
+            <h3 className="font-bold text-slate-900 dark:text-white font-mono text-xs sm:text-sm uppercase tracking-wide">
               Chứng Nhận Tốt Nghiệp AI Eng Academy
             </h3>
           </div>
           <button
             onClick={onClose}
-            className="w-8 h-8 rounded-lg flex items-center justify-center text-zinc-400 hover:text-white hover:bg-white/10 transition-colors cursor-pointer"
+            className="w-8 h-8 rounded-lg flex items-center justify-center text-slate-400 hover:text-slate-700 dark:text-zinc-400 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-white/10 transition-colors cursor-pointer"
           >
             <X className="w-4 h-4" />
           </button>
         </div>
 
         <div className="text-center py-2 space-y-2.5">
-          <div className="w-16 h-16 mx-auto bg-emerald-500/10 border border-emerald-500/30 rounded-2xl flex items-center justify-center text-emerald-400 shadow-xl shadow-emerald-500/20">
+          <div className="w-16 h-16 mx-auto bg-emerald-500/15 border border-emerald-500/30 rounded-2xl flex items-center justify-center text-emerald-600 dark:text-emerald-400 shadow-xl shadow-emerald-500/20">
             <Sparkles className="w-8 h-8" />
           </div>
-          <h2 className="text-lg sm:text-xl font-bold text-white font-sans" style={{ textWrap: 'balance' }}>
+          <h2 className="text-lg sm:text-xl font-bold text-slate-900 dark:text-white font-sans" style={{ textWrap: 'balance' }}>
             Chúc mừng bạn đã hoàn thành trọn vẹn 24 Bài Học Thực Chiến!
           </h2>
-          <p className="text-xs sm:text-sm text-zinc-400 max-w-md mx-auto leading-relaxed" style={{ textWrap: 'pretty' }}>
+          <p className="text-xs sm:text-sm text-slate-600 dark:text-zinc-400 max-w-md mx-auto leading-relaxed" style={{ textWrap: 'pretty' }}>
             Bạn đã làm chủ toàn bộ nền tảng lý thuyết các papers khoa học và kỹ nghệ xây dựng ứng dụng AI cấp độ Production.
           </p>
         </div>
 
         {/* Score & Skill Matrix across 8 Chapters */}
-        <div className="p-4 bg-black/40 border border-white/[0.08] rounded-xl space-y-3 font-mono text-xs">
-          <div className="flex items-center justify-between text-zinc-300 font-sans">
+        <div className="p-4 bg-slate-50 dark:bg-black/40 border border-slate-200/80 dark:border-white/[0.08] rounded-xl space-y-3 font-mono text-xs">
+          <div className="flex items-center justify-between text-slate-700 dark:text-zinc-300 font-sans">
             <span>Tổng điểm Quiz đạt được:</span>
-            <span className="text-emerald-400 font-bold font-mono text-base">
+            <span className="text-emerald-600 dark:text-emerald-400 font-bold font-mono text-base">
               {score} / {total} ⭐ ({Math.round((score / total) * 100)}%)
             </span>
           </div>
 
-          <div className="border-t border-white/[0.06] pt-3 grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs font-sans">
+          <div className="border-t border-slate-200/60 dark:border-white/[0.06] pt-3 grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs font-sans">
             {CHAPTERS.map((ch) => (
-              <div key={ch.id} className="flex items-center gap-2 p-2 bg-white/[0.02] rounded-lg border border-white/[0.04]">
-                <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
-                <span className="truncate text-zinc-300">{ch.title}</span>
+              <div key={ch.id} className="flex items-center gap-2 p-2 bg-white dark:bg-white/[0.02] rounded-lg border border-slate-200/60 dark:border-white/[0.04]">
+                <CheckCircle2 className="w-4 h-4 text-emerald-600 dark:text-emerald-400 shrink-0" />
+                <span className="truncate text-slate-700 dark:text-zinc-300">{ch.title}</span>
               </div>
             ))}
           </div>
@@ -74,7 +74,7 @@ export const CompletionModal: React.FC<CompletionModalProps> = ({
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1">
           <button
             onClick={onRestart}
-            className="py-2.5 px-4 bg-white/[0.04] hover:bg-white/[0.08] active:scale-95 border border-white/10 rounded-xl text-zinc-300 font-sans text-xs font-semibold flex items-center justify-center gap-2 transition-colors cursor-pointer"
+            className="py-2.5 px-4 bg-slate-100 hover:bg-slate-200 dark:bg-white/[0.04] dark:hover:bg-white/[0.08] active:scale-95 border border-slate-200 dark:border-white/10 rounded-xl text-slate-700 dark:text-zinc-300 font-sans text-xs font-semibold flex items-center justify-center gap-2 transition-colors cursor-pointer"
           >
             <RotateCcw className="w-3.5 h-3.5" />
             <span>Học lại từ Bài 1.1</span>

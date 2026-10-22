@@ -14,23 +14,23 @@ Nhân sự thử việc chưa được áp dụng chính sách này cho đến k
 
   return (
     <div className="space-y-4 text-xs font-mono">
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-3 border-b border-white/[0.08]">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-3 border-b border-slate-200/80 dark:border-white/[0.08]">
         <div className="flex items-center gap-2">
-          <div className="w-6 h-6 rounded-lg bg-blue-500/10 border border-blue-500/30 flex items-center justify-center text-blue-400">
+          <div className="w-6 h-6 rounded-lg bg-blue-500/10 border border-blue-500/30 flex items-center justify-center text-blue-600 dark:text-blue-400">
             <Layers className="w-3.5 h-3.5" />
           </div>
-          <span className="text-white font-semibold font-sans text-xs sm:text-sm">
+          <span className="text-slate-900 dark:text-white font-semibold font-sans text-xs sm:text-sm">
             Kiến trúc Parent-Child (Small-to-Big Retrieval)
           </span>
         </div>
-        <span className="text-emerald-400 text-[11px] font-sans font-medium px-2.5 py-0.5 rounded-full bg-emerald-500/10 border border-emerald-500/20 self-start sm:self-auto">
+        <span className="text-emerald-700 dark:text-emerald-400 text-[11px] font-sans font-medium px-2.5 py-0.5 rounded-full bg-emerald-50 dark:bg-emerald-500/10 border border-emerald-200 dark:border-emerald-500/20 self-start sm:self-auto">
           Chọn chunk con để xem chunk cha
         </span>
       </div>
 
       {/* Child Chunks (Index search) */}
       <div className="space-y-2">
-        <div className="text-[11px] text-zinc-400 font-sans font-medium">
+        <div className="text-[11px] text-slate-600 dark:text-zinc-400 font-sans font-medium">
           1. CHUNKS CON (Child Chunks - Lưu trong Vector DB để tìm kiếm sắc nét):
         </div>
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
@@ -44,11 +44,11 @@ Nhân sự thử việc chưa được áp dụng chính sách này cho đến k
               onClick={() => setSelectedChild(c.id)}
               className={`p-3 rounded-xl border text-left transition-all cursor-pointer ${
                 selectedChild === c.id
-                  ? 'border-blue-500/60 bg-blue-500/15 text-blue-200 font-semibold shadow-sm shadow-blue-500/15'
-                  : 'border-white/[0.08] bg-black/40 text-zinc-400 hover:border-white/20 hover:text-white'
+                  ? 'border-blue-500 bg-blue-50 text-blue-900 dark:bg-blue-500/15 dark:text-blue-200 font-semibold shadow-xs'
+                  : 'border-slate-200 bg-slate-50 text-slate-700 dark:border-white/[0.08] dark:bg-black/40 dark:text-zinc-400 hover:border-slate-300 dark:hover:border-white/20 hover:text-slate-900 dark:hover:text-white'
               }`}
             >
-              <div className="text-[10px] text-blue-400 font-mono">Child #{c.id}</div>
+              <div className="text-[10px] text-blue-600 dark:text-blue-400 font-mono font-bold">Child #{c.id}</div>
               <div className="text-xs font-sans mt-1 line-clamp-2 leading-snug">{c.text}</div>
             </button>
           ))}
@@ -56,21 +56,21 @@ Nhân sự thử việc chưa được áp dụng chính sách này cho đến k
       </div>
 
       {/* Connection arrow */}
-      <div className="flex justify-center text-zinc-500">
-        <ArrowDown className="w-4 h-4 text-blue-400 animate-bounce" />
+      <div className="flex justify-center text-slate-400 dark:text-zinc-500">
+        <ArrowDown className="w-4 h-4 text-blue-500 animate-bounce" />
       </div>
 
       {/* Parent Document (Returned to LLM) */}
       <div className="space-y-2">
-        <div className="text-[11px] text-zinc-400 font-sans font-medium">
+        <div className="text-[11px] text-slate-600 dark:text-zinc-400 font-sans font-medium">
           2. CHUNK CHA (Parent Context - Tự động nạp vào prompt cho LLM):
         </div>
-        <div className="p-4 bg-black/40 border border-blue-500/30 rounded-xl font-sans text-xs text-zinc-200 leading-relaxed space-y-2.5">
-          <p className="border-l-2 border-blue-500 pl-3 text-zinc-300 font-mono text-[11px] whitespace-pre-line leading-relaxed">
+        <div className="p-4 bg-slate-50 dark:bg-black/40 border border-blue-300 dark:border-blue-500/30 rounded-xl font-sans text-xs text-slate-800 dark:text-zinc-200 leading-relaxed space-y-2.5">
+          <p className="border-l-2 border-blue-500 pl-3 text-slate-700 dark:text-zinc-300 font-mono text-[11px] whitespace-pre-line leading-relaxed">
             {parentDoc}
           </p>
-          <div className="text-[11px] text-emerald-400 font-sans font-medium flex items-center gap-1.5 pt-1">
-            <CheckCircle className="w-4 h-4 text-emerald-400 shrink-0" />
+          <div className="text-[11px] text-emerald-700 dark:text-emerald-400 font-sans font-medium flex items-center gap-1.5 pt-1">
+            <CheckCircle className="w-4 h-4 text-emerald-600 dark:text-emerald-400 shrink-0" />
             <span>LLM nhận trọn vẹn ngữ cảnh điều kiện &quot;Nhân sự thử việc chưa được áp dụng&quot; thay vì chỉ nhận trích đoạn cụt ngủn 50 triệu!</span>
           </div>
         </div>
@@ -98,12 +98,12 @@ export const Lesson3_2_RerankRRF: React.FC = () => {
 
   return (
     <div className="space-y-4 text-xs font-mono">
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-3 border-b border-white/[0.08]">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-3 border-b border-slate-200/80 dark:border-white/[0.08]">
         <div className="flex items-center gap-2">
-          <div className="w-6 h-6 rounded-lg bg-amber-500/10 border border-amber-500/30 flex items-center justify-center text-amber-400">
+          <div className="w-6 h-6 rounded-lg bg-amber-500/10 border border-amber-500/30 flex items-center justify-center text-amber-600 dark:text-amber-400">
             <ListFilter className="w-3.5 h-3.5" />
           </div>
-          <span className="text-white font-semibold font-sans text-xs sm:text-sm">
+          <span className="text-slate-900 dark:text-white font-semibold font-sans text-xs sm:text-sm">
             Two-Stage Retrieval: Bi-Encoder vs Cross-Encoder
           </span>
         </div>
@@ -111,8 +111,8 @@ export const Lesson3_2_RerankRRF: React.FC = () => {
           onClick={() => setIsReranked(!isReranked)}
           className={`px-3 py-1 rounded-full border text-[11px] font-sans font-medium transition-all cursor-pointer self-start sm:self-auto ${
             isReranked
-              ? 'border-amber-500/60 bg-amber-500/20 text-amber-200 font-semibold shadow-sm shadow-amber-500/20'
-              : 'border-white/[0.08] bg-white/[0.02] text-zinc-400 hover:text-white hover:bg-white/[0.06]'
+              ? 'border-amber-500/60 bg-amber-50 text-amber-800 dark:bg-amber-500/20 dark:text-amber-200 font-semibold shadow-xs'
+              : 'border-slate-200 bg-slate-100 text-slate-600 dark:border-white/[0.08] dark:bg-white/[0.02] dark:text-zinc-400 hover:text-slate-900 dark:hover:text-white'
           }`}
         >
           {isReranked ? '✓ Đang bật Rerank' : '⚡ Kích hoạt Cross-Encoder Rerank'}
@@ -120,8 +120,8 @@ export const Lesson3_2_RerankRRF: React.FC = () => {
       </div>
 
       <div className="space-y-2">
-        <div className="text-[11px] text-zinc-400 font-sans">
-          Truy vấn mẫu: <span className="text-zinc-200 font-semibold">&quot;Quy trình xử lý sự cố cơ sở dữ liệu bị sập&quot;</span>
+        <div className="text-[11px] text-slate-600 dark:text-zinc-400 font-sans">
+          Truy vấn mẫu: <span className="text-slate-900 dark:text-zinc-200 font-semibold">&quot;Quy trình xử lý sự cố cơ sở dữ liệu bị sập&quot;</span>
         </div>
 
         <div className="space-y-1.5">
@@ -130,25 +130,25 @@ export const Lesson3_2_RerankRRF: React.FC = () => {
               key={d.id}
               className={`p-3 rounded-xl border flex items-center justify-between transition-all ${
                 isReranked && d.rerankRank <= 2
-                  ? 'border-emerald-500/40 bg-emerald-500/10 text-emerald-200 shadow-sm shadow-emerald-500/10'
-                  : 'border-white/[0.06] bg-black/40 text-zinc-400'
+                  ? 'border-emerald-300 bg-emerald-50 text-emerald-900 dark:border-emerald-500/40 dark:bg-emerald-500/10 dark:text-emerald-200 shadow-xs'
+                  : 'border-slate-200 bg-slate-50 text-slate-700 dark:border-white/[0.06] dark:bg-black/40 dark:text-zinc-400'
               }`}
             >
               <div className="flex items-center gap-2.5">
                 <span className={`w-7 h-7 rounded-lg flex items-center justify-center text-xs font-mono font-bold ${
-                  isReranked && d.rerankRank <= 2 ? 'bg-emerald-500/20 text-emerald-300' : 'bg-white/5 text-zinc-400'
+                  isReranked && d.rerankRank <= 2 ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-500/20 dark:text-emerald-300' : 'bg-slate-200 text-slate-600 dark:bg-white/5 dark:text-zinc-400'
                 }`}>
                   #{isReranked ? d.rerankRank : d.initialRank}
                 </span>
-                <span className="font-sans text-xs text-zinc-200">{d.title}</span>
+                <span className="font-sans text-xs text-slate-800 dark:text-zinc-200">{d.title}</span>
               </div>
               <div className="text-[11px] font-mono shrink-0 pl-2">
                 {isReranked ? (
-                  <span className="px-2 py-0.5 rounded-md bg-white/5 text-emerald-300 border border-emerald-500/20">
+                  <span className="px-2 py-0.5 rounded-md bg-white text-emerald-800 border border-emerald-200 dark:bg-white/5 dark:text-emerald-300 dark:border-emerald-500/20 font-bold">
                     Score: {d.score.toFixed(2)}
                   </span>
                 ) : (
-                  <span className="text-zinc-500 text-[10px]">Bi-Encoder</span>
+                  <span className="text-slate-400 dark:text-zinc-500 text-[10px]">Bi-Encoder</span>
                 )}
               </div>
             </div>
@@ -156,9 +156,9 @@ export const Lesson3_2_RerankRRF: React.FC = () => {
         </div>
       </div>
 
-      <div className="p-3 bg-amber-500/10 border border-amber-500/20 rounded-xl text-[11px] text-zinc-300 font-sans leading-relaxed">
+      <div className="p-3 bg-amber-50 dark:bg-amber-500/10 border border-amber-200 dark:border-amber-500/20 rounded-xl text-[11px] text-slate-700 dark:text-zinc-300 font-sans leading-relaxed">
         {isReranked ? (
-          <span className="text-emerald-300">
+          <span className="text-emerald-800 dark:text-emerald-300">
             ✓ Cross-Encoder đã phân tích đồng thời câu hỏi và văn bản, đẩy tài liệu &quot;Database Failover&quot; từ vị trí #8 lên vị trí #1 chính xác tuyệt đối!
           </span>
         ) : (
@@ -177,12 +177,12 @@ export const Lesson3_3_SelfRAG: React.FC = () => {
 
   return (
     <div className="space-y-4 text-xs font-mono">
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-3 border-b border-white/[0.08]">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-3 border-b border-slate-200/80 dark:border-white/[0.08]">
         <div className="flex items-center gap-2">
-          <div className="w-6 h-6 rounded-lg bg-indigo-500/10 border border-indigo-500/30 flex items-center justify-center text-indigo-400">
+          <div className="w-6 h-6 rounded-lg bg-indigo-500/10 border border-indigo-500/30 flex items-center justify-center text-indigo-600 dark:text-indigo-400">
             <Sparkles className="w-3.5 h-3.5" />
           </div>
-          <span className="text-white font-semibold font-sans text-xs sm:text-sm">
+          <span className="text-slate-900 dark:text-white font-semibold font-sans text-xs sm:text-sm">
             Luồng tự phản biện Self-RAG & CRAG Fallback
           </span>
         </div>
@@ -191,8 +191,8 @@ export const Lesson3_3_SelfRAG: React.FC = () => {
             onClick={() => setScenario('invalid')}
             className={`px-2.5 py-1 rounded-full border text-[11px] font-sans transition-all cursor-pointer ${
               scenario === 'invalid'
-                ? 'border-amber-500/60 bg-amber-500/20 text-amber-200 font-semibold shadow-sm shadow-amber-500/20'
-                : 'border-white/[0.08] bg-white/[0.02] text-zinc-400 hover:text-white hover:bg-white/[0.06]'
+                ? 'border-amber-500/60 bg-amber-50 text-amber-800 dark:bg-amber-500/20 dark:text-amber-200 font-semibold shadow-xs'
+                : 'border-slate-200 bg-slate-100 text-slate-600 dark:border-white/[0.08] dark:bg-white/[0.02] dark:text-zinc-400 hover:text-slate-900 dark:hover:text-white'
             }`}
           >
             Ca 1: Vector DB lỗi thời
@@ -201,8 +201,8 @@ export const Lesson3_3_SelfRAG: React.FC = () => {
             onClick={() => setScenario('valid')}
             className={`px-2.5 py-1 rounded-full border text-[11px] font-sans transition-all cursor-pointer ${
               scenario === 'valid'
-                ? 'border-emerald-500/60 bg-emerald-500/20 text-emerald-200 font-semibold shadow-sm shadow-emerald-500/20'
-                : 'border-white/[0.08] bg-white/[0.02] text-zinc-400 hover:text-white hover:bg-white/[0.06]'
+                ? 'border-emerald-500/60 bg-emerald-50 text-emerald-800 dark:bg-emerald-500/20 dark:text-emerald-200 font-semibold shadow-xs'
+                : 'border-slate-200 bg-slate-100 text-slate-600 dark:border-white/[0.08] dark:bg-white/[0.02] dark:text-zinc-400 hover:text-slate-900 dark:hover:text-white'
             }`}
           >
             Ca 2: Vector DB chuẩn xác
@@ -211,33 +211,33 @@ export const Lesson3_3_SelfRAG: React.FC = () => {
       </div>
 
       {/* Flow Diagram */}
-      <div className="p-4 bg-black/40 border border-white/[0.08] rounded-xl space-y-3 font-sans">
-        <div className="flex items-center justify-between text-xs text-zinc-400 font-mono">
+      <div className="p-4 bg-slate-50 dark:bg-black/40 border border-slate-200/80 dark:border-white/[0.08] rounded-xl space-y-3 font-sans">
+        <div className="flex items-center justify-between text-xs text-slate-600 dark:text-zinc-400 font-mono">
           <span>Query: &quot;Giá cổ phiếu VinFast hôm nay?&quot;</span>
-          <span className="text-blue-400 font-semibold">[Retrieve: Yes]</span>
+          <span className="text-blue-600 dark:text-blue-400 font-semibold">[Retrieve: Yes]</span>
         </div>
 
-        <div className="p-3 bg-white/[0.02] border border-white/[0.06] rounded-xl flex items-center justify-between text-xs">
-          <span className="text-zinc-300">Tài liệu nội bộ tìm được: &quot;Báo cáo thường niên năm 2022&quot;</span>
+        <div className="p-3 bg-white dark:bg-white/[0.02] border border-slate-200 dark:border-white/[0.06] rounded-xl flex items-center justify-between text-xs">
+          <span className="text-slate-800 dark:text-zinc-300">Tài liệu nội bộ tìm được: &quot;Báo cáo thường niên năm 2022&quot;</span>
           <span className={`font-mono font-bold text-[11px] px-2 py-0.5 rounded-md ${
-            scenario === 'invalid' ? 'bg-rose-500/20 text-rose-300 border border-rose-500/30' : 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30'
+            scenario === 'invalid' ? 'bg-rose-100 text-rose-800 border border-rose-200 dark:bg-rose-500/20 dark:text-rose-300 dark:border-rose-500/30' : 'bg-emerald-100 text-emerald-800 border border-emerald-200 dark:bg-emerald-500/20 dark:text-emerald-300 dark:border-emerald-500/30'
           }`}>
             {scenario === 'invalid' ? '[IsRel: False (Quá hạn)]' : '[IsRel: True]'}
           </span>
         </div>
 
         {scenario === 'invalid' ? (
-          <div className="p-3.5 border border-amber-500/40 bg-amber-500/10 rounded-xl text-amber-200 space-y-1.5">
+          <div className="p-3.5 border border-amber-300 bg-amber-50/80 dark:border-amber-500/40 dark:bg-amber-500/10 rounded-xl text-amber-900 dark:text-amber-200 space-y-1.5">
             <div className="flex items-center gap-2 font-bold text-xs">
-              <RefreshCw className="w-4 h-4 text-amber-400 animate-spin" />
+              <RefreshCw className="w-4 h-4 text-amber-600 dark:text-amber-400 animate-spin" />
               <span>CRAG ACTION: Kích hoạt Fallback Web Search thời gian thực!</span>
             </div>
-            <p className="text-xs text-zinc-300 leading-relaxed">
+            <p className="text-xs text-slate-700 dark:text-zinc-300 leading-relaxed">
               Phát hiện tài liệu nội bộ đã cũ. Hệ thống tự động chuyển tiếp truy vấn tới search engine để lấy giá cổ phiếu phiên hiện tại.
             </p>
           </div>
         ) : (
-          <div className="p-3.5 border border-emerald-500/40 bg-emerald-500/10 rounded-xl text-emerald-200 text-xs">
+          <div className="p-3.5 border border-emerald-300 bg-emerald-50/80 dark:border-emerald-500/40 dark:bg-emerald-500/10 rounded-xl text-emerald-900 dark:text-emerald-200 text-xs">
             ✓ Bằng chứng nội bộ hợp lệ và cập nhật. LLM sinh câu trả lời có trích dẫn nguồn uy tín [IsSup: Supported].
           </div>
         )}

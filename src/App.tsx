@@ -10,11 +10,20 @@ import { AcademyHeader } from './components/academy/AcademyHeader';
 import { LessonView } from './components/academy/LessonView';
 import { QuizChallenge } from './components/academy/QuizChallenge';
 import { CompletionModal } from './components/academy/CompletionModal';
-import { Check, BookOpen, HelpCircle, Sparkles, ChevronRight, ChevronLeft } from 'lucide-react';
+import { Check, BookOpen, HelpCircle, ChevronRight, ChevronLeft } from 'lucide-react';
 
 const STORAGE_KEY = 'ai_eng_academy_v2_progress';
+const THEME_STORAGE_KEY = 'ai_eng_academy_theme';
 
 export default function App() {
+  const [theme, setTheme] = useState<'light' | 'dark'>(() => {
+    try {
+      const saved = localStorage.getItem(THEME_STORAGE_KEY);
+      if (saved === 'light' || saved === 'dark') return saved;
+    } catch {}
+    return 'light'; // Default to "tươi sáng"
+  });
+
   const [progress, setProgress] = useState<UserProgress>(() => {
     try {
       const saved = localStorage.getItem(STORAGE_KEY);
@@ -35,7 +44,23 @@ export default function App() {
   const [showCompletionModal, setShowCompletionModal] = useState<boolean>(false);
   const [mobileTab, setMobileTab] = useState<'lesson' | 'quiz'>('lesson');
 
-  // Sync to localStorage
+  // Sync theme to document element
+  useEffect(() => {
+    try {
+      localStorage.setItem(THEME_STORAGE_KEY, theme);
+      if (theme === 'dark') {
+        document.documentElement.classList.add('dark');
+      } else {
+        document.documentElement.classList.remove('dark');
+      }
+    } catch {}
+  }, [theme]);
+
+  const toggleTheme = () => {
+    setTheme((prev) => (prev === 'light' ? 'dark' : 'light'));
+  };
+
+  // Sync progress to localStorage
   useEffect(() => {
     try {
       localStorage.setItem(STORAGE_KEY, JSON.stringify(progress));
@@ -214,7 +239,7 @@ export default function App() {
   );
 
   return (
-    <div className="h-screen w-screen overflow-hidden flex flex-col bg-[#090A10] text-[#F8FAFC] ambient-mesh">
+    <div className="h-screen w-screen overflow-hidden flex flex-col bg-slate-50 dark:bg-[#090A10] text-slate-900 dark:text-[#F8FAFC] ambient-mesh transition-colors duration-200">
       {/* 1. Top Header */}
       <AcademyHeader
         currentLessonId={progress.currentLessonId}
@@ -222,6 +247,8 @@ export default function App() {
         score={progress.score}
         chapters={CHAPTERS}
         currentChapterId={currentChapter.id}
+        theme={theme}
+        onToggleTheme={toggleTheme}
         onPrev={handlePrevLesson}
         onNext={handleNextLesson}
         onSelectChapter={handleSelectChapter}
@@ -229,9 +256,9 @@ export default function App() {
       />
 
       {/* 2. Chapter Sub-Nav Strip */}
-      <nav className="h-11 border-b border-white/[0.06] bg-[#090A10]/70 backdrop-blur-md px-3 sm:px-5 flex items-center justify-between shrink-0 select-none overflow-x-auto scrollbar-none">
+      <nav className="h-11 border-b border-slate-200/80 dark:border-white/[0.06] bg-white/70 dark:bg-[#090A10]/70 backdrop-blur-md px-3 sm:px-5 flex items-center justify-between shrink-0 select-none overflow-x-auto scrollbar-none transition-colors duration-200">
         <div className="flex items-center gap-2.5 min-w-0">
-          <span className="text-[11px] font-mono text-zinc-400 font-bold uppercase shrink-0">
+          <span className="text-[11px] font-mono text-slate-500 dark:text-zinc-400 font-bold uppercase shrink-0">
             {currentChapter.shortTitle}:
           </span>
           <div className="flex items-center gap-1.5 shrink-0">
@@ -245,17 +272,17 @@ export default function App() {
                   onClick={() => handleSelectLesson(l.id)}
                   className={`h-7 px-3 text-xs font-mono rounded-lg transition-all flex items-center gap-1.5 border whitespace-nowrap cursor-pointer active:scale-95 ${
                     isActive
-                      ? 'border-indigo-500 bg-indigo-600/25 text-white font-bold shadow-sm shadow-indigo-500/20'
+                      ? 'border-indigo-500 bg-indigo-50 text-indigo-700 font-bold shadow-xs dark:border-indigo-500 dark:bg-indigo-600/25 dark:text-white dark:shadow-indigo-500/20'
                       : isDone
-                      ? 'border-emerald-500/30 bg-emerald-500/10 text-emerald-300 hover:border-emerald-500/50'
-                      : 'border-white/[0.06] bg-white/[0.02] text-zinc-400 hover:text-white hover:bg-white/[0.06]'
+                      ? 'border-emerald-200 bg-emerald-50 text-emerald-700 hover:border-emerald-300 dark:border-emerald-500/30 dark:bg-emerald-500/10 dark:text-emerald-300'
+                      : 'border-slate-200 bg-white/80 text-slate-600 hover:text-slate-900 hover:bg-slate-100 dark:border-white/[0.06] dark:bg-white/[0.02] dark:text-zinc-400 dark:hover:text-white dark:hover:bg-white/[0.06]'
                   }`}
                 >
                   <span>Bài {l.lessonNumber}</span>
                   <span className="truncate max-w-[120px] hidden md:inline">
                     · {l.title.split(' ')[0]}
                   </span>
-                  {isDone && <Check className="w-3 h-3 text-emerald-400 shrink-0" />}
+                  {isDone && <Check className="w-3 h-3 text-emerald-600 dark:text-emerald-400 shrink-0" />}
                 </button>
               );
             })}
@@ -263,19 +290,19 @@ export default function App() {
         </div>
 
         {/* Global Progress Indicator */}
-        <div className="text-[11px] font-mono text-zinc-500 hidden sm:block shrink-0 pl-4">
+        <div className="text-[11px] font-mono text-slate-400 dark:text-zinc-500 hidden sm:block shrink-0 pl-4">
           Tổng cộng: 24 bài • 8 chuyên đề
         </div>
       </nav>
 
       {/* 3. Mobile Segmented Tab Control (< lg) */}
-      <div className="lg:hidden flex items-center border-b border-white/[0.06] bg-[#0E101A] p-1.5 shrink-0 gap-1.5">
+      <div className="lg:hidden flex items-center border-b border-slate-200/80 dark:border-white/[0.06] bg-white/90 dark:bg-[#0E101A] p-1.5 shrink-0 gap-1.5 transition-colors duration-200">
         <button
           onClick={() => setMobileTab('lesson')}
           className={`flex-1 py-2 px-3 text-xs font-mono font-semibold flex items-center justify-center gap-2 rounded-xl transition-all cursor-pointer ${
             mobileTab === 'lesson'
               ? 'bg-indigo-600 text-white shadow-sm shadow-indigo-600/30'
-              : 'text-zinc-400 hover:text-zinc-200 hover:bg-white/[0.04]'
+              : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100 dark:text-zinc-400 dark:hover:text-zinc-200 dark:hover:bg-white/[0.04]'
           }`}
         >
           <BookOpen className="w-3.5 h-3.5" />
@@ -286,12 +313,12 @@ export default function App() {
           className={`flex-1 py-2 px-3 text-xs font-mono font-semibold flex items-center justify-center gap-2 rounded-xl transition-all cursor-pointer ${
             mobileTab === 'quiz'
               ? 'bg-indigo-600 text-white shadow-sm shadow-indigo-600/30'
-              : 'text-zinc-400 hover:text-zinc-200 hover:bg-white/[0.04]'
+              : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100 dark:text-zinc-400 dark:hover:text-zinc-200 dark:hover:bg-white/[0.04]'
           }`}
         >
-          <HelpCircle className="w-3.5 h-3.5 text-amber-300" />
+          <HelpCircle className="w-3.5 h-3.5 text-amber-500 dark:text-amber-300" />
           <span>Thử Thách Quiz</span>
-          <span className="text-[10px] px-1.5 py-0.5 bg-black/40 rounded-full font-mono text-zinc-300">
+          <span className="text-[10px] px-1.5 py-0.5 bg-slate-200 dark:bg-black/40 rounded-full font-mono text-slate-700 dark:text-zinc-300">
             {currentAnsweredCount}/3
           </span>
         </button>
@@ -301,7 +328,7 @@ export default function App() {
       <main className="flex-1 overflow-hidden flex flex-col lg:flex-row relative">
         {/* Left Column: Lesson Content + Micro-Visualizer */}
         <section
-          className={`flex-1 lg:w-7/12 h-full overflow-y-auto p-4 sm:p-6 md:p-8 border-b lg:border-b-0 lg:border-r border-white/[0.06] ${
+          className={`flex-1 lg:w-7/12 h-full overflow-y-auto p-4 sm:p-6 md:p-8 border-b lg:border-b-0 lg:border-r border-slate-200/80 dark:border-white/[0.06] ${
             mobileTab === 'lesson' ? 'block' : 'hidden lg:block'
           }`}
         >
@@ -315,7 +342,7 @@ export default function App() {
 
         {/* Right Column: Interactive Quiz Challenge */}
         <section
-          className={`flex-1 lg:w-5/12 h-full overflow-y-auto p-4 sm:p-6 md:p-8 bg-[#0D0F18]/70 backdrop-blur-md ${
+          className={`flex-1 lg:w-5/12 h-full overflow-y-auto p-4 sm:p-6 md:p-8 bg-slate-50/70 dark:bg-[#0D0F18]/70 backdrop-blur-md ${
             mobileTab === 'quiz' ? 'block' : 'hidden lg:block'
           }`}
         >
@@ -332,11 +359,11 @@ export default function App() {
         </section>
 
         {/* Mobile Floating Bottom Bar for Thumb Navigation */}
-        <div className="lg:hidden fixed bottom-0 left-0 right-0 z-20 bg-[#0E101A]/95 backdrop-blur-xl border-t border-white/[0.08] px-3.5 py-2.5 flex items-center justify-between pb-safe shadow-2xl">
+        <div className="lg:hidden fixed bottom-0 left-0 right-0 z-20 bg-white/95 dark:bg-[#0E101A]/95 backdrop-blur-xl border-t border-slate-200/80 dark:border-white/[0.08] px-3.5 py-2.5 flex items-center justify-between pb-safe shadow-xl">
           <button
             onClick={handlePrevLesson}
             disabled={progress.currentLessonId <= 1}
-            className="h-9 px-3 text-xs font-mono text-zinc-300 bg-white/[0.04] hover:bg-white/[0.08] active:scale-95 border border-white/[0.08] rounded-xl flex items-center gap-1.5 disabled:opacity-25 disabled:cursor-not-allowed cursor-pointer"
+            className="h-9 px-3 text-xs font-mono text-slate-700 dark:text-zinc-300 bg-slate-100 hover:bg-slate-200 dark:bg-white/[0.04] dark:hover:bg-white/[0.08] active:scale-95 border border-slate-200 dark:border-white/[0.08] rounded-xl flex items-center gap-1.5 disabled:opacity-25 disabled:cursor-not-allowed cursor-pointer"
           >
             <ChevronLeft className="w-4 h-4" />
             <span>Trước</span>
@@ -362,7 +389,7 @@ export default function App() {
           <button
             onClick={handleNextLesson}
             disabled={progress.currentLessonId >= LESSONS.length}
-            className="h-9 px-3 text-xs font-mono text-zinc-300 bg-white/[0.04] hover:bg-white/[0.08] active:scale-95 border border-white/[0.08] rounded-xl flex items-center gap-1.5 disabled:opacity-25 disabled:cursor-not-allowed cursor-pointer"
+            className="h-9 px-3 text-xs font-mono text-slate-700 dark:text-zinc-300 bg-slate-100 hover:bg-slate-200 dark:bg-white/[0.04] dark:hover:bg-white/[0.08] active:scale-95 border border-slate-200 dark:border-white/[0.08] rounded-xl flex items-center gap-1.5 disabled:opacity-25 disabled:cursor-not-allowed cursor-pointer"
           >
             <span>Sau</span>
             <ChevronRight className="w-4 h-4" />
